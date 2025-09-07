@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/middleware/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 )
@@ -76,5 +77,13 @@ func main() {
 		log.Criticalf("%s", err)
 	}
 
-	log.Info("Hello, I'm a middleware!")
+	middlewareConfig := common.MiddlewareConfig{
+		Port: v.GetString("middleware.port"),
+		Ip:   v.GetString("middleware.ip"),
+	}
+
+	middleware := common.NewMiddleware(middlewareConfig)
+
+	// TODO: graceful shutdown
+	middleware.Start()
 }

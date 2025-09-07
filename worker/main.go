@@ -3,8 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 )
@@ -30,6 +33,7 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("middleware", "address")
 	v.BindEnv("log", "level")
+	v.BindEnv("worker", "ip")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -75,5 +79,23 @@ func main() {
 		log.Criticalf("%s", err)
 	}
 
-	log.Info("Hello, I'm a worker!")
+	// Set up signal handling to gracefully shutdown the worker
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	workerConfig := common.WorkerConfig{
+		MiddlewareAddress: v.GetString("middleware.address"),
+		Ip:                v.GetString("worker.ip"),
+	}
+
+	worker := common.NewWorker(workerConfig)
+
+	go func() {
+		worker.Start()
+	}()
+
+	select {
+	case <-stop:
+		worker.Stop()
+	}
 }

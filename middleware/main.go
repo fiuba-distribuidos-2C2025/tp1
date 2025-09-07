@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware/common"
 	"github.com/op/go-logging"
@@ -77,6 +79,10 @@ func main() {
 		log.Criticalf("%s", err)
 	}
 
+	// Set up signal handling to gracefully shutdown the middleware
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	middlewareConfig := common.MiddlewareConfig{
 		Port: v.GetString("middleware.port"),
 		Ip:   v.GetString("middleware.ip"),
@@ -84,6 +90,12 @@ func main() {
 
 	middleware := common.NewMiddleware(middlewareConfig)
 
-	// TODO: graceful shutdown
-	middleware.Start()
+	go func() {
+		middleware.Start()
+	}()
+
+	select {
+	case <-stop:
+		middleware.Stop()
+	}
 }

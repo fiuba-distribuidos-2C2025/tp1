@@ -34,6 +34,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker:/config
     environment:
       - CLI_ID=$i
+      - CLI_WORKER_IP=worker$i
     networks:
       - testing_net
     depends_on:

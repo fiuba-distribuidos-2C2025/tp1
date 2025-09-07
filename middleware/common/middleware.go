@@ -2,6 +2,8 @@ package common
 
 import (
 	"net"
+	"strings"
+	"time"
 
 	"github.com/op/go-logging"
 )
@@ -14,15 +16,92 @@ type MiddlewareConfig struct {
 }
 
 type Middleware struct {
-	config MiddlewareConfig
-	conns  []net.Conn
+	config      MiddlewareConfig
+	listener    net.Listener
+	workerAddrs []string
+	shutdown    chan struct{}
 }
 
 func NewMiddleware(config MiddlewareConfig) *Middleware {
 	middleware := &Middleware{
-		config: config,
+		config:   config,
+		listener: nil,
+		shutdown: make(chan struct{}),
 	}
 	return middleware
+}
+
+func (m *Middleware) HandleNewConnections() {
+	for {
+		select {
+		case <-m.shutdown:
+			return
+		default:
+			// continue execution
+		}
+
+		conn, err := m.listener.Accept()
+		if err != nil {
+			log.Errorf("Error accepting connection: %s", err)
+			continue
+		}
+
+		log.Info("Accepted connection from ", conn.RemoteAddr().String())
+
+		// Read conn info from stream
+		// TODO: short read
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Errorf("Error reading from connection: %s", err)
+			conn.Close()
+			continue
+		}
+
+		msg := string(buf[:n])
+		log.Infof("Received message: %s", msg)
+		if conn != nil {
+			conn.Close()
+		}
+
+		// Sleep for a while to simulate work
+		time.Sleep(2 * time.Second)
+		workerAddr := strings.Split(msg, ",")[1]
+		m.workerAddrs = append(m.workerAddrs, workerAddr)
+	}
+}
+
+func (m *Middleware) DistributeWork() {
+
+	for {
+		select {
+		case <-m.shutdown:
+			return
+		default:
+			// continue execution
+		}
+
+		for i, workerAddr := range m.workerAddrs {
+			select {
+			case <-m.shutdown:
+				return
+			default:
+				// continue execution
+			}
+
+			conn, err := net.Dial("tcp", workerAddr)
+			if err != nil {
+				log.Error("Lost connection from worker, removing it from the list")
+				// Remove worker from list
+				m.workerAddrs = append(m.workerAddrs[:i], m.workerAddrs[i+1:]...)
+				continue
+			}
+			log.Info("Sending message to worker", workerAddr)
+			conn.Close()
+		}
+
+		time.Sleep(2 * time.Second)
+	}
 }
 
 func (m *Middleware) Start() error {
@@ -30,27 +109,35 @@ func (m *Middleware) Start() error {
 	if err != nil {
 		log.Errorf("Error starting middleware: %s", err)
 	}
-	defer listener.Close()
+	m.listener = listener
 
-	connCount := 0
 	log.Infof("Middleware listening on port %s", m.config.Port)
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Errorf("Error accepting connection: %s", err)
-			continue
-		}
 
-		log.Info("Accepted connection from ", conn.RemoteAddr().String())
-		m.conns = append(m.conns, conn)
+	// Handle new connections in a separate goroutine
+	go func() {
+		// TODO: Thread safe?
+		m.HandleNewConnections()
+	}()
 
-		// THIS IS HERE ONLY TO SHUT OFF WARNING ABOUT
-		// CODE NOT REACHABLE
-		connCount++
-		if connCount > 3 {
-			break
-		}
+	go func() {
+		// TODO: Thread safe?
+		m.DistributeWork()
+	}()
+
+	// Wait for shutdown signal
+	<-m.shutdown
+	return nil
+}
+
+func (m *Middleware) Stop() {
+	log.Info("Shutting down middleware...")
+
+	// Send stop signal to running loop
+	close(m.shutdown)
+
+	if m.listener != nil {
+		m.listener.Close()
 	}
 
-	return nil
+	log.Info("Middleware shut down complete.")
 }

@@ -33,3 +33,4 @@ go.work.sum
 
 docker-compose-dev.yaml
 bin/**
+vendor/**

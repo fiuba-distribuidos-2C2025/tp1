@@ -18,5 +18,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/middleware github.com/f
 
 FROM busybox:latest
 COPY --from=builder /build/bin/middleware /middleware
-COPY ./middleware/config.yaml /config.yaml
+VOLUME /config
 ENTRYPOINT ["/bin/sh"]

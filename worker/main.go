@@ -1,12 +1,47 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/op/go-logging"
+	"github.com/spf13/viper"
 )
 
 var log = logging.MustGetLogger("log")
+
+// InitConfig Function that uses viper library to parse configuration parameters.
+// Viper is configured to read variables from both environment variables and the
+// config file ./config.yaml. Environment variables takes precedence over parameters
+// defined in the configuration file. If some of the variables cannot be parsed,
+// an error is returned
+func InitConfig() (*viper.Viper, error) {
+	v := viper.New()
+
+	// Configure viper to read env variables with the CLI_ prefix
+	v.AutomaticEnv()
+	v.SetEnvPrefix("cli")
+	// Use a replacer to replace env variables underscores with points. This let us
+	// use nested configurations in the config file and at the same time define
+	// env variables for the nested configurations
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Add env variables supported
+	v.BindEnv("middleware", "address")
+	v.BindEnv("log", "level")
+
+	// Try to read configuration from config file. If config file
+	// does not exists then ReadInConfig will fail but configuration
+	// can be loaded from the environment variables so we shouldn't
+	// return an error in that case
+	v.SetConfigFile("/config/config.yaml")
+	if err := v.ReadInConfig(); err != nil {
+		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
+	}
+
+	return v, nil
+}
 
 // InitLogger Receives the log level to be set in go-logging as a string. This method
 // parses the string and set the level to the logger. If the level string is not
@@ -31,10 +66,14 @@ func InitLogger(logLevel string) error {
 }
 
 func main() {
-	// TODO: Set log level from config file or environment variable
-	if err := InitLogger("DEBUG"); err != nil {
+	v, err := InitConfig()
+	if err != nil {
 		log.Criticalf("%s", err)
 	}
 
-	log.Debug("Hello, I'm a worker!")
+	if err := InitLogger(v.GetString("log.level")); err != nil {
+		log.Criticalf("%s", err)
+	}
+
+	log.Info("Hello, I'm a worker!")
 }

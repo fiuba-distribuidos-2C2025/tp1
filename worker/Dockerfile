@@ -18,5 +18,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/worker github.com/fiuba
 
 FROM busybox:latest
 COPY --from=builder /build/bin/worker /worker
-COPY ./worker/config.yaml /config.yaml
+VOLUME /config
 ENTRYPOINT ["/bin/sh"]

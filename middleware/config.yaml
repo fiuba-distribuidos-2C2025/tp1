@@ -1,1 +1,5 @@
-# TODO: Add config here
+middleware:
+  port: 12345
+  ip: "middleware"
+log:
+  level: "DEBUG"

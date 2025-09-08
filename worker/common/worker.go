@@ -3,6 +3,7 @@ package common
 import (
 	"net"
 
+	utils "github.com/fiuba-distribuidos-2C2025/tp1/utils"
 	"github.com/op/go-logging"
 )
 
@@ -40,7 +41,7 @@ func (w *Worker) ConnectToServer() error {
 	// - subcription topics
 	_, port, _ := net.SplitHostPort(w.listener.Addr().String())
 	connMsg := "WORKER_CONN," + w.config.Ip + ":" + port
-	_, err = conn.Write([]byte(connMsg)) // TODO: short write?
+	err = utils.SendMessage(conn, connMsg)
 	if err != nil {
 		return err
 	}

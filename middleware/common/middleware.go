@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	utils "github.com/fiuba-distribuidos-2C2025/tp1/utils"
 	"github.com/op/go-logging"
 )
 
@@ -47,18 +48,11 @@ func (m *Middleware) HandleNewConnections() {
 		}
 
 		log.Info("Accepted connection from ", conn.RemoteAddr().String())
-
-		// Read conn info from stream
-		// TODO: short read
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
+		msg, err := utils.ReceiveMessage(conn)
 		if err != nil {
-			log.Errorf("Error reading from connection: %s", err)
-			conn.Close()
+			log.Errorf("Error accepting connection: %s", err)
 			continue
 		}
-
-		msg := string(buf[:n])
 		log.Infof("Received message: %s", msg)
 		if conn != nil {
 			conn.Close()

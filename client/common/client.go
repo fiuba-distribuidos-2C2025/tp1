@@ -76,22 +76,24 @@ func (m *Client) TransferCSVFile(path string) error {
 	}
 
 	// Msg header components
-	fileType := 0          // TODO: CREATE ENUM
-	fileHash := ""         // TODO: CALCULATE FILE HASH
-	batchSize := 1024 * 32 // 32KB // TODO: SET THIS IN CONFIG
-	totalChunks := fileInfo.Size() / int64(batchSize)
+	fileType := 0               // TODO: CREATE ENUM
+	fileHash := fileInfo.Name() // TODO: CALCULATE FILE HASH
+	batchSize := 1024 * 8       // 8KB // TODO: SET THIS IN CONFIG
+	totalChunks := int(fileInfo.Size()) / batchSize
+	if totalChunks == 0 {
+		totalChunks = 1
+	}
 
 	reader := csv.NewReader(file)
-	currentChunk := int64(0)
+	currentChunk := 1
 	for {
 		rows, isEof, err := readRows(reader, batchSize)
 		if err != nil {
 			return err
 		}
 
-		csvBatchMsg, err := SerializeCSVBatch(fileType, fileHash, totalChunks, currentChunk, rows)
-
 		// TODO: REPLACE THIS LOG MESSAGE WITH ACTUAL TRANSFER
+		csvBatchMsg := SerializeCSVBatch(fileType, fileHash, totalChunks, currentChunk, rows)
 		log.Infof("Sending msg: %s", csvBatchMsg)
 
 		if isEof {

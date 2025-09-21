@@ -23,6 +23,9 @@ build: deps
 	GOOS=linux go build -o bin/worker ./worker/main.go
 .PHONY: build
 
+dataset:
+
+
 docker-image:
 	docker build -f ./client/Dockerfile -t "client:latest" .
 	docker build -f ./request_handler/Dockerfile -t "request_handler:latest" .

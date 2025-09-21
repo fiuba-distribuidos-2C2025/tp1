@@ -18,6 +18,7 @@ services:
     entrypoint: /client
     volumes:
       - ./client:/config
+      - ./data:/data
     networks:
       - testing_net
 

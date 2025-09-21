@@ -34,3 +34,6 @@ go.work.sum
 docker-compose-dev.yaml
 bin/**
 vendor/**
+
+# CSV files
+data/**

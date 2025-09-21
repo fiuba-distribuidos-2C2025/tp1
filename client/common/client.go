@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/csv"
 	"net"
 	"os"
 
@@ -30,14 +31,74 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
-func (m *Client) TransferFile(path string) error {
+func readRows(reader *csv.Reader, batchSize int) ([][]string, bool, error) {
+	var rows [][]string
+	isEof := false
+	bytesRead := 0
+
+	for {
+		if bytesRead >= batchSize {
+			break
+		}
+
+		record, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				isEof = true
+				break
+			}
+			return nil, false, err
+		}
+
+		rows = append(rows, record)
+
+		// TODO: inefficient?
+		for _, field := range record {
+			bytesRead += len(field)
+		}
+	}
+
+	return rows, isEof, nil
+}
+
+func (m *Client) TransferCSVFile(path string) error {
 	// Open the file
 	file, err := os.Open(path)
 	if err != nil {
-		log.Errorf("Could not open file %s: %s", path, err)
 		return err
 	}
 	defer file.Close()
+
+	// Calculate the amount of file chunks
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	// Msg header components
+	fileType := 0          // TODO: CREATE ENUM
+	fileHash := ""         // TODO: CALCULATE FILE HASH
+	batchSize := 1024 * 32 // 32KB // TODO: SET THIS IN CONFIG
+	totalChunks := fileInfo.Size() / int64(batchSize)
+
+	reader := csv.NewReader(file)
+	currentChunk := int64(0)
+	for {
+		rows, isEof, err := readRows(reader, batchSize)
+		if err != nil {
+			return err
+		}
+
+		csvBatchMsg, err := SerializeCSVBatch(fileType, fileHash, totalChunks, currentChunk, rows)
+
+		// TODO: REPLACE THIS LOG MESSAGE WITH ACTUAL TRANSFER
+		log.Infof("Sending msg: %s", csvBatchMsg)
+
+		if isEof {
+			break
+		}
+		currentChunk++
+	}
 
 	return nil
 }
@@ -60,7 +121,7 @@ func (m *Client) TransferDirectory(directory string) error {
 		// If the entry is a file, transfer it
 		log.Info("Transferring file: ", entry.Name())
 		path := directory + "/" + entry.Name()
-		err = m.TransferFile(path)
+		err = m.TransferCSVFile(path)
 		if err != nil {
 			log.Errorf("Could not transfer file %s: %s", entry.Name(), err)
 			return err

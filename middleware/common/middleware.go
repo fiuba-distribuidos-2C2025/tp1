@@ -2,8 +2,6 @@ package common
 
 import (
 	"net"
-	"strings"
-	"time"
 
 	"github.com/op/go-logging"
 )
@@ -31,99 +29,7 @@ func NewMiddleware(config MiddlewareConfig) *Middleware {
 	return middleware
 }
 
-func (m *Middleware) HandleNewConnections() {
-	for {
-		select {
-		case <-m.shutdown:
-			return
-		default:
-			// continue execution
-		}
-
-		conn, err := m.listener.Accept()
-		if err != nil {
-			log.Errorf("Error accepting connection: %s", err)
-			continue
-		}
-
-		log.Info("Accepted connection from ", conn.RemoteAddr().String())
-
-		// Read conn info from stream
-		// TODO: short read
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Errorf("Error reading from connection: %s", err)
-			conn.Close()
-			continue
-		}
-
-		msg := string(buf[:n])
-		log.Infof("Received message: %s", msg)
-		if conn != nil {
-			conn.Close()
-		}
-
-		// Sleep for a while to simulate work
-		time.Sleep(2 * time.Second)
-		workerAddr := strings.Split(msg, ",")[1]
-		m.workerAddrs = append(m.workerAddrs, workerAddr)
-	}
-}
-
-func (m *Middleware) DistributeWork() {
-
-	for {
-		select {
-		case <-m.shutdown:
-			return
-		default:
-			// continue execution
-		}
-
-		for i, workerAddr := range m.workerAddrs {
-			select {
-			case <-m.shutdown:
-				return
-			default:
-				// continue execution
-			}
-
-			conn, err := net.Dial("tcp", workerAddr)
-			if err != nil {
-				log.Error("Lost connection from worker, removing it from the list")
-				// Remove worker from list
-				m.workerAddrs = append(m.workerAddrs[:i], m.workerAddrs[i+1:]...)
-				continue
-			}
-			log.Info("Sending message to worker", workerAddr)
-			conn.Close()
-		}
-
-		time.Sleep(2 * time.Second)
-	}
-}
-
 func (m *Middleware) Start() error {
-	listener, err := net.Listen("tcp", ":"+m.config.Port)
-	if err != nil {
-		log.Errorf("Error starting middleware: %s", err)
-	}
-	m.listener = listener
-
-	log.Infof("Middleware listening on port %s", m.config.Port)
-
-	// Handle new connections in a separate goroutine
-	go func() {
-		// TODO: Thread safe?
-		m.HandleNewConnections()
-	}()
-
-	go func() {
-		// TODO: Thread safe?
-		m.DistributeWork()
-	}()
-
 	// Wait for shutdown signal
 	<-m.shutdown
 	return nil

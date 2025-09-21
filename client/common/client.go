@@ -69,6 +69,12 @@ func (m *Client) TransferCSVFile(path string) error {
 	}
 	defer file.Close()
 
+	reader := csv.NewReader(file)
+	_, err = reader.Read() // Ignore header row
+	if err != nil {
+		return err
+	}
+
 	// Calculate the amount of file chunks
 	fileInfo, err := file.Stat()
 	if err != nil {
@@ -84,7 +90,6 @@ func (m *Client) TransferCSVFile(path string) error {
 		totalChunks = 1
 	}
 
-	reader := csv.NewReader(file)
 	currentChunk := 1
 	for {
 		rows, isEof, err := readRows(reader, batchSize)

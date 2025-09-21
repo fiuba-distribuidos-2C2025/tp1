@@ -21,6 +21,15 @@ services:
     networks:
       - testing_net
 
+  request_handler:
+    container_name: request_handler
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler:/config
+    networks:
+      - testing_net
+
 EOL
 
 # Agregacion dinamica de trabajadores

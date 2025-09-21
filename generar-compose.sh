@@ -12,6 +12,15 @@ WORKER_COUNT="$2"
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
+  client:
+    container_name: client
+    image: client:latest
+    entrypoint: /client
+    volumes:
+      - ./client:/config
+    networks:
+      - testing_net
+
   middleware:
     container_name: middleware
     image: middleware:latest

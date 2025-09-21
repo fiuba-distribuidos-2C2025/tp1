@@ -1,0 +1,5 @@
+middleware:
+  port: 12345
+  ip: "middleware"
+log:
+  level: "DEBUG"

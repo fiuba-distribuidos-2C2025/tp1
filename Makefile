@@ -10,21 +10,24 @@ deps:
 	go mod vendor
 
 fmt:
-	gofmt -s -w ./worker/
-	gofmt -s -w ./middleware/
+	gofmt -s -w ./client/
 	gofmt -s -w ./request_handler/
+	gofmt -s -w ./middleware/
+	gofmt -s -w ./worker/
 .PHONY: fmt
 
 build: deps
-	GOOS=linux go build -o bin/worker ./worker/main.go
-	GOOS=linux go build -o bin/middleware ./middleware/main.go
+	GOOS=linux go build -o bin/client ./client/main.go
 	GOOS=linux go build -o bin/request_handler ./request_handler/main.go
+	GOOS=linux go build -o bin/middleware ./middleware/main.go
+	GOOS=linux go build -o bin/worker ./worker/main.go
 .PHONY: build
 
 docker-image:
-	docker build -f ./worker/Dockerfile -t "worker:latest" .
-	docker build -f ./middleware/Dockerfile -t "middleware:latest" .
+	docker build -f ./client/Dockerfile -t "client:latest" .
 	docker build -f ./request_handler/Dockerfile -t "request_handler:latest" .
+	docker build -f ./middleware/Dockerfile -t "middleware:latest" .
+	docker build -f ./worker/Dockerfile -t "worker:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you
 	# want to avoid rebuilding client image every time the docker-compose-up command

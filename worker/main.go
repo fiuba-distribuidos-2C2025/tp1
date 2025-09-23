@@ -33,7 +33,7 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("middleware", "address")
 	v.BindEnv("log", "level")
-	v.BindEnv("worker", "ip")
+	v.BindEnv("worker", "ip") // why do we need this?
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -86,9 +86,12 @@ func main() {
 	workerConfig := common.WorkerConfig{
 		MiddlewareAddress: v.GetString("middleware.address"),
 		Ip:                v.GetString("worker.ip"),
-	}
+	} // TODO: add reading and writing queue names
 
-	worker := common.NewWorker(workerConfig)
+	worker, err := common.NewWorker(workerConfig)
+	if err != nil {
+		log.Criticalf("Failed to create worker: %v", err)
+	}
 
 	go func() {
 		worker.Start()

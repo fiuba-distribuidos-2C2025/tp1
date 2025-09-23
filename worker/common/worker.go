@@ -146,8 +146,8 @@ func handleFinMsg(ch *amqp.Channel, out_q amqp.Queue, total *int64) error {
 		return err
 	}
 
-	log.Infof("[worker] FIN received; published total=%d; resetting", total)
-	total = new(int64) // reset
+	log.Infof("[worker] FIN received; published total=%d; resetting", *total)
+	*total = 0 // reset
 	return nil
 }
 

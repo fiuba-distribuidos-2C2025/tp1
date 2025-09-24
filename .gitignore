@@ -31,7 +31,6 @@ go.work.sum
 # .idea/
 # .vscode/
 
-docker-compose-dev.yaml
 bin/**
 vendor/**
 

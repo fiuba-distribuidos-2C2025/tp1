@@ -1,0 +1,28 @@
+name: tp1
+services:
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - 5672:5672
+      - 15672:15672  # management UI
+    networks:
+      - testing_net
+
+  worker1:
+    container_name: worker1
+    image: worker:latest
+    entrypoint: /worker
+    networks:
+      - testing_net
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    depends_on:
+      - rabbitmq
+
+networks:
+  testing_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24

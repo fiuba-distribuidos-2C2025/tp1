@@ -16,12 +16,12 @@ fmt:
 	gofmt -s -w ./worker/
 .PHONY: fmt
 
-build: deps
-	GOOS=linux go build -o bin/client ./client/main.go
-	GOOS=linux go build -o bin/request_handler ./request_handler/main.go
-	GOOS=linux go build -o bin/middleware ./middleware/main.go
-	GOOS=linux go build -o bin/worker ./worker/main.go
-.PHONY: build
+# build: deps
+# 	GOOS=linux go build -o bin/client ./client/main.go
+# 	GOOS=linux go build -o bin/request_handler ./request_handler/main.go
+# 	GOOS=linux go build -o bin/middleware ./middleware/main.go
+# 	GOOS=linux go build -o bin/worker ./worker/main.go
+# .PHONY: build
 
 dataset:
 
@@ -38,11 +38,18 @@ docker-image:
 	# docker rmi `docker images --filter label=intermediateStageToBeDeleted=true -q`
 .PHONY: docker-image
 
-docker-compose-up: docker-image
+ docker-compose-up: #docker-image
+up:
 	docker compose -f docker-compose-dev.yaml up -d --build
 .PHONY: docker-compose-up
 
-docker-compose-down:
+build:
+	docker build -f ./worker/Dockerfile -t "worker:latest" .
+
+.PHONY: build
+
+
+down:
 	docker compose -f docker-compose-dev.yaml stop -t 10
 	docker compose -f docker-compose-dev.yaml down
 .PHONY: docker-compose-down
@@ -50,3 +57,5 @@ docker-compose-down:
 docker-compose-logs:
 	docker compose -f docker-compose-dev.yaml logs -f
 .PHONY: docker-compose-logs
+
+ 

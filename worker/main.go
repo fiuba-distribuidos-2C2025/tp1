@@ -31,7 +31,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Add env variables supported
-	v.BindEnv("middleware", "address")
+	// v.BindEnv("middleware", "address")
 	v.BindEnv("log", "level")
 	v.BindEnv("worker", "ip") // why do we need this?
 
@@ -39,9 +39,10 @@ func InitConfig() (*viper.Viper, error) {
 	// does not exists then ReadInConfig will fail but configuration
 	// can be loaded from the environment variables so we shouldn't
 	// return an error in that case
-	v.SetConfigFile("/config/config.yaml")
+	v.SetConfigFile("/config.yaml")
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
+		fmt.Printf("Error: %s", err)
 	}
 
 	return v, nil
@@ -51,6 +52,7 @@ func InitConfig() (*viper.Viper, error) {
 // parses the string and set the level to the logger. If the level string is not
 // valid an error is returned
 func InitLogger(logLevel string) error {
+	fmt.Printf("Log level set to %s\n", logLevel)
 	baseBackend := logging.NewLogBackend(os.Stdout, "", 0)
 	format := logging.MustStringFormatter(
 		`%{time:2006-01-02 15:04:05} %{level:.5s}     %{message}`,

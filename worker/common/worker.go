@@ -25,7 +25,8 @@ type Worker struct {
 }
 
 func NewWorker(config WorkerConfig) (*Worker, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	time.Sleep(10 * time.Second)                                            // wait for rabbitmq to be ready
+	conn, err := amqp.Dial("amqp://guest:guest@host.docker.internal:5672/") // pass from config
 	if err != nil {
 		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		return nil, err

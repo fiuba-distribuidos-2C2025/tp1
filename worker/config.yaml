@@ -1,4 +1,2 @@
-middleware:
-  address: "middleware:12345"
 log:
   level: "DEBUG"

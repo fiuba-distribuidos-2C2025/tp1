@@ -13,8 +13,9 @@ import (
 var log = logging.MustGetLogger("log")
 
 type WorkerConfig struct {
-	MiddlewareAddress string
-	Ip                string
+	MiddlewareUrl string
+	InputQueue    string
+	OutputQueue   string
 }
 
 type Worker struct {
@@ -26,18 +27,22 @@ type Worker struct {
 
 func NewWorker(config WorkerConfig) (*Worker, error) {
 	log.Infof("Waiting for RabbitMQ to be ready...")
-	time.Sleep(10 * time.Second)                                // wait for rabbitmq to be ready
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/") // pass from config
+	time.Sleep(10 * time.Second) // wait for rabbitmq to be ready
+	conn, err := amqp.Dial(config.MiddlewareUrl)
 	if err != nil {
 		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		return nil, err
 	}
+
+	log.Infof("Connected to RabbitMQ")
 
 	ch, err := conn.Channel()
 	if err != nil {
 		log.Errorf("Failed to open a rabbitmq channel: %v", err)
 		return nil, err
 	}
+	log.Infof("RabbitMQ channel opened")
+
 	worker := &Worker{
 		config:   config,
 		shutdown: make(chan struct{}),
@@ -48,14 +53,17 @@ func NewWorker(config WorkerConfig) (*Worker, error) {
 }
 
 func (w *Worker) Start() error {
+	log.Infof("Worker started!")
+
+	log.Infof("Declaring queues...")
 
 	in_queue, err := w.channel.QueueDeclare(
-		"input", // name
-		false,   // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
+		w.config.InputQueue, // name
+		false,               // durable
+		false,               // delete when unused
+		false,               // exclusive
+		false,               // no-wait
+		nil,                 // arguments
 	)
 
 	if err != nil {
@@ -63,19 +71,23 @@ func (w *Worker) Start() error {
 		return err
 	}
 
+	log.Infof("Input queue declared: %s", in_queue.Name)
+
 	out_queue, err := w.channel.QueueDeclare(
-		"output", // name
-		false,    // durable
-		false,    // delete when unused
-		false,    // exclusive
-		false,    // no-wait
-		nil,      // arguments
+		w.config.OutputQueue, // name
+		false,                // durable
+		false,                // delete when unused
+		false,                // exclusive
+		false,                // no-wait
+		nil,                  // arguments
 	)
 
 	if err != nil {
 		log.Errorf("Failed to declare a out_queue: %v", err)
 		return err
 	}
+
+	log.Infof("Output queue declared: %s", out_queue.Name)
 
 	var total int64
 

@@ -26,142 +26,132 @@ type Worker struct {
 }
 
 func NewWorker(config WorkerConfig) (*Worker, error) {
-	log.Infof("Waiting for RabbitMQ to be ready...")
-	time.Sleep(10 * time.Second) // wait for rabbitmq to be ready
-	conn, err := amqp.Dial(config.MiddlewareUrl)
+	log.Infof("Connecting to RabbitMQ at %s ...", config.MiddlewareUrl)
+
+	conn, err := dialWithRetry(config.MiddlewareUrl, 10, time.Second)
 	if err != nil {
 		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		return nil, err
 	}
-
 	log.Infof("Connected to RabbitMQ")
 
 	ch, err := conn.Channel()
 	if err != nil {
+		_ = conn.Close()
 		log.Errorf("Failed to open a rabbitmq channel: %v", err)
 		return nil, err
 	}
 	log.Infof("RabbitMQ channel opened")
 
-	worker := &Worker{
+	return &Worker{
 		config:   config,
-		shutdown: make(chan struct{}),
+		shutdown: make(chan struct{}, 1),
 		conn:     conn,
 		channel:  ch,
+	}, nil
+}
+
+// small retry helper
+func dialWithRetry(url string, attempts int, delay time.Duration) (*amqp.Connection, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		conn, err := amqp.Dial(url)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		time.Sleep(delay)
 	}
-	return worker, nil
+	return nil, lastErr
 }
 
 func (w *Worker) Start() error {
 	log.Infof("Worker started!")
 
+	// Start cleanup
+	defer func() {
+		_ = w.channel.Close()
+		_ = w.conn.Close()
+	}()
+
 	log.Infof("Declaring queues...")
 
-	in_queue, err := w.channel.QueueDeclare(
-		w.config.InputQueue, // name
-		false,               // durable
-		false,               // delete when unused
-		false,               // exclusive
-		false,               // no-wait
-		nil,                 // arguments
+	inQueue, err := w.channel.QueueDeclare(
+		w.config.InputQueue, false, false, false, false, nil,
 	)
-
 	if err != nil {
-		log.Errorf("Failed to declare in_queue: %v", err)
 		return err
 	}
 
-	log.Infof("Input queue declared: %s", in_queue.Name)
+	log.Infof("Declared input queue %q", inQueue.Name)
 
-	out_queue, err := w.channel.QueueDeclare(
-		w.config.OutputQueue, // name
-		false,                // durable
-		false,                // delete when unused
-		false,                // exclusive
-		false,                // no-wait
-		nil,                  // arguments
+	outQueue, err := w.channel.QueueDeclare(
+		w.config.OutputQueue, false, false, false, false, nil,
 	)
-
 	if err != nil {
-		log.Errorf("Failed to declare a out_queue: %v", err)
 		return err
 	}
 
-	log.Infof("Output queue declared: %s", out_queue.Name)
+	log.Infof("Declared output queue %q", outQueue.Name)
 
 	var total int64
 
 	msgs, err := w.channel.Consume(
-		in_queue.Name, // queue
-		"",            // consumer
-		true,          // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
+		inQueue.Name, "", true, false, false, false, nil,
 	)
-
 	if err != nil {
-		log.Errorf("Failed to register a consumer: %v", err)
+		return err
 	}
+
+	log.Infof("Waiting for messages...")
 
 	for {
 		select {
 		case <-w.shutdown:
 			log.Info("Shutdown signal received, stopping worker...")
 			return nil
+
 		case msg, ok := <-msgs:
 			if !ok {
 				log.Infof("Deliveries channel closed; shutting down")
 				return nil
 			}
-			log.Infof("Received a message: %s", msg.Body)
-
 			body := strings.TrimSpace(string(msg.Body))
 			if strings.EqualFold(body, "fin") {
-				handleFinMsg(w.channel, out_queue, &total)
-				if err != nil {
-					log.Errorf("Failed to handle fin message: %v", err)
+				if err := handleFinMsg(w.channel, outQueue, &total); err != nil {
 					return err
 				}
 				continue
 			}
-
 			n, parseErr := strconv.ParseInt(body, 10, 64)
 			if parseErr != nil {
-				log.Errorf("[worker] invalid integer %q: %v (dropping message)", body, parseErr)
+				log.Errorf("[worker] invalid integer %q: %v", body, parseErr)
 				continue
 			}
+
+			log.Infof("Received number: %d", n)
 			total += n
 		}
 	}
 }
 
-func handleFinMsg(ch *amqp.Channel, out_q amqp.Queue, total *int64) error {
-	// Publish the accumulated total, then reset
+func handleFinMsg(ch *amqp.Channel, outQueue amqp.Queue, total *int64) error {
 	payload := strconv.FormatInt(*total, 10)
 
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err := ch.PublishWithContext(
-		pubCtx,
-		"",
-		out_q.Name,
-		false,
-		false,
-		amqp.Publishing{
-			ContentType: "text/plain", DeliveryMode: amqp.Persistent,
-			Body: []byte(payload),
-		},
-	)
 
-	if err != nil {
-		log.Infof("[worker] Publish error (sum=%d): %v", total, err)
+	if err := ch.PublishWithContext(
+		pubCtx,
+		"", outQueue.Name,
+		false, false,
+		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(payload)},
+	); err != nil {
 		return err
 	}
 
 	log.Infof("[worker] FIN received; published total=%d; resetting", *total)
-	*total = 0 // reset
+	*total = 0
 	return nil
 }
 
@@ -170,8 +160,6 @@ func (w *Worker) Stop() {
 
 	// Send stop signal to running loop
 	close(w.shutdown)
-	w.channel.Close()
-	w.conn.Close()
 
 	log.Info("Worker shut down complete.")
 }

@@ -91,7 +91,7 @@ func main() {
 		MiddlewareUrl: v.GetString("middleware.url"),
 		InputQueue:    v.GetString("middleware.inputQueue"),
 		OutputQueue:   v.GetString("middleware.outputQueue"),
-	} // TODO: add reading and writing queue names
+	}
 
 	worker, err := common.NewWorker(workerConfig)
 	if err != nil {

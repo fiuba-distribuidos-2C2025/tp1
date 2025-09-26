@@ -1,6 +1,6 @@
 log:
   level: "DEBUG"
 middleware:
-  url: "amqp://guest:guest@rabbitmq:5672/"
+  url: "amqp://guest:guest@middleware:5672/"
   inputQueue: "input"
   outputQueue: "output"

@@ -12,16 +12,6 @@ WORKER_COUNT="$2"
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
-  client:
-    container_name: client
-    image: client:latest
-    entrypoint: /client
-    volumes:
-      - ./client:/config
-      - ./data:/data
-    networks:
-      - testing_net
-
   middleware:
     container_name: middleware
     image: rabbitmq:3-management
@@ -30,16 +20,6 @@ services:
       - 15672:15672 # management UI
     networks:
       - testing_net
-
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler:/config
-    networks:
-      - testing_net
-
 EOL
 
 # Agregacion dinamica de trabajadores
@@ -58,7 +38,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 done
-
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:

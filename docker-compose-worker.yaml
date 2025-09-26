@@ -1,23 +1,45 @@
 name: tp1
 services:
-  rabbitmq:
+  middleware:
+    container_name: middleware
     image: rabbitmq:3-management
     ports:
       - 5672:5672
       - 15672:15672 # management UI
     networks:
       - testing_net
-
   worker1:
     container_name: worker1
     image: worker:latest
     entrypoint: /worker
-    networks:
-      - testing_net
     volumes:
       - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
     depends_on:
-      - rabbitmq
+      - middleware
+
+  worker2:
+    container_name: worker2
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - middleware
+
+  worker3:
+    container_name: worker3
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - middleware
 
 networks:
   testing_net:

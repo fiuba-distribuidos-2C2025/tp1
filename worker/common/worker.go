@@ -94,10 +94,13 @@ func (w *Worker) Start() error {
 
 	log.Infof("Declared output queue %q", outQueue.Name)
 
-	var total int64
+	return w.runFilter()
+}
+
+func (w *Worker) runFilter() error {
 
 	msgs, err := w.channel.Consume(
-		inQueue.Name, "", true, false, false, false, nil,
+		w.config.InputQueue, "", true, false, false, false, nil,
 	)
 	if err != nil {
 		return err
@@ -117,12 +120,6 @@ func (w *Worker) Start() error {
 				return nil
 			}
 			body := strings.TrimSpace(string(msg.Body))
-			if strings.EqualFold(body, "fin") {
-				if err := handleFinMsg(w.channel, outQueue, &total); err != nil {
-					return err
-				}
-				continue
-			}
 			n, parseErr := strconv.ParseInt(body, 10, 64)
 			if parseErr != nil {
 				log.Errorf("[worker] invalid integer %q: %v", body, parseErr)
@@ -130,28 +127,28 @@ func (w *Worker) Start() error {
 			}
 
 			log.Infof("Received number: %d", n)
-			total += n
+			if n%2 == 0 {
+				w.forwardMsg(strconv.FormatInt(n, 10))
+			}
 		}
 	}
 }
 
-func handleFinMsg(ch *amqp.Channel, outQueue amqp.Queue, total *int64) error {
-	payload := strconv.FormatInt(*total, 10)
-
+func (w *Worker) forwardMsg(msg string) error {
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
 	defer cancel()
 
-	if err := ch.PublishWithContext(
+	if err := w.channel.PublishWithContext(
 		pubCtx,
-		"", outQueue.Name,
+		"", w.config.OutputQueue,
 		false, false,
-		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(payload)},
+		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(msg)},
 	); err != nil {
 		return err
 	}
 
-	log.Infof("[worker] FIN received; published total=%d; resetting", *total)
-	*total = 0
+	log.Infof("Forwarded message: %s", msg)
 	return nil
 }
 

@@ -5,8 +5,8 @@ import time
 import pika
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
-IN_QUEUE = "test-input"
-OUT_QUEUE = "test-output"
+IN_QUEUE = "by_year_filter_input"
+OUT_QUEUE = "by_year_filter_output"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
 

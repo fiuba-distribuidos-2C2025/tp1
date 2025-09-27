@@ -59,8 +59,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=input
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
+      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_input
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
 
 EOL
 done

@@ -7,5 +7,5 @@ build:
 test-year-filter: build
 	./generar-compose-test.sh 3 "YEAR_FILTER"
 	docker compose -f test-compose.yaml up -d --build
-	python3 year_filter_test.py
+	cd suite && python3 year_filter_test.py
 	docker compose -f test-compose.yaml down -v

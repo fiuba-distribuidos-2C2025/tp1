@@ -24,7 +24,7 @@ func (q *MessageMiddlewareQueue) StartConsuming(onMessageCallback onMessageCallb
 	)
 
 	if err != nil {
-		log.Printf("Error declaring queue for consuming: %s", err)
+		// log.Printf("Error declaring queue for consuming: %s", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -42,7 +42,7 @@ func (q *MessageMiddlewareQueue) StartConsuming(onMessageCallback onMessageCallb
 	)
 
 	if err != nil {
-		log.Printf("Error consuming queue: %v", err)
+		// log.Printf("Error consuming queue: %v", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -60,12 +60,12 @@ func (q *MessageMiddlewareQueue) StartConsuming(onMessageCallback onMessageCallb
 		case err := <-done:
 			if err != nil {
 				// TODO: Handle error
-				log.Printf("Callback error: %v\n", err)
+				// log.Printf("Callback error: %v\n", err)
 			}
 		}
 	}()
 
-	log.Printf("Starting consume on queue %s", q.queueName)
+	// log.Printf("Starting consume on queue %s", q.queueName)
 	return 0
 }
 
@@ -82,7 +82,7 @@ func (q *MessageMiddlewareQueue) StopConsuming() MessageMiddlewareError {
 	// Cancel all consumers on this channel
 	err := (*amqp.Channel)(q.channel).Cancel("", false)
 	if err != nil {
-		log.Printf("Error stopping consuming: %v\n", err)
+		// log.Printf("Error stopping consuming: %v\n", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -109,7 +109,7 @@ func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 	)
 
 	if err != nil {
-		log.Printf("Error declaring queue: %v for sending\n", err)
+		// log.Printf("Error declaring queue: %v for sending\n", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -128,7 +128,7 @@ func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 		})
 
 	if err != nil {
-		log.Printf("Error sending message: %v\n", err)
+		// log.Printf("Error sending message: %v\n", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -141,7 +141,7 @@ func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 
 func (q *MessageMiddlewareQueue) Close() MessageMiddlewareError {
 	if q.channel == nil {
-		log.Printf("Queue %s is already closed", q.queueName)
+		// log.Printf("Queue %s is already closed", q.queueName)
 		return 0 // Already closed
 	}
 
@@ -150,7 +150,7 @@ func (q *MessageMiddlewareQueue) Close() MessageMiddlewareError {
 		return MessageMiddlewareCloseError
 	}
 
-	log.Printf("Queue %s closed successfully", q.queueName)
+	// log.Printf("Queue %s closed successfully", q.queueName)
 	q.channel = nil
 	q.consumeChannel = nil
 	return 0 // Success
@@ -169,11 +169,11 @@ func (q *MessageMiddlewareQueue) Delete() MessageMiddlewareError {
 	)
 
 	if err != nil {
-		log.Printf("Failed to delete queue %s: %v", q.queueName, err)
+		// log.Printf("Failed to delete queue %s: %v", q.queueName, err)
 		return MessageMiddlewareDeleteError
 	}
 
-	log.Printf("Queue %s deleted successfully", q.queueName)
+	// log.Printf("Queue %s deleted successfully", q.queueName)
 	return 0
 }
 
@@ -193,7 +193,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 		nil,
 	)
 	if err != nil {
-		log.Printf("Failed to declare exchange %s: %v", e.exchangeName, err)
+		// log.Printf("Failed to declare exchange %s: %v", e.exchangeName, err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -210,7 +210,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 	)
 
 	if err != nil {
-		log.Printf("Failed to declare queue: %v", err)
+		// log.Printf("Failed to declare queue: %v", err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -227,7 +227,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 			nil,
 		)
 		if err != nil {
-			log.Printf("Failed to bind queue %s to exchange %s with routing key %s: %v", q.Name, e.exchangeName, routeKey, err)
+			// log.Printf("Failed to bind queue %s to exchange %s with routing key %s: %v", q.Name, e.exchangeName, routeKey, err)
 			if isConnectionError(err) {
 				return MessageMiddlewareDisconnectedError
 			}
@@ -246,7 +246,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 	)
 
 	if err != nil {
-		log.Printf("Failed to consume messages from queue %s: %v", q.Name, err)
+		// log.Printf("Failed to consume messages from queue %s: %v", q.Name, err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
@@ -270,7 +270,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 		}
 	}()
 
-	log.Printf("Started consuming messages from queue %s", q.Name)
+	// log.Printf("Started consuming messages from queue %s", q.Name)
 	return 0 // Success
 }
 
@@ -286,13 +286,13 @@ func (e *MessageMiddlewareExchange) StopConsuming() MessageMiddlewareError {
 
 	err := (*amqp.Channel)(e.amqpChannel).Cancel("", false)
 	if err != nil {
-		log.Printf("Error stopping consuming on exchange %s: %v", e.exchangeName, err)
+		// log.Printf("Error stopping consuming on exchange %s: %v", e.exchangeName, err)
 		if isConnectionError(err) {
 			return MessageMiddlewareDisconnectedError
 		}
 	}
 
-	log.Printf("Stopped consuming messages from exchange %s", e.exchangeName)
+	// log.Printf("Stopped consuming messages from exchange %s", e.exchangeName)
 	e.consumeChannel = nil
 	return 0 // Success
 }
@@ -316,7 +316,7 @@ func (e *MessageMiddlewareExchange) Send(message []byte) MessageMiddlewareError 
 			})
 
 		if err != nil {
-			log.Printf("Error sending message to exchange %s with routing key %s: %v", e.exchangeName, routeKey, err)
+			// log.Printf("Error sending message to exchange %s with routing key %s: %v", e.exchangeName, routeKey, err)
 			if isConnectionError(err) {
 				return MessageMiddlewareDisconnectedError
 			}
@@ -324,7 +324,7 @@ func (e *MessageMiddlewareExchange) Send(message []byte) MessageMiddlewareError 
 		}
 	}
 
-	log.Printf("Sent message to exchange %s with routing keys %v", e.exchangeName, e.routeKeys)
+	// log.Printf("Sent message to exchange %s with routing keys %v", e.exchangeName, e.routeKeys)
 	return 0
 }
 
@@ -339,7 +339,7 @@ func (e *MessageMiddlewareExchange) Close() MessageMiddlewareError {
 		return MessageMiddlewareCloseError
 	}
 
-	log.Printf("Exchange %s closed successfully", e.exchangeName)
+	// log.Printf("Exchange %s closed successfully", e.exchangeName)
 	e.amqpChannel = nil
 	e.consumeChannel = nil
 	return 0
@@ -357,11 +357,11 @@ func (e *MessageMiddlewareExchange) Delete() MessageMiddlewareError {
 	)
 
 	if err != nil {
-		log.Printf("Failed to delete exchange %s: %v", e.exchangeName, err)
+		// log.Printf("Failed to delete exchange %s: %v", e.exchangeName, err)
 		return MessageMiddlewareDeleteError
 	}
 
-	log.Printf("Exchange %s deleted successfully", e.exchangeName)
+	// log.Printf("Exchange %s deleted successfully", e.exchangeName)
 	return 0
 }
 

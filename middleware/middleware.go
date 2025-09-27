@@ -9,7 +9,7 @@ import (
 )
 
 // Implementation for MessageMiddlewareQueue
-func (q *MessageMiddlewareQueue) StartConsuming(m *MessageMiddlewareQueue, onMessageCallback onMessageCallback) MessageMiddlewareError {
+func (q *MessageMiddlewareQueue) StartConsuming(onMessageCallback onMessageCallback) MessageMiddlewareError {
 	if q.channel == nil || (*amqp.Channel)(q.channel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -69,7 +69,7 @@ func (q *MessageMiddlewareQueue) StartConsuming(m *MessageMiddlewareQueue, onMes
 	return 0
 }
 
-func (q *MessageMiddlewareQueue) StopConsuming(m *MessageMiddlewareQueue) MessageMiddlewareError {
+func (q *MessageMiddlewareQueue) StopConsuming() MessageMiddlewareError {
 	if q.channel == nil || (*amqp.Channel)(q.channel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -94,7 +94,7 @@ func (q *MessageMiddlewareQueue) StopConsuming(m *MessageMiddlewareQueue) Messag
 	return 0
 }
 
-func (q *MessageMiddlewareQueue) Send(m *MessageMiddlewareQueue, message []byte) MessageMiddlewareError {
+func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 	if q.channel == nil || (*amqp.Channel)(q.channel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -139,7 +139,7 @@ func (q *MessageMiddlewareQueue) Send(m *MessageMiddlewareQueue, message []byte)
 	return 0 // Success
 }
 
-func (q *MessageMiddlewareQueue) Close(m *MessageMiddlewareQueue) MessageMiddlewareError {
+func (q *MessageMiddlewareQueue) Close() MessageMiddlewareError {
 	if q.channel == nil {
 		log.Printf("Queue %s is already closed", q.queueName)
 		return 0 // Already closed
@@ -156,7 +156,7 @@ func (q *MessageMiddlewareQueue) Close(m *MessageMiddlewareQueue) MessageMiddlew
 	return 0 // Success
 }
 
-func (q *MessageMiddlewareQueue) Delete(m *MessageMiddlewareQueue) MessageMiddlewareError {
+func (q *MessageMiddlewareQueue) Delete() MessageMiddlewareError {
 	if q.channel == nil || (*amqp.Channel)(q.channel).IsClosed() {
 		return MessageMiddlewareDeleteError
 	}
@@ -178,7 +178,7 @@ func (q *MessageMiddlewareQueue) Delete(m *MessageMiddlewareQueue) MessageMiddle
 }
 
 // Implementation for MessageMiddlewareExchange
-func (e *MessageMiddlewareExchange) StartConsuming(m *MessageMiddlewareExchange, onMessageCallback onMessageCallback) MessageMiddlewareError {
+func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCallback) MessageMiddlewareError {
 	if e.amqpChannel == nil || (*amqp.Channel)(e.amqpChannel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -274,7 +274,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(m *MessageMiddlewareExchange,
 	return 0 // Success
 }
 
-func (e *MessageMiddlewareExchange) StopConsuming(m *MessageMiddlewareExchange) MessageMiddlewareError {
+func (e *MessageMiddlewareExchange) StopConsuming() MessageMiddlewareError {
 	if e.amqpChannel == nil || (*amqp.Channel)(e.amqpChannel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -297,7 +297,7 @@ func (e *MessageMiddlewareExchange) StopConsuming(m *MessageMiddlewareExchange) 
 	return 0 // Success
 }
 
-func (e *MessageMiddlewareExchange) Send(m *MessageMiddlewareExchange, message []byte) MessageMiddlewareError {
+func (e *MessageMiddlewareExchange) Send(message []byte) MessageMiddlewareError {
 	if e.amqpChannel == nil || (*amqp.Channel)(e.amqpChannel).IsClosed() {
 		return MessageMiddlewareDisconnectedError
 	}
@@ -328,7 +328,7 @@ func (e *MessageMiddlewareExchange) Send(m *MessageMiddlewareExchange, message [
 	return 0
 }
 
-func (e *MessageMiddlewareExchange) Close(m *MessageMiddlewareExchange) MessageMiddlewareError {
+func (e *MessageMiddlewareExchange) Close() MessageMiddlewareError {
 	if e.amqpChannel == nil {
 		log.Println("Trying to close exchange that is already closed")
 		return 0
@@ -345,7 +345,7 @@ func (e *MessageMiddlewareExchange) Close(m *MessageMiddlewareExchange) MessageM
 	return 0
 }
 
-func (e *MessageMiddlewareExchange) Delete(m *MessageMiddlewareExchange) MessageMiddlewareError {
+func (e *MessageMiddlewareExchange) Delete() MessageMiddlewareError {
 	if e.amqpChannel == nil || (*amqp.Channel)(e.amqpChannel).IsClosed() {
 		return MessageMiddlewareDeleteError
 	}

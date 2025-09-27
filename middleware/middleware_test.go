@@ -29,14 +29,14 @@ func TestWorkingQueueOneToOne(t *testing.T) {
 	callback := createTestCallback(&receivedMessages)
 
 	// Start consuming
-	middlewareErr := receiver.StartConsuming(receiver, callback)
+	middlewareErr := receiver.StartConsuming(callback)
 
 	// MessageMiddlewareError(0) means that no error occurred.
 	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to start consuming")
 
 	// Send a message
 	testMessage := []byte("Hello from sender")
-	middlewareErr = sender.Send(sender, testMessage)
+	middlewareErr = sender.Send(testMessage)
 	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message")
 
 	// Wait a second for message to be received
@@ -47,9 +47,9 @@ func TestWorkingQueueOneToOne(t *testing.T) {
 	assert.Equal(t, "Hello from sender", receivedMessages[0], "Message content mismatch")
 
 	// Clean up
-	receiver.StopConsuming(receiver)
-	sender.Close(sender)
-	receiver.Close(receiver)
+	receiver.StopConsuming()
+	sender.Close()
+	receiver.Close()
 	ch.QueueDelete(queueName, false, false, false)
 }
 
@@ -85,7 +85,7 @@ func TestWorkingQueueOneToMany(t *testing.T) {
 		receivedMessages[i] = make([]string, 0)
 
 		callback := createTestCallbackForMultiple(&receivedMessages[i], 2)
-		middlewareErr := receivers[i].StartConsuming(receivers[i], callback)
+		middlewareErr := receivers[i].StartConsuming(callback)
 		assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to start consuming on receiver %d", i)
 	}
 
@@ -95,7 +95,7 @@ func TestWorkingQueueOneToMany(t *testing.T) {
 	// Send multiple messages
 	for i := 0; i < numMessages; i++ {
 		message := []byte(fmt.Sprintf("Message %d", i))
-		middlewareErr := sender.Send(sender, message)
+		middlewareErr := sender.Send(message)
 		assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message %d", i)
 	}
 
@@ -114,10 +114,10 @@ func TestWorkingQueueOneToMany(t *testing.T) {
 
 	// Clean up
 	for i := 0; i < numReceivers; i++ {
-		receivers[i].StopConsuming(receivers[i])
-		receivers[i].Close(receivers[i])
+		receivers[i].StopConsuming()
+		receivers[i].Close()
 	}
-	sender.Close(sender)
+	sender.Close()
 	ch.QueueDelete(queueName, false, false, false)
 }
 
@@ -141,7 +141,7 @@ func TestExchangeOneToOne(t *testing.T) {
 	callback := createTestCallback(&receivedMessages)
 
 	// Start consuming
-	middlewareErr := receiver.StartConsuming(receiver, callback)
+	middlewareErr := receiver.StartConsuming(callback)
 	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to start consuming")
 
 	// Give consumer time to bind
@@ -149,7 +149,7 @@ func TestExchangeOneToOne(t *testing.T) {
 
 	// Send a message
 	testMessage := []byte("Hello via exchange 1to1")
-	middlewareErr = sender.Send(sender, testMessage)
+	middlewareErr = sender.Send(testMessage)
 	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message")
 
 	// Wait for message to be received
@@ -160,9 +160,9 @@ func TestExchangeOneToOne(t *testing.T) {
 	assert.Equal(t, "Hello via exchange 1to1", receivedMessages[0], "Message content mismatch")
 
 	// Clean up
-	receiver.StopConsuming(receiver)
-	sender.Close(sender)
-	receiver.Close(receiver)
+	receiver.StopConsuming()
+	sender.Close()
+	receiver.Close()
 	ch.ExchangeDelete(exchangeName, false, false)
 }
 
@@ -198,7 +198,7 @@ func TestExchangeOneToMany(t *testing.T) {
 		receivedMessages[i] = make([]string, 0)
 
 		callback := createTestCallback(&receivedMessages[i])
-		middlewareErr := receivers[i].StartConsuming(receivers[i], callback)
+		middlewareErr := receivers[i].StartConsuming(callback)
 		assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to start consuming on receiver %d", i)
 	}
 
@@ -207,7 +207,7 @@ func TestExchangeOneToMany(t *testing.T) {
 
 	// Send a message - in exchange pattern, all subscribers should receive it
 	testMessage := []byte("Broadcast message to all subscribers")
-	middlewareErr := sender.Send(sender, testMessage)
+	middlewareErr := sender.Send(testMessage)
 	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message")
 
 	time.Sleep(1 * time.Second)
@@ -222,9 +222,9 @@ func TestExchangeOneToMany(t *testing.T) {
 
 	// Clean up
 	for i := 0; i < numReceivers; i++ {
-		receivers[i].StopConsuming(receivers[i])
-		receivers[i].Close(receivers[i])
+		receivers[i].StopConsuming()
+		receivers[i].Close()
 	}
-	sender.Close(sender)
+	sender.Close()
 	ch.ExchangeDelete(exchangeName, false, false)
 }

@@ -99,7 +99,24 @@ func (q *MessageMiddlewareQueue) Send(m *MessageMiddlewareQueue, message []byte)
 		return MessageMiddlewareDisconnectedError
 	}
 
-	err := (*amqp.Channel)(q.channel).Publish(
+	_, err := (*amqp.Channel)(q.channel).QueueDeclare(
+		q.queueName,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		log.Printf("Error declaring queue: %v for sending\n", err)
+		if isConnectionError(err) {
+			return MessageMiddlewareDisconnectedError
+		}
+		return MessageMiddlewareMessageError
+	}
+
+	err = (*amqp.Channel)(q.channel).Publish(
 		"",
 		q.queueName,
 		false,

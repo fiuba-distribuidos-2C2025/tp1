@@ -2,5 +2,3 @@ log:
   level: "DEBUG"
 middleware:
   url: "amqp://guest:guest@rabbit:5672/"
-  inputQueue: "input"
-  outputQueue: "output"

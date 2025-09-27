@@ -31,11 +31,11 @@ func InitConfig() (*viper.Viper, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Add env variables supported
-	// v.BindEnv("middleware", "address")
 	v.BindEnv("log", "level")
 	v.BindEnv("middleware", "url")
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
+	v.BindEnv("worker", "job")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -91,6 +91,7 @@ func main() {
 		MiddlewareUrl: v.GetString("middleware.url"),
 		InputQueue:    v.GetString("middleware.inputQueue"),
 		OutputQueue:   v.GetString("middleware.outputQueue"),
+		WorkerJob:     v.GetString("worker.job"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

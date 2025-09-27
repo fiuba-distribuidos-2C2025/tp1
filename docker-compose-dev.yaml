@@ -1,0 +1,72 @@
+name: tp1
+services:
+  client:
+    container_name: client
+    image: client:latest
+    entrypoint: /client
+    volumes:
+      - ./client:/config
+      - ./data:/data
+    networks:
+      - testing_net
+
+  rabbit:
+    container_name: rabbit
+    image: rabbitmq:3-management
+    ports:
+      - 5672:5672
+      - 15672:15672 # management UI
+    networks:
+      - testing_net
+    environment:
+        RABBITMQ_DEFAULT_USER: guest
+        RABBITMQ_DEFAULT_PASS: guest
+
+  request_handler:
+    container_name: request_handler
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler:/config
+    networks:
+      - testing_net
+
+  worker1:
+    container_name: worker1
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+
+  worker2:
+    container_name: worker2
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+
+  worker3:
+    container_name: worker3
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+
+networks:
+  testing_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24

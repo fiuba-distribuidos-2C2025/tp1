@@ -68,7 +68,7 @@ def main():  # Generate transactions
             body=str(transactions_batch_3).encode("utf-8"),
         )
 
-        # Receive whatever workers forward (only evens)
+        # Receive whatever workers forward
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 

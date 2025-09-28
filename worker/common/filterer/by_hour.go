@@ -7,20 +7,25 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
+const FIELDS_IN_TRANSACTION = 5
+
 // Validates if a transaction is within the specified hour range.
 // Sample transaction received:
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,100,2023-07-01 07:00:00
 func transactionInHourRange(transaction string, minHour string, maxHour string) bool {
 	elements := strings.Split(transaction, ",")
-	if len(elements) < 5 {
+	if len(elements) < FIELDS_IN_TRANSACTION {
+		log.Info("Error parsing transaction: invalid format")
 		return false
 	}
 	createdAtTime := strings.Split(elements[4], " ")
 	if len(createdAtTime) != 2 {
+		log.Info("Error parsing transaction: invalid format")
 		return false
 	}
 	timestamp, err := time.Parse(time.TimeOnly, createdAtTime[1])
 	if err != nil {
+		log.Info("Error parsing transaction: invalid format")
 		return false
 	}
 	minHourParsed, err := time.Parse(time.TimeOnly, minHour)

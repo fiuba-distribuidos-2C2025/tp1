@@ -19,7 +19,7 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64) boo
 	if err != nil {
 		return false
 	}
-	return finalAmount > targetAmount
+	return finalAmount >= targetAmount
 }
 
 // Filter responsible for filtering transactions by amount.
@@ -45,7 +45,6 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 			// return
 
 			case msg, ok := <-*consumeChannel:
-				log.Info("NEW MESSAGE")
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return

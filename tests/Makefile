@@ -7,9 +7,17 @@ build:
 test-year-filter: build
 	# We generate the compose in the parent directory due
 	# to relative paths
-	cd .. && ./generar-compose.sh test-compose.yaml 3
+	cd .. && ./generar-compose.sh test-compose.yaml 3 0
 	cd .. && docker compose -f test-compose.yaml up -d --build
-	cd suite && python3 year_filter_test.py
+	cd suite && python3 test_year_filter.py
+	MAKE cleanup
+
+test-hour-filter: build
+	# We generate the compose in the parent directory due
+	# to relative paths
+	cd .. && ./generar-compose.sh test-compose.yaml 0 3
+	cd .. && docker compose -f test-compose.yaml up -d --build
+	cd suite && python3 test_hour_filter.py
 	MAKE cleanup
 
 cleanup:

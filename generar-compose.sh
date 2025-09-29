@@ -60,9 +60,11 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_input
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
+      - WORKER_JOB=YEAR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=by_year_filter_input
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
+      - WORKER_ID=$i
+
 
 EOL
 done
@@ -80,9 +82,10 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=HOUR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_hour_filter_output
+      - WORKER_JOB=HOUR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=by_year_filter_output
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=by_hour_filter_output
+      - WORKER_ID=$i
 
 EOL
 done
@@ -100,9 +103,10 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=AMOUNT_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_hour_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_amount_filter_output
+      - WORKER_JOB=AMOUNT_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=by_hour_filter_output
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=by_amount_filter_output
+      - WORKER_ID=$i
 
 EOL
 done

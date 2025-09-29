@@ -24,7 +24,7 @@ func InitConfig() (*viper.Viper, error) {
 
 	// Configure viper to read env variables with the CLI_ prefix
 	v.AutomaticEnv()
-	v.SetEnvPrefix("cli")
+	v.SetEnvPrefix("worker")
 	// Use a replacer to replace env variables underscores with points. This let us
 	// use nested configurations in the config file and at the same time define
 	// env variables for the nested configurations
@@ -35,7 +35,8 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("middleware", "url")
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
-	v.BindEnv("worker", "job")
+	v.BindEnv("job")
+	v.BindEnv("id")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -91,7 +92,8 @@ func main() {
 		MiddlewareUrl: v.GetString("middleware.url"),
 		InputQueue:    v.GetString("middleware.inputQueue"),
 		OutputQueue:   v.GetString("middleware.outputQueue"),
-		WorkerJob:     v.GetString("worker.job"),
+		WorkerJob:     v.GetString("job"),
+		ID:            v.GetString("id"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

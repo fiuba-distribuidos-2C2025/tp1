@@ -18,6 +18,7 @@ type WorkerConfig struct {
 	InputQueue    string
 	OutputQueue   string
 	WorkerJob     string
+	ID            string
 }
 
 type Worker struct {
@@ -71,6 +72,7 @@ func (w *Worker) Start() error {
 	log.Infof("Worker started!")
 
 	// Start cleanup
+	// TODO: We should use the middleware interface.
 	defer func() {
 		_ = w.channel.Close()
 		_ = w.conn.Close()
@@ -79,7 +81,7 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue, w.channel)
+	inQueue := middleware.NewMessageMiddlewareExchange(w.config.InputQueue, []string{w.config.ID}, w.channel)
 
 	switch w.config.WorkerJob {
 	case "YEAR_FILTER":

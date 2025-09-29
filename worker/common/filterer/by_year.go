@@ -7,6 +7,10 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
+var transactionFieldIndices = []int{0, 1, 4, 7, 8}
+var minYearAllowed = 2024
+var maxYearAllowed = 2025
+
 // Validates if a transaction is within the specified year range.
 // Sample transaction received:
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,,,38.0,0.0,38.0,2023-07-01 07:00:00
@@ -51,14 +55,12 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {
-					if transactionInYearRange(transaction, 2024, 2025) {
-						// Keeps elements of index 0, 1, 4, 7, 8
-						indices := []int{0, 1, 4, 7, 8}
-						transaction := removeNeedlessFields(transaction, indices)
+					if transactionInYearRange(transaction, minYearAllowed, maxYearAllowed) {
+						transaction := removeNeedlessFields(transaction, transactionFieldIndices)
 						outMsg += transaction + "\n"
 					}
 				}

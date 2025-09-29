@@ -10,7 +10,7 @@ var log = logging.MustGetLogger("log")
 
 // Splits a message into an array of strings
 // using the newline separator.
-func messageToArray(body string) []string {
+func splitBatchInRows(body string) []string {
 	return strings.Split(body, "\n")
 }
 

@@ -1,22 +1,19 @@
-# original source: https://github.com/juan518munoz/tp0-base/blob/master/client/Dockerfile
-
 FROM golang:1.24.6 AS builder
-# RequestHandler uses docker multistage builds feature https://docs.docker.com/develop/develop-images/multistage-build/
-# First stage is used to compile golang binary and second stage is used to only copy the
-# binary generated to the deploy image.
-# Docker multi stage does not delete intermediate stages used to build our image, so we need
-# to delete it by ourselves. Since docker does not give a good alternative to delete the intermediate images
-# we are adding a very specific label to the image to then find these kind of images and delete them
 LABEL intermediateStageToBeDeleted=true
+WORKDIR /build
 
-RUN mkdir -p /build
-WORKDIR /build/
+# Copy go module files first
+COPY go.mod go.sum ./
+
+# Copy vendor directory if it exists
+COPY vendor/ ./vendor/
+
+# Copy source code
 COPY . .
-# CGO_ENABLED must be disabled to run go binary in Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/request_handler github.com/fiuba-distribuidos-2C2025/tp1/request_handler
 
+# Build the binary from local path (not module path)
+RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/request_handler ./request_handler
 
 FROM busybox:latest
 COPY --from=builder /build/bin/request_handler /request_handler
-VOLUME /config
 ENTRYPOINT ["/bin/sh"]

@@ -84,8 +84,9 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	clientConfig := common.ClientConfig{
-		Port: v.GetString("client.port"),
-		Ip:   v.GetString("client.ip"),
+		ServerPort:    v.GetString("client.port"),
+		ServerIp:      v.GetString("client.ip"),
+		MiddlewareUrl: v.GetString("middleware.url"),
 	}
 
 	client := common.NewClient(clientConfig)

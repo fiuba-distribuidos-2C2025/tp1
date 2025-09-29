@@ -84,13 +84,15 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	request_handlerConfig := common.RequestHandlerConfig{
-		Port: v.GetString("request_handler.port"),
-		Ip:   v.GetString("request_handler.ip"),
+		Port:          v.GetString("request_handler.port"),
+		Ip:            v.GetString("request_handler.ip"),
+		MiddlewareUrl: v.GetString("request_handler.url"),
 	}
 
 	request_handler := common.NewRequestHandler(request_handlerConfig)
 
 	go func() {
+		log.Infof("Starting request handler listener on %s:%s", request_handler.Config.Ip, request_handler.Config.Port)
 		request_handler.Start()
 	}()
 

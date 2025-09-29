@@ -1,18 +1,23 @@
 package common
 
 import (
+	"bufio"
 	"encoding/csv"
+	"fmt"
 	"net"
 	"os"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 var log = logging.MustGetLogger("log")
 
 type ClientConfig struct {
-	Port string
-	Ip   string
+	ServerPort    string
+	ServerIp      string
+	MiddlewareUrl string
 }
 
 type Client struct {
@@ -35,12 +40,10 @@ func readRows(reader *csv.Reader, batchSize int) ([][]string, bool, error) {
 	var rows [][]string
 	isEof := false
 	bytesRead := 0
-
 	for {
 		if bytesRead >= batchSize {
 			break
 		}
-
 		record, err := reader.Read()
 		if err != nil {
 			if err.Error() == "EOF" {
@@ -49,16 +52,39 @@ func readRows(reader *csv.Reader, batchSize int) ([][]string, bool, error) {
 			}
 			return nil, false, err
 		}
-
 		rows = append(rows, record)
-
 		// TODO: inefficient?
 		for _, field := range record {
 			bytesRead += len(field)
 		}
 	}
-
 	return rows, isEof, nil
+}
+
+func (m *Client) sendBatch(csvBatchMsg string) error {
+	// Connect to the request handler5
+	log.Infof("Connecting to server: %s, %s", m.config.ServerIp, m.config.ServerPort)
+	addr := net.JoinHostPort(m.config.ServerIp, m.config.ServerPort)
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to server: %w", err)
+	}
+	defer conn.Close()
+
+	// Send the batch message
+	writer := bufio.NewWriter(conn)
+	_, err = writer.WriteString(csvBatchMsg)
+	if err != nil {
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	// Flush to ensure all data is sent
+	err = writer.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush message: %w", err)
+	}
+
+	return nil
 }
 
 func (m *Client) TransferCSVFile(path string) error {
@@ -97,9 +123,16 @@ func (m *Client) TransferCSVFile(path string) error {
 			return err
 		}
 
-		// TODO: REPLACE THIS LOG MESSAGE WITH ACTUAL TRANSFER
+		// Serialize and send the batch
 		csvBatchMsg := SerializeCSVBatch(fileType, fileHash, totalChunks, currentChunk, rows)
-		log.Infof("Sending msg: %s", csvBatchMsg)
+
+		log.Infof("Sending chunk %d/%d of file %s", currentChunk, totalChunks, fileHash)
+
+		err = m.sendBatch(csvBatchMsg)
+		if err != nil {
+			log.Errorf("Failed to send batch: %v", err)
+			return err
+		}
 
 		if isEof {
 			break
@@ -133,10 +166,43 @@ func (m *Client) TransferDirectory(directory string) error {
 			log.Errorf("Could not transfer file %s: %s", entry.Name(), err)
 			return err
 		}
-		log.Info("File transferred succesfully: ", entry.Name())
+		log.Info("File transferred successfully: ", entry.Name())
 	}
 
+	rabbitConn, err := amqp.Dial(m.config.MiddlewareUrl)
+	if err != nil {
+		log.Errorf("Failed to connect to middleware: %v", err)
+		return err
+	}
+	defer rabbitConn.Close()
+	channel, err := rabbitConn.Channel()
+	if err != nil {
+		log.Errorf("Failed to create channel: %v", err)
+		return err
+	}
+	defer channel.Close()
+	resultsQueue := middleware.NewMessageMiddlewareQueue("results", channel)
+	resultsQueue.StartConsuming(ResultsCallback())
+
 	return nil
+}
+
+func ResultsCallback() func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		log.Infof("Waiting for response...")
+
+		for {
+			select {
+			case msg, ok := <-*consumeChannel:
+				if !ok {
+					log.Info("Channel closed")
+					return
+				}
+				log.Infof("Message received - Length: %d, Body: %s", len(msg.Body), string(msg.Body))
+				msg.Ack(false)
+			}
+		}
+	}
 }
 
 func (m *Client) Start() error {
@@ -151,13 +217,10 @@ func (m *Client) Start() error {
 
 func (m *Client) Stop() {
 	log.Info("Shutting down client...")
-
 	// Send stop signal to running loop
 	close(m.shutdown)
-
 	if m.listener != nil {
 		m.listener.Close()
 	}
-
 	log.Info("Client shut down complete.")
 }

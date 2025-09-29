@@ -21,6 +21,9 @@ services:
     volumes:
       - ./client:/config
       - ./data:/data
+    depends_on:
+      - rabbit
+      - request_handler
     networks:
       - testing_net
 
@@ -41,7 +44,9 @@ services:
     image: request_handler:latest
     entrypoint: /request_handler
     volumes:
-      - ./request_handler:/config
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      - rabbit
     networks:
       - testing_net
 
@@ -61,7 +66,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_input
+      - CLI_MIDDLEWARE_INPUTQUEUE=transactions
       - CLI_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
 
 EOL
@@ -102,7 +107,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - CLI_WORKER_JOB=AMOUNT_FILTER
       - CLI_MIDDLEWARE_INPUTQUEUE=by_hour_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_amount_filter_output
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=results
 
 EOL
 done

@@ -51,6 +51,13 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
+
+				if body == "EOF" {
+					msg.Ack(false)
+					outChan <- "EOF"
+					continue
+				}
+
 				transactions := messageToArray(body)
 
 				outMsg := ""

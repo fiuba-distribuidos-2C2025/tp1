@@ -63,6 +63,12 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
+
+				if body == "EOF" {
+					msg.Ack(false)
+					outChan <- "EOF"
+					continue
+				}
 				transactions := messageToArray(body)
 
 				outMsg := ""

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -35,6 +36,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("middleware", "url")
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
+	v.BindEnv("middleware", "receivers")
 	v.BindEnv("job")
 	v.BindEnv("id")
 
@@ -46,6 +48,10 @@ func InitConfig() (*viper.Viper, error) {
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
 		fmt.Printf("Error: %s", err)
+	}
+
+	if v.GetInt("middleware.receivers") <= 0 {
+		return nil, errors.New("batch.maxAmount must be greater than zero")
 	}
 
 	return v, nil
@@ -89,11 +95,12 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	workerConfig := common.WorkerConfig{
-		MiddlewareUrl: v.GetString("middleware.url"),
-		InputQueue:    v.GetString("middleware.inputQueue"),
-		OutputQueue:   v.GetString("middleware.outputQueue"),
-		WorkerJob:     v.GetString("job"),
-		ID:            v.GetString("id"),
+		MiddlewareUrl:   v.GetString("middleware.url"),
+		InputQueue:      v.GetString("middleware.inputQueue"),
+		OutputQueue:     v.GetString("middleware.outputQueue"),
+		OutputReceivers: v.GetInt("middleware.receivers"),
+		WorkerJob:       v.GetString("job"),
+		ID:              v.GetString("id"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

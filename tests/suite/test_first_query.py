@@ -13,7 +13,7 @@ IN_QUEUE = "transactions"
 OUT_QUEUE = "results"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-
+NUM_WORKERS = 3
 
 def main():  # Generate transactions
 
@@ -61,8 +61,6 @@ def main():  # Generate transactions
         "2a3b4c5d-6e7f-4890-abcd-ef1234567890",
     ]
 
-    num_workers = int(sys.argv[1])
-
     # Try to connect to RabbitMQ with retries
     conn = connect_with_retry(AMQP_URL, MAX_RETRY_ATTEMPTS, RETRY_DELAY)
 
@@ -73,15 +71,15 @@ def main():  # Generate transactions
         batches = [transactions_batch_1, transactions_batch_2, transactions_batch_3]
 
         # Publish each batch to its worker via routing key = worker number ("1"..)
-        send_batches(ch, batches, IN_QUEUE, num_workers)
+        send_batches(ch, batches, IN_QUEUE, NUM_WORKERS)
 
         # Send EOF to each worker
-        send_eof(ch, IN_QUEUE, num_workers)
+        send_eof(ch, IN_QUEUE, NUM_WORKERS)
 
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        eof_target = 3  # <-- stop after receiving 3 EOFs
+        eof_target = NUM_WORKERS  # <-- stop after receiving 3 EOFs
         eof_count = 0
 
         def callback(ch, method, properties, body):

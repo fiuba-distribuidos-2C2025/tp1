@@ -9,7 +9,7 @@ test-year-filter: build
 	# to relative paths
 	cd .. && ./generar-compose.sh test-compose.yaml 3 0 0
 	cd .. && docker compose -f test-compose.yaml up -d --build
-	cd suite && python3 test_year_filter.py 3
+	cd suite && python3 test_year_filter.py
 	MAKE cleanup
 
 test-hour-filter: build
@@ -33,7 +33,7 @@ test-first-query: build
 	# to relative paths
 	cd .. && ./generar-compose.sh test-compose.yaml 3 3 3
 	cd .. && docker compose -f test-compose.yaml up -d --build
-	cd suite && python3 test_first_query.py 3
+	cd suite && python3 test_first_query.py
 	MAKE cleanup
 
 cleanup:

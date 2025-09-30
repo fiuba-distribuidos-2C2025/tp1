@@ -16,8 +16,6 @@ RETRY_DELAY = 2  # seconds
 NUM_WORKERS = 3
 
 def main():  # Generate transactions
-    num_workers = int(sys.argv[1])
-
     transactions_batch = """
     2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,,,38.0,0.0,38.0,2023-07-01 07:00:00
     7d0a474d-62f4-442a-96b6-a5df2bda8832,7,1,,,33.0,0.0,33.0,2024-07-01 07:00:02

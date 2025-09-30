@@ -5,18 +5,26 @@ import time
 import pika
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
-IN_QUEUE = "by_year_filter_input"
-OUT_QUEUE = "by_year_filter_output"
+IN_QUEUE = "by_year_filter_output"
+OUT_QUEUE = "by_hour_filter_output"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
 
 
 def main():  # Generate transactions
-    transactions_batch = """
-    2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,,,38.0,0.0,38.0,2023-07-01 07:00:00
-    7d0a474d-62f4-442a-96b6-a5df2bda8832,7,1,,,33.0,0.0,33.0,2024-07-01 07:00:02
-    85f86fef-fddb-4eef-9dc3-1444553e6108,1,5,,,27.0,0.0,27.0,2025-07-01 07:00:04
-    4c41d179-f809-4d5a-a5d7-acb25ae1fe98,5,2,,,45.5,0.0,45.5,2026-07-01 07:00:21
+    transactions_batch_1 = """
+    2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,100,2023-07-01 06:00:00
+    7d0a474d-62f4-442a-96b6-a5df2bda8832,7,1,100,2024-07-01 08:25:02
+    """
+
+    transactions_batch_2 = """
+    4c41d179-f809-4d5a-a5d7-acb25ae1fe98,5,2,100,2026-07-01 22:80:21
+    85f86fef-fddb-4eef-9dc3-1444553e6108,1,5,100,2025-07-01 23:00:04
+    """
+
+    transactions_batch_3 = """
+    9d0a474d-62f4-442a-96b6-a5df2bda8832,7,1,100,2024-07-01 22:00:10
+    85f86fef-fddb-4eef-9dc3-1444553e6108,1,5,100,2025-07-01 09:10:70
     """
 
     # Try to connect to RabbitMQ with retries
@@ -45,7 +53,19 @@ def main():  # Generate transactions
         ch.basic_publish(
             exchange="",
             routing_key=IN_QUEUE,
-            body=str(transactions_batch).encode("utf-8"),
+            body=str(transactions_batch_1).encode("utf-8"),
+        )
+
+        ch.basic_publish(
+            exchange="",
+            routing_key=IN_QUEUE,
+            body=str(transactions_batch_2).encode("utf-8"),
+        )
+
+        ch.basic_publish(
+            exchange="",
+            routing_key=IN_QUEUE,
+            body=str(transactions_batch_3).encode("utf-8"),
         )
 
         # Receive whatever workers forward (only evens)

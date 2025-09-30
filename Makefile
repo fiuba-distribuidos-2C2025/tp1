@@ -51,4 +51,4 @@ middleware_tests:
 	go test ./middleware
 
 default-compose:
-	./generar-compose.sh docker-compose-dev.yaml 3
+	./generar-compose.sh docker-compose-dev.yaml 3 3 3

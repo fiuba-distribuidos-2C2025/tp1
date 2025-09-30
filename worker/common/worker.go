@@ -85,6 +85,12 @@ func (w *Worker) Start() error {
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
 		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan))
+	case "HOUR_FILTER":
+		log.Info("Starting HOUR_FILTER worker...")
+		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan))
+	case "AMOUNT_FILTER":
+		log.Info("Starting AMOUNT_FILTER worker...")
+		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan))
 	default:
 		log.Error("Unknown worker job")
 		return errors.New("Unknown worker job")

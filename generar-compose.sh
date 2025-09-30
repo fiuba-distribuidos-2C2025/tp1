@@ -2,12 +2,12 @@
 
 # Validación de argumentos de entrada
 if [ $# -lt 2 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores>"
+  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
-WORKER_COUNT="$2"
+WORKER_COUNT_FILTER_BY_YEAR="$2"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -45,11 +45,10 @@ services:
 
 EOL
 
-# Agregacion dinamica de trabajadores
-for ((i=1; i<=WORKER_COUNT; i++)); do
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
-  worker$i:
-    container_name: worker$i
+  filter_by_year_worker$i:
+    container_name: filter_by_year_worker$i
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -58,6 +57,10 @@ cat >> "$OUTPUT_FILE" <<EOL
       - testing_net
     depends_on:
       - rabbit
+    environment:
+      - CLI_WORKER_JOB=YEAR_FILTER
+      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_input
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
 
 EOL
 done
@@ -72,4 +75,4 @@ networks:
         - subnet: 172.25.125.0/24
 EOL
 
-echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT trabajadores."
+echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year."

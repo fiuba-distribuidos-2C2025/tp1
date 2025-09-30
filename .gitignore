@@ -35,3 +35,6 @@ bin/**
 
 # CSV files
 data/**
+
+# MacOS
+.DS_Store

@@ -31,8 +31,8 @@ services:
     networks:
       - testing_net
 
-  worker1:
-    container_name: worker1
+  filter_by_year_worker1:
+    container_name: filter_by_year_worker1
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -41,9 +41,13 @@ services:
       - testing_net
     depends_on:
       - rabbit
+    environment:
+      - CLI_WORKER_JOB=YEAR_FILTER
+      - CLI_MIDDLEWARE_INPUTQUEUE=input
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
 
-  worker2:
-    container_name: worker2
+  filter_by_year_worker2:
+    container_name: filter_by_year_worker2
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -52,9 +56,13 @@ services:
       - testing_net
     depends_on:
       - rabbit
+    environment:
+      - CLI_WORKER_JOB=YEAR_FILTER
+      - CLI_MIDDLEWARE_INPUTQUEUE=input
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
 
-  worker3:
-    container_name: worker3
+  filter_by_year_worker3:
+    container_name: filter_by_year_worker3
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -63,6 +71,10 @@ services:
       - testing_net
     depends_on:
       - rabbit
+    environment:
+      - CLI_WORKER_JOB=YEAR_FILTER
+      - CLI_MIDDLEWARE_INPUTQUEUE=input
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
 
 networks:
   testing_net:

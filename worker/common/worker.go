@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -16,6 +17,7 @@ type WorkerConfig struct {
 	MiddlewareUrl string
 	InputQueue    string
 	OutputQueue   string
+	WorkerJob     string
 }
 
 type Worker struct {
@@ -78,7 +80,15 @@ func (w *Worker) Start() error {
 
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue, w.channel)
-	inQueue.StartConsuming(filter.CreateDummyFilterCallbackWithOutput(inQueueResponseChan))
+
+	switch w.config.WorkerJob {
+	case "YEAR_FILTER":
+		log.Info("Starting YEAR_FILTER worker...")
+		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan))
+	default:
+		log.Error("Unknown worker job")
+		return errors.New("Unknown worker job")
+	}
 
 	outQueue := middleware.NewMessageMiddlewareQueue(w.config.OutputQueue, w.channel)
 	for {

@@ -38,6 +38,12 @@ services:
     environment:
         RABBITMQ_DEFAULT_USER: guest
         RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+        test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+        start_period: 5s
 
   request_handler:
     container_name: request_handler
@@ -46,7 +52,8 @@ services:
     volumes:
       - ./request_handler/config.yaml:/config/config.yaml
     depends_on:
-      - rabbit
+        rabbit:
+            condition: service_healthy
     networks:
       - testing_net
 
@@ -57,7 +64,8 @@ services:
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
     depends_on:
-      - rabbit
+        rabbit:
+            condition: service_healthy
     networks:
       - testing_net
 

@@ -38,9 +38,8 @@ def send_batches(channel, batches, exchange, num_workers):
     for i in range(len(batches)):
         channel.basic_publish(
             exchange=exchange,
-            routing_key=str(i % num_workers + 1),
+            routing_key=str((i % num_workers) + 1),
             body=str(batches[i]).encode("utf-8"),
-            properties=pika.BasicProperties(delivery_mode=2),  # persistent
         )
 
 def send_eof(channel, exchange, num_workers):

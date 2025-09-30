@@ -13,7 +13,8 @@ IN_QUEUE = "transactions_2024_2025"
 OUT_QUEUE = "transactions_filtered_by_hour"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-NUM_WORKERS = 3
+NUM_IN_WORKERS = 1
+NUM_OUT_WORKERS = 3
 
 def main():  # Generate transactions
     transactions_batch_1 = """
@@ -41,16 +42,16 @@ def main():  # Generate transactions
         batches = [transactions_batch_1, transactions_batch_2, transactions_batch_3]
 
         # Publish each batch to its worker via routing key = worker number ("1"..)
-        send_batches(ch, batches, IN_QUEUE, NUM_WORKERS)
+        send_batches(ch, batches, IN_QUEUE, NUM_IN_WORKERS)
 
         # Send EOF to each worker
-        send_eof(ch, IN_QUEUE, NUM_WORKERS)
+        send_eof(ch, IN_QUEUE, NUM_IN_WORKERS)
 
         # Receive whatever workers forward (only evens)
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        eof_target = NUM_WORKERS  # <-- stop after receiving 3 EOFs
+        eof_target = NUM_OUT_WORKERS  # <-- stop after receiving 3 EOFs
         eof_count = 0
         def callback(ch, method, properties, body):
             nonlocal eof_count, eof_target

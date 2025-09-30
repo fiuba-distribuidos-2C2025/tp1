@@ -31,7 +31,7 @@ test-amount-filter: build
 test-first-query: build
 	# We generate the compose in the parent directory due
 	# to relative paths
-	cd .. && ./generar-compose.sh test-compose.yaml 3 3 3
+	cd .. && ./generar-compose.sh test-compose.yaml 1 2 3
 	cd .. && docker compose -f test-compose.yaml up -d --build
 	cd suite && python3 test_first_query.py
 	MAKE cleanup

@@ -33,7 +33,7 @@ test-first-query: build
 	# to relative paths
 	cd .. && ./generar-compose.sh test-compose.yaml 3 3 3
 	cd .. && docker compose -f test-compose.yaml up -d --build
-	cd suite && python3 test_first_query.py
+	cd suite && python3 test_first_query.py 3
 	MAKE cleanup
 
 cleanup:

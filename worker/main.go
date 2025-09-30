@@ -36,6 +36,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("middleware", "url")
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
+	v.BindEnv("middleware", "senders")
 	v.BindEnv("middleware", "receivers")
 	v.BindEnv("job")
 	v.BindEnv("id")
@@ -98,9 +99,10 @@ func main() {
 		MiddlewareUrl:   v.GetString("middleware.url"),
 		InputQueue:      v.GetString("middleware.inputQueue"),
 		OutputQueue:     v.GetString("middleware.outputQueue"),
+		InputSenders:    v.GetInt("middleware.senders"),
 		OutputReceivers: v.GetInt("middleware.receivers"),
 		WorkerJob:       v.GetString("job"),
-		ID:              v.GetString("id"),
+		ID:              v.GetInt("id"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

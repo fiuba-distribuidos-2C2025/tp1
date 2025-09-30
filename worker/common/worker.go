@@ -2,6 +2,7 @@ package common
 
 import (
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -16,9 +17,10 @@ type WorkerConfig struct {
 	MiddlewareUrl   string
 	InputQueue      string
 	OutputQueue     string
+	InputSenders    int
 	OutputReceivers int
 	WorkerJob       string
-	ID              string
+	ID              int
 }
 
 type Worker struct {
@@ -81,7 +83,8 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareExchange(w.config.InputQueue, []string{w.config.ID}, w.channel)
+	inQueue := middleware.NewMessageMiddlewareExchange(w.config.InputQueue, []string{strconv.Itoa(w.config.ID)}, w.channel)
+	log.Infof("Input queue declared: %s", w.config.InputQueue)
 
 	switch w.config.WorkerJob {
 	case "YEAR_FILTER":
@@ -98,14 +101,17 @@ func (w *Worker) Start() error {
 		return errors.New("Unknown worker job")
 	}
 
+	// TODO: fix broadcast
+	// outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
 	outputQueues := make([]*middleware.MessageMiddlewareExchange, w.config.OutputReceivers)
-	outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
 	for id := 0; id <= w.config.OutputReceivers-1; id++ {
-		outputQueues[id] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{string(rune(id))}, w.channel)
+		log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), w.config.OutputQueue)
+		outputQueues[id] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{strconv.Itoa(id + 1)}, w.channel)
 	}
 
+	idx := 0
+	sendersFinCount := 0
 	for {
-		idx := 0
 		select {
 		case <-w.shutdown:
 			log.Info("Shutdown signal received, stopping worker...")
@@ -113,13 +119,19 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 			if msg == "EOF" {
-				log.Infof("Broadcasting EOF")
-				outputBroadcast.Send([]byte("EOF"))
-				return nil
+				sendersFinCount += 1
+				if sendersFinCount >= w.config.InputSenders {
+					log.Infof("Broadcasting EOF")
+					for _, queue := range outputQueues {
+						queue.Send([]byte("EOF"))
+					}
+					return nil
+				}
+				continue
 			}
-			receiver := idx % w.config.OutputReceivers
+			receiver := (idx + w.config.ID) % w.config.OutputReceivers
 			// TODO: forward in batches
-			log.Infof("Forwarding message: %s to worker %i", msg, receiver+1)
+			log.Infof("Forwarding message: %s to worker %d", msg, receiver+1)
 			outputQueues[receiver].Send([]byte(msg))
 			idx += 1
 		}

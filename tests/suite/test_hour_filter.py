@@ -13,7 +13,7 @@ IN_QUEUE = "transactions_2024_2025"
 OUT_QUEUE = "transactions_filtered_by_hour"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-NUM_IN_WORKERS = 1
+NUM_IN_WORKERS = 3
 NUM_OUT_WORKERS = 3
 
 def main():  # Generate transactions

@@ -104,7 +104,6 @@ func (w *Worker) Start() error {
 	// TODO: fix broadcast
 	// outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
 	outputQueues := make([][]*middleware.MessageMiddlewareExchange, len(w.config.OutputReceivers))
-
 	for i := 0; i < len(w.config.OutputReceivers); i++ {
 		exchangeName := w.config.OutputQueue[i]
 		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
@@ -131,11 +130,13 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 			if msg == "EOF" {
+				log.Debugf("EOF received")
 				sendersFinCount += 1
 				if sendersFinCount >= w.config.InputSenders {
+					log.Infof("Broadcasting EOF")
 					for _, queues := range outputQueues {
-						log.Infof("Broadcasting EOF")
 						for _, queue := range queues {
+							log.Debugf("Broadcasting EOF to queue: ", queue)
 							queue.Send([]byte("EOF"))
 						}
 					}
@@ -147,7 +148,6 @@ func (w *Worker) Start() error {
 			for i, queues := range outputQueues {
 				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
 				if err != nil {
-					log.Errorf("Error parsing output receivers: %s", err)
 					return err
 				}
 
@@ -157,7 +157,6 @@ func (w *Worker) Start() error {
 			}
 			idx += 1
 		}
-
 		// TODO: know when input queue is finished!
 	}
 }

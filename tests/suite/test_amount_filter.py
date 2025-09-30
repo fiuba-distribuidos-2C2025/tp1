@@ -51,7 +51,7 @@ def main():  # Generate transactions
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        eof_target = NUM_OUT_WORKERS  # <-- stop after receiving 3 EOFs
+        eof_target = NUM_OUT_WORKERS
         eof_count = 0
         def callback(ch, method, properties, body):
             nonlocal eof_count, eof_target
@@ -61,7 +61,7 @@ def main():  # Generate transactions
                 eof_count += 1
                 print(f"Received EOF ({eof_count}/{eof_target})")
                 if eof_count >= eof_target:
-                    print("Received 3 EOFs — stopping consumer.")
+                    print("Received all EOFs — stopping consumer.")
                     ch.stop_consuming()  # cleanly exit start_consuming loop
                 return
             print(f"{body_str}")

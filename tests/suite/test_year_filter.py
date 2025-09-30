@@ -13,8 +13,8 @@ IN_QUEUE = "transactions"
 OUT_QUEUE = "transactions_2024_2025_q1"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-NUM_IN_WORKERS = 3
-NUM_OUT_WORKERS = 3
+NUM_IN_WORKERS = 1
+NUM_OUT_WORKERS = 1
 
 def main():  # Generate transactions
     transactions_batch = """
@@ -43,7 +43,7 @@ def main():  # Generate transactions
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        eof_target = NUM_OUT_WORKERS  # <-- stop after receiving 3 EOFs
+        eof_target = NUM_OUT_WORKERS
         eof_count = 0
         def callback(ch, method, properties, body):
             nonlocal eof_count, eof_target
@@ -53,7 +53,7 @@ def main():  # Generate transactions
                 eof_count += 1
                 print(f"Received EOF ({eof_count}/{eof_target})")
                 if eof_count >= eof_target:
-                    print("Received 3 EOFs — stopping consumer.")
+                    print("Received all EOFs — stopping consumer.")
                     ch.stop_consuming()  # cleanly exit start_consuming loop
                 return
             print(f"{body_str}")

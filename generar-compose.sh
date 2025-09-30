@@ -1,13 +1,14 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 2 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year>"
+if [ $# -lt 3 ]; then
+  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
 WORKER_COUNT_FILTER_BY_YEAR="$2"
+WORKER_COUNT_FILTER_BY_HOUR="$3"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -65,6 +66,25 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_HOUR; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  filter_by_hour_worker$i:
+    container_name: filter_by_hour_worker$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - CLI_WORKER_JOB=HOUR_FILTER
+      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_output
+      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_hour_filter_output
+
+EOL
+done
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:
@@ -75,4 +95,4 @@ networks:
         - subnet: 172.25.125.0/24
 EOL
 
-echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year."
+echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year y $WORKER_COUNT_FILTER_BY_HOUR de tipo filter by hour."

@@ -10,7 +10,7 @@ from rabbitmq_utils import connect_with_retry, setup_consumer_queue, send_batche
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
 IN_QUEUE = "transactions"
-OUT_QUEUE = "transactions_2024_2025"
+OUT_QUEUE = "transactions_2024_2025_q1"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
 NUM_IN_WORKERS = 3

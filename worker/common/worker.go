@@ -16,9 +16,9 @@ var log = logging.MustGetLogger("log")
 type WorkerConfig struct {
 	MiddlewareUrl   string
 	InputQueue      string
-	OutputQueue     string
+	OutputQueue     []string
 	InputSenders    int
-	OutputReceivers int
+	OutputReceivers []string
 	WorkerJob       string
 	ID              int
 }
@@ -103,11 +103,22 @@ func (w *Worker) Start() error {
 
 	// TODO: fix broadcast
 	// outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
-	outputQueues := make([]*middleware.MessageMiddlewareExchange, w.config.OutputReceivers)
+	outputQueues := make([][]*middleware.MessageMiddlewareExchange, len(w.config.OutputReceivers))
 
-	for id := 0; id <= w.config.OutputReceivers-1; id++ {
-		log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), w.config.OutputQueue)
-		outputQueues[id] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{strconv.Itoa(id + 1)}, w.channel)
+	for i := 0; i < len(w.config.OutputReceivers); i++ {
+		exchangeName := w.config.OutputQueue[i]
+		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+		if err != nil {
+			log.Errorf("Error parsing output receivers: %s", err)
+			return err
+		}
+
+		outputQueues[i] = make([]*middleware.MessageMiddlewareExchange, outputWorkerCount)
+		for id := 0; id < outputWorkerCount; id++ {
+			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), exchangeName)
+
+			outputQueues[i][id] = middleware.NewMessageMiddlewareExchange(exchangeName, []string{strconv.Itoa(id + 1)}, w.channel)
+		}
 	}
 
 	idx := 0
@@ -122,18 +133,28 @@ func (w *Worker) Start() error {
 			if msg == "EOF" {
 				sendersFinCount += 1
 				if sendersFinCount >= w.config.InputSenders {
-					log.Infof("Broadcasting EOF")
-					for _, queue := range outputQueues {
-						queue.Send([]byte("EOF"))
+					for _, queues := range outputQueues {
+						log.Infof("Broadcasting EOF")
+						for _, queue := range queues {
+							queue.Send([]byte("EOF"))
+						}
 					}
 					return nil
 				}
 				continue
 			}
 
-			receiver := (idx + w.config.ID) % w.config.OutputReceivers
-			log.Infof("Forwarding message: %s to worker %d", msg, receiver+1)
-			outputQueues[receiver].Send([]byte(msg))
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					log.Errorf("Error parsing output receivers: %s", err)
+					return err
+				}
+
+				receiver := (idx + w.config.ID) % outputWorkerCount
+				log.Infof("Forwarding message: %s to worker %d", msg, receiver+1)
+				queues[receiver].Send([]byte(msg))
+			}
 			idx += 1
 		}
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -53,9 +53,10 @@ func InitConfig() (*viper.Viper, error) {
 
 	// TODO: this check is valid if the whole system is running, but fails
 	// if it's ran in parts
-	if v.GetInt("middleware.receivers") <= 0 {
-		return nil, errors.New("middleware.receivers must be greater than zero")
-	}
+	// TODO: fix later
+	// if v.GetInt("middleware.receivers") <= 0 {
+	// 	return nil, errors.New("middleware.receivers must be greater than zero")
+	// }
 
 	return v, nil
 }
@@ -97,12 +98,15 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	OutputQueue := strings.Split(v.GetString("middleware.outputQueue"), ",")
+	OutputReceivers := strings.Split(v.GetString("middleware.receivers"), ",")
+
 	workerConfig := common.WorkerConfig{
 		MiddlewareUrl:   v.GetString("middleware.url"),
 		InputQueue:      v.GetString("middleware.inputQueue"),
-		OutputQueue:     v.GetString("middleware.outputQueue"),
+		OutputQueue:     OutputQueue,
 		InputSenders:    v.GetInt("middleware.senders"),
-		OutputReceivers: v.GetInt("middleware.receivers"),
+		OutputReceivers: OutputReceivers,
 		WorkerJob:       v.GetString("job"),
 		ID:              v.GetInt("id"),
 	}

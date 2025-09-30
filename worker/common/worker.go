@@ -14,10 +14,11 @@ import (
 var log = logging.MustGetLogger("log")
 
 type WorkerConfig struct {
-	MiddlewareUrl string
-	InputQueue    string
-	OutputQueue   string
-	WorkerJob     string
+	MiddlewareUrl         string
+	InputQueue            string
+	OutputQueueOrExchange string
+	OutputRoutingKey      string
+	WorkerJob             string
 }
 
 type Worker struct {
@@ -96,19 +97,36 @@ func (w *Worker) Start() error {
 		return errors.New("Unknown worker job")
 	}
 
-	outQueue := middleware.NewMessageMiddlewareQueue(w.config.OutputQueue, w.channel)
-	for {
-		select {
-		case <-w.shutdown:
-			log.Info("Shutdown signal received, stopping worker...")
-			return nil
+	if w.config.OutputRoutingKey == "" {
+		log.Infof("Listening on queue %s", w.config.OutputQueueOrExchange)
+		outQueue := middleware.NewMessageMiddlewareQueue(w.config.OutputQueueOrExchange, w.channel)
+		for {
+			select {
+			case <-w.shutdown:
+				log.Info("Shutdown signal received, stopping worker...")
+				return nil
 
-		case msg := <-inQueueResponseChan:
-			log.Infof("Forwarding message: %s", msg)
-			outQueue.Send([]byte(msg))
+			case msg := <-inQueueResponseChan:
+				log.Infof("Forwarding message: %s", msg)
+				outQueue.Send([]byte(msg))
+			}
+
 		}
+	} else {
+		log.Infof("Listening on exchange %s", w.config.OutputQueueOrExchange)
+		outExchange := middleware.NewMessageMiddlewareExchange(w.config.OutputQueueOrExchange, []string{w.config.OutputRoutingKey}, w.channel)
+		for {
+			select {
+			case <-w.shutdown:
+				log.Info("Shutdown signal received, stopping worker...")
+				return nil
 
-		// TODO: know when input queue is finished!
+			case msg := <-inQueueResponseChan:
+				log.Infof("Forwarding message: %s", msg)
+				outExchange.Send([]byte(msg))
+			}
+
+		}
 	}
 }
 
@@ -119,7 +137,7 @@ func (w *Worker) forwardMsg(msg string) error {
 
 	if err := w.channel.PublishWithContext(
 		pubCtx,
-		"", w.config.OutputQueue,
+		"", w.config.OutputQueueOrExchange,
 		false, false,
 		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(msg)},
 	); err != nil {

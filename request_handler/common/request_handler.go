@@ -2,9 +2,11 @@ package common
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
@@ -13,62 +15,80 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const (
+	messageTypeTransfer = "TRANSFER"
+	headerPartsCount    = 5
+	resultTimeout       = 30 * time.Second
+)
+
+// RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
 	Port          string
-	Ip            string
-	MiddlewareUrl string
+	IP            string
+	MiddlewareURL string
 }
 
+// RequestHandler handles incoming client connections and manages message flow
 type RequestHandler struct {
-	Config      RequestHandlerConfig
-	listener    net.Listener
-	workerAddrs []string
-	shutdown    chan struct{}
+	Config   RequestHandlerConfig
+	listener net.Listener
+	shutdown chan struct{}
 }
 
-// BatchMessage represents the parsed message structure
+// BatchMessage represents a parsed batch message from the client
 type BatchMessage struct {
 	FileType     string
 	FileHash     string
 	CurrentChunk int
 	TotalChunks  int
-	CsvRows      []string
+	CSVRows      []string
 }
 
+// NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
-	request_handler := &RequestHandler{
+	return &RequestHandler{
 		Config:   config,
-		listener: nil,
 		shutdown: make(chan struct{}),
 	}
-	return request_handler
 }
 
-func (m *RequestHandler) Start() error {
-	// Create listener
-	addr := net.JoinHostPort(m.Config.Ip, m.Config.Port)
+// Start begins listening for connections
+func (rh *RequestHandler) Start() error {
+	addr := net.JoinHostPort(rh.Config.IP, rh.Config.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
-	m.listener = listener
+	rh.listener = listener
 	log.Infof("RequestHandler listening on %s", addr)
 
-	// Accept connections in a goroutine
-	go m.acceptConnections()
+	go rh.acceptConnections()
 
-	// Wait for shutdown signal
-	<-m.shutdown
+	<-rh.shutdown
 	return nil
 }
 
-func (m *RequestHandler) acceptConnections() {
+// Stop gracefully shuts down the request handler
+func (rh *RequestHandler) Stop() {
+	log.Info("Shutting down request handler...")
+	close(rh.shutdown)
+
+	if rh.listener != nil {
+		if err := rh.listener.Close(); err != nil {
+			log.Errorf("Error closing listener: %v", err)
+		}
+	}
+
+	log.Info("RequestHandler shutdown complete")
+}
+
+// acceptConnections continuously accepts new connections
+func (rh *RequestHandler) acceptConnections() {
 	for {
-		conn, err := m.listener.Accept()
+		conn, err := rh.listener.Accept()
 		if err != nil {
 			select {
-			case <-m.shutdown:
-				// Shutdown requested, exit gracefully
+			case <-rh.shutdown:
 				return
 			default:
 				log.Errorf("Error accepting connection: %v", err)
@@ -76,67 +96,179 @@ func (m *RequestHandler) acceptConnections() {
 			}
 		}
 
-		// Handle each connection in a separate goroutine
-		go m.handleConnection(conn)
+		go rh.handleConnection(conn)
 	}
 }
 
-func (m *RequestHandler) handleConnection(conn net.Conn) {
+// handleConnection processes a single client connection
+func (rh *RequestHandler) handleConnection(conn net.Conn) {
 	defer conn.Close()
-
 	log.Infof("New connection from %s", conn.RemoteAddr())
 
-	scanner := bufio.NewScanner(conn)
-
-	// Read the first line (message header)
-	if !scanner.Scan() {
-		log.Errorf("Failed to read header from %s", conn.RemoteAddr())
+	// Read and parse the message
+	message, err := rh.readMessage(conn)
+	if err != nil {
+		log.Errorf("Failed to read message: %v", err)
 		return
 	}
 
-	header := scanner.Text()
+	log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
+		message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
 
-	// Parse header: TRANSFER;<FILE_TYPE>;<FILE_HASH>;<CURRENT_CHUNK>;<TOTAL_CHUNKS>
-	message, err := m.parseHeader(header)
+	// Process the message through RabbitMQ
+	result, err := rh.processMessage(message)
 	if err != nil {
-		log.Errorf("Failed to parse header: %v", err)
+		log.Errorf("Failed to process message: %v", err)
 		return
+	}
+
+	// Send result back to client
+	if err := rh.sendResponse(conn, result); err != nil {
+		log.Errorf("Failed to send response: %v", err)
+		return
+	}
+
+	log.Infof("Successfully processed and responded to client")
+}
+
+// readMessage reads and parses a message from the connection
+func (rh *RequestHandler) readMessage(conn net.Conn) (*BatchMessage, error) {
+	scanner := bufio.NewScanner(conn)
+
+	// Read header
+	if !scanner.Scan() {
+		return nil, fmt.Errorf("failed to read header")
+	}
+
+	message, err := parseHeader(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse header: %w", err)
 	}
 
 	// Read CSV rows
 	for scanner.Scan() {
 		row := scanner.Text()
 		if row == "" {
-			break // End of message
+			break
 		}
-		message.CsvRows = append(message.CsvRows, row)
+		message.CSVRows = append(message.CSVRows, row)
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Errorf("Error reading from connection: %v", err)
-		return
+		return nil, fmt.Errorf("error reading connection: %w", err)
 	}
 
-	log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
-		message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CsvRows))
-
-	// Send batch directly to the queue
-	rabbit_conn, err := amqp.Dial(m.Config.MiddlewareUrl)
-	channel, err := rabbit_conn.Channel()
-	transactions_queue := middleware.NewMessageMiddlewareQueue("transactions", channel)
-	finalMessage := strings.Join(message.CsvRows, "\n")
-	transactions_queue.Send([]byte(finalMessage))
-	log.Infof("Successfully forwarded batch to queue")
+	return message, nil
 }
 
-func (m *RequestHandler) parseHeader(header string) (*BatchMessage, error) {
-	parts := strings.Split(header, ";")
-	if len(parts) != 5 {
-		return nil, fmt.Errorf("invalid header format: expected 5 parts, got %d", len(parts))
+// processMessage sends the message to RabbitMQ and waits for a result
+func (rh *RequestHandler) processMessage(message *BatchMessage) (string, error) {
+	// Connect to RabbitMQ
+	rabbitConn, err := amqp.Dial(rh.Config.MiddlewareURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+	defer rabbitConn.Close()
+
+	// Create channel
+	channel, err := rabbitConn.Channel()
+	if err != nil {
+		return "", fmt.Errorf("failed to open channel: %w", err)
+	}
+	defer channel.Close()
+
+	resultsExchange := middleware.NewMessageMiddlewareExchange(
+		"final_results",
+		[]string{"query1"},
+		channel,
+	)
+	resultChan := make(chan string, 1)
+	doneChan := make(chan error, 1)
+	// Start consuming
+	resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
+
+	// Send message to transactions queue
+	if err := rh.sendToQueue(channel, message); err != nil {
+		return "", fmt.Errorf("failed to send to queue: %w", err)
 	}
 
-	if parts[0] != "TRANSFER" {
-		return nil, fmt.Errorf("invalid message type: expected TRANSFER, got %s", parts[0])
+	// Wait for result
+	result, err := rh.waitForResult(resultChan, doneChan)
+	if err != nil {
+		return "", fmt.Errorf("failed to receive result: %w", err)
+	}
+
+	return result, nil
+}
+
+// sendToQueue sends the batch message to the transactions queue
+func (rh *RequestHandler) sendToQueue(channel *amqp.Channel, message *BatchMessage) error {
+	queue := middleware.NewMessageMiddlewareQueue("transactions", channel)
+	payload := strings.Join(message.CSVRows, "\n")
+	queue.Send([]byte(payload))
+	log.Infof("Successfully forwarded batch to queue")
+	return nil
+}
+
+// waitForResult waits for a result from the final_results exchange
+func (rh *RequestHandler) waitForResult(resultChan chan string, doneChan chan error) (string, error) {
+	// resultsExchange := middleware.NewMessageMiddlewareExchange(
+	// 	"final_results",
+	// 	[]string{"query1"},
+	// 	channel,
+	// )
+
+	// resultChan := make(chan string, 1)
+	// doneChan := make(chan error, 1)
+
+	// Start consuming
+	// resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
+
+	// Wait for result with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), resultTimeout)
+	defer cancel()
+
+	select {
+	case result := <-resultChan:
+		log.Infof("Result received - Length: %d - Message: %s", len(result), result)
+		return result, nil
+	case err := <-doneChan:
+		return "", fmt.Errorf("consumer error: %w", err)
+	case <-ctx.Done():
+		return "", fmt.Errorf("timeout waiting for result")
+	}
+}
+
+// sendResponse writes the result back to the client
+func (rh *RequestHandler) sendResponse(conn net.Conn, result string) error {
+	writer := bufio.NewWriter(conn)
+
+	if _, err := writer.WriteString(result); err != nil {
+		return fmt.Errorf("failed to write response: %w", err)
+	}
+
+	if _, err := writer.WriteString("\n"); err != nil {
+		return fmt.Errorf("failed to write end marker: %w", err)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush response: %w", err)
+	}
+
+	return nil
+}
+
+// parseHeader parses the message header
+func parseHeader(header string) (*BatchMessage, error) {
+	parts := strings.Split(header, ";")
+	if len(parts) != headerPartsCount {
+		return nil, fmt.Errorf("invalid header format: expected %d parts, got %d",
+			headerPartsCount, len(parts))
+	}
+
+	if parts[0] != messageTypeTransfer {
+		return nil, fmt.Errorf("invalid message type: expected %s, got %s",
+			messageTypeTransfer, parts[0])
 	}
 
 	var currentChunk, totalChunks int
@@ -152,19 +284,36 @@ func (m *RequestHandler) parseHeader(header string) (*BatchMessage, error) {
 		FileHash:     parts[2],
 		CurrentChunk: currentChunk,
 		TotalChunks:  totalChunks,
-		CsvRows:      make([]string, 0),
+		CSVRows:      make([]string, 0),
 	}, nil
 }
 
-func (m *RequestHandler) Stop() {
-	log.Info("Shutting down request_handler...")
+// createResultsCallback creates a callback function for consuming results
+func createResultsCallback(resultChan chan string, doneChan chan error) func(middleware.ConsumeChannel, chan error) {
+	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		log.Infof("Waiting for response...")
 
-	// Send stop signal to running loop
-	close(m.shutdown)
+		for {
+			select {
+			case msg, ok := <-*consumeChannel:
+				if !ok {
+					log.Info("Channel closed")
+					doneChan <- fmt.Errorf("channel closed unexpectedly")
+					return
+				}
 
-	if m.listener != nil {
-		m.listener.Close()
+				log.Infof("Message received - Length: %d", len(msg.Body))
+
+				if err := msg.Ack(false); err != nil {
+					log.Errorf("Failed to ack message: %v", err)
+				}
+
+				resultChan <- string(msg.Body)
+				return
+			case err := <-done:
+				doneChan <- err
+				return
+			}
+		}
 	}
-
-	log.Info("RequestHandler shut down complete.")
 }

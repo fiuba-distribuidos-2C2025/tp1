@@ -13,18 +13,21 @@ format:
 	gofmt -s -w ./client/
 	gofmt -s -w ./request_handler/
 	gofmt -s -w ./middleware/
+	gofmt -s -w ./response_builder/
 	gofmt -s -w ./worker/
 .PHONY: format
 
 build: deps
 	GOOS=linux go build -o bin/client ./client/main.go
 	GOOS=linux go build -o bin/request_handler ./request_handler/main.go
+	GOOS=linux go build -o bin/response_builder ./response_builder/main.go
 	GOOS=linux go build -o bin/worker ./worker/main.go
 .PHONY: build
 
 docker-image:
 	docker build -f ./client/Dockerfile -t "client:latest" .
 	docker build -f ./request_handler/Dockerfile -t "request_handler:latest" .
+	docker build -f ./response_builder/Dockerfile -t "response_builder:latest" .
 	docker build -f ./worker/Dockerfile -t "worker:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you

@@ -1,6 +1,7 @@
 request_handler:
   port: 12345
   ip: "request_handler"
-  url: "amqp://guest:guest@rabbit:5672/"
 log:
   level: "DEBUG"
+rabbit:
+  url: "amqp://guest:guest@rabbit:5672/"

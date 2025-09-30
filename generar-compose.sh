@@ -50,6 +50,17 @@ services:
     networks:
       - testing_net
 
+  response_builder:
+    container_name: response_builder
+    image: response_builder:latest
+    entrypoint: /response_builder
+    volumes:
+      - ./response_builder/config.yaml:/config/config.yaml
+    depends_on:
+      - rabbit
+    networks:
+      - testing_net
+
 EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
@@ -67,7 +78,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - CLI_WORKER_JOB=YEAR_FILTER
       - CLI_MIDDLEWARE_INPUTQUEUE=transactions
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_year_filter_output
+      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=by_year_filter_output
 
 EOL
 done
@@ -87,8 +98,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - CLI_WORKER_JOB=HOUR_FILTER
       - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=by_hour_filter_output
-
+      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=by_hour_filter_output
 EOL
 done
 
@@ -107,8 +117,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - CLI_WORKER_JOB=AMOUNT_FILTER
       - CLI_MIDDLEWARE_INPUTQUEUE=by_hour_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=results
-
+      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=results
+      - CLI_MIDDLEWARE_OUTPUTROUTINGKEY=query1
 EOL
 done
 

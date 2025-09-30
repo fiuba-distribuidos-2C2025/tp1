@@ -36,6 +36,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
 	v.BindEnv("worker", "job")
+	v.SetDefault("middleware", "outputRoutingKey")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -88,10 +89,11 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	workerConfig := common.WorkerConfig{
-		MiddlewareUrl: v.GetString("middleware.url"),
-		InputQueue:    v.GetString("middleware.inputQueue"),
-		OutputQueue:   v.GetString("middleware.outputQueue"),
-		WorkerJob:     v.GetString("worker.job"),
+		MiddlewareUrl:         v.GetString("middleware.url"),
+		InputQueue:            v.GetString("middleware.inputQueue"),
+		OutputQueueOrExchange: v.GetString("middleware.outputQueueOrExchange"),
+		WorkerJob:             v.GetString("worker.job"),
+		OutputRoutingKey:      v.GetString("middleware.outputRoutingKey"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

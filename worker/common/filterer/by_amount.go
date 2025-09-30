@@ -19,7 +19,7 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64) boo
 	if err != nil {
 		return false
 	}
-	return finalAmount > targetAmount
+	return finalAmount >= targetAmount
 }
 
 // Filter responsible for filtering transactions by amount.
@@ -58,7 +58,7 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 					continue
 				}
 
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {

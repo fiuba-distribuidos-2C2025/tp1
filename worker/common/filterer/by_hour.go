@@ -69,7 +69,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					outChan <- "EOF"
 					continue
 				}
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {

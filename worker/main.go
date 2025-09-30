@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -51,9 +51,11 @@ func InitConfig() (*viper.Viper, error) {
 		fmt.Printf("Error: %s", err)
 	}
 
-	if v.GetInt("middleware.receivers") <= 0 {
-		return nil, errors.New("batch.maxAmount must be greater than zero")
-	}
+	// TODO: this check is valid if the whole system is running, but fails
+	// if it's ran in parts
+	// if v.GetInt("middleware.receivers") <= 0 {
+	// 	return nil, errors.New("middleware.receivers must be greater than zero")
+	// }
 
 	return v, nil
 }

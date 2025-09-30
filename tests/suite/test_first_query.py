@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 import time
 import pika
+
+# Add the current directory to Python path for importing rabbitmq_utils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rabbitmq_utils import connect_with_retry, setup_consumer_queue, send_batches, send_eof
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
 IN_QUEUE = "transactions"
@@ -60,46 +65,19 @@ def main():  # Generate transactions
     num_workers = int(sys.argv[1])
 
     # Try to connect to RabbitMQ with retries
-    for attempt in range(MAX_RETRY_ATTEMPTS):
-        try:
-            conn = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-            break
-        except Exception as e:
-            if attempt == MAX_RETRY_ATTEMPTS - 1:
-                print(
-                    f"Failed to connect to RabbitMQ after {MAX_RETRY_ATTEMPTS} attempts: {e}",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            time.sleep(RETRY_DELAY)
+    conn = connect_with_retry(AMQP_URL, MAX_RETRY_ATTEMPTS, RETRY_DELAY)
 
     with conn:
-        ch = conn.channel()
-        # Declare the topic exchange where workers are bound with routing keys "1", "2", ..., "N"
-        ch.exchange_declare(exchange=IN_QUEUE, exchange_type="topic", durable=True, auto_delete=False)
-
-        # Results exchange/queue to collect whatever workers send back
-        ch.exchange_declare(exchange=OUT_QUEUE, exchange_type="topic", durable=True, auto_delete=False)
-        result = ch.queue_declare('', exclusive=True)
-        queue_name = result.method.queue
-        ch.queue_bind(exchange=OUT_QUEUE, queue=queue_name, routing_key="#")
+        ch, queue_name = setup_consumer_queue(conn, OUT_QUEUE)
 
         # Prepare batches
         batches = [transactions_batch_1, transactions_batch_2, transactions_batch_3]
 
         # Publish each batch to its worker via routing key = worker number ("1"..)
-        for i in range(len(batches)):
-            ch.basic_publish(
-                exchange=IN_QUEUE,
-                routing_key=str(i % num_workers + 1),
-                body=str(batches[i]).encode("utf-8"),
-                properties=pika.BasicProperties(delivery_mode=2),  # persistent
-            )
+        send_batches(ch, batches, IN_QUEUE, num_workers)
 
         # Send EOF to each worker
-        for i in range(num_workers):
-            routing_key = str(i + 1)
-            ch.basic_publish(exchange=IN_QUEUE, routing_key=routing_key, body=b"EOF")
+        send_eof(ch, IN_QUEUE, num_workers)
 
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process

@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 
 import sys
+import os
+from tarfile import NUL
 import time
 import pika
 
+# Add the current directory to Python path for importing rabbitmq_utils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rabbitmq_utils import connect_with_retry, setup_consumer_queue, send_batches, send_eof
+
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
-IN_QUEUE = "by_year_filter_input"
-OUT_QUEUE = "by_year_filter_output"
+IN_QUEUE = "transactions"
+OUT_QUEUE = "transactions_2024_2025"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-
+NUM_WORKERS = 3
 
 def main():  # Generate transactions
-    if len(sys.argv) != 2 or not sys.argv[1].isdigit() or int(sys.argv[1]) <= 0:
-        print(f"usage: {sys.argv[0]} <num_workers>", file=sys.stderr)
-        sys.exit(2)
-
     num_workers = int(sys.argv[1])
 
     transactions_batch = """
@@ -26,68 +28,41 @@ def main():  # Generate transactions
     """
 
     # Try to connect to RabbitMQ with retries
-    for attempt in range(MAX_RETRY_ATTEMPTS):
-        try:
-            conn = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-            break
-        except Exception as e:
-            if attempt == MAX_RETRY_ATTEMPTS - 1:
-                print(
-                    f"Failed to connect to RabbitMQ after {MAX_RETRY_ATTEMPTS} attempts: {e}",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            time.sleep(RETRY_DELAY)
+    conn = connect_with_retry(AMQP_URL, MAX_RETRY_ATTEMPTS, RETRY_DELAY)
 
     with conn:
-        ch = conn.channel()
-
-        # Declare the topic exchange where workers are bound with routing keys "1", "2", ..., "N"
-        ch.exchange_declare(exchange=OUT_QUEUE, exchange_type="topic", durable=True, auto_delete=False)
-
-        # Results queue to collect whatever workers send back
-        ch.queue_declare(queue=IN_QUEUE, durable=True, auto_delete=False, exclusive=False)
+        ch, queue_name = setup_consumer_queue(conn, OUT_QUEUE)
 
         # Prepare batches
-        lines = [ln.strip() for ln in transactions_batch.strip().splitlines() if ln.strip()]
-        batches = [[] for _ in range(num_workers)]
-        for idx, line in enumerate(lines):
-            batches[idx % num_workers].append(line)
+        batches = [transactions_batch]
 
         # Publish each batch to its worker via routing key = worker number ("1"..)
-        for i in range(num_workers):
-            routing_key = str(i + 1)
-            payload = "\n".join(batches[i]).encode("utf-8")
-            if payload:
-                ch.basic_publish(
-                    exchange=IN_QUEUE,
-                    routing_key=routing_key,
-                    body=payload,
-                    properties=pika.BasicProperties(delivery_mode=2),  # make message persistent
-                )
+        send_batches(ch, batches, IN_QUEUE, NUM_WORKERS)
 
         # Send EOF to each worker
-        for i in range(num_workers):
-            routing_key = str(i + 1)
-            ch.basic_publish(
-                exchange=IN_QUEUE,
-                routing_key=routing_key,
-                body=b"EOF",
-            )
+        send_eof(ch, IN_QUEUE, NUM_WORKERS)
 
         # Receive whatever workers forward (only evens)
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        results = ""
-        while True:
-            method, props, body = ch.basic_get(queue=OUT_QUEUE, auto_ack=True)
-            if not method:
-                break
-            results += body.decode("utf-8") + "\n"
+        eof_target = NUM_WORKERS  # <-- stop after receiving 3 EOFs
+        eof_count = 0
+        def callback(ch, method, properties, body):
+            nonlocal eof_count, eof_target
+            body_str = body.decode("utf-8").strip()
 
-        print("Results received:\n", results.strip())
+            if body_str == "EOF":
+                eof_count += 1
+                print(f"Received EOF ({eof_count}/{eof_target})")
+                if eof_count >= eof_target:
+                    print("Received 3 EOFs — stopping consumer.")
+                    ch.stop_consuming()  # cleanly exit start_consuming loop
+                return
+            print(f"{body_str}")
 
+        ch.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
+        ch.start_consuming()
 
 if __name__ == "__main__":
     main()

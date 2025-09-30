@@ -3,7 +3,6 @@
 import sys
 import os
 import time
-import pika
 
 # Add the current directory to Python path for importing rabbitmq_utils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

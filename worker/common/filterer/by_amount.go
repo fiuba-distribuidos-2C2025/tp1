@@ -50,7 +50,7 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {

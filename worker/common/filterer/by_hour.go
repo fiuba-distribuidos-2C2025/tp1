@@ -63,7 +63,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {

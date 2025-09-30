@@ -1,11 +1,15 @@
 package filterer
 
 import (
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
+
+var transactionFieldIndices = []int{0, 1, 4, 7, 8}
+var minYearAllowed = 2024
+var maxYearAllowed = 2025
 
 // Validates if a transaction is within the specified year range.
 // Sample transaction received:
@@ -16,8 +20,10 @@ func transactionInYearRange(transaction string, minYear int, maxYear int) bool {
 		return false
 	}
 	createdAt := elements[8]
-	year := createdAt[:4]
-	return year >= strconv.Itoa(minYear) && year <= strconv.Itoa(maxYear)
+
+	// TODO: should we assume the time format is always corrects (no errors)?
+	t, _ := time.Parse(time.DateTime, createdAt)
+	return t.Year() >= minYear && t.Year() <= maxYear
 }
 
 // Filter responsible for filtering transactions by year.
@@ -49,14 +55,12 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
-				transactions := messageToArray(body)
+				transactions := splitBatchInRows(body)
 
 				outMsg := ""
 				for _, transaction := range transactions {
-					if transactionInYearRange(transaction, 2024, 2025) {
-						// Keeps elements of index 0, 1, 4, 7, 8
-						indices := []int{0, 1, 4, 7, 8}
-						transaction := removeNeedlessFields(transaction, indices)
+					if transactionInYearRange(transaction, minYearAllowed, maxYearAllowed) {
+						transaction := removeNeedlessFields(transaction, transactionFieldIndices)
 						outMsg += transaction + "\n"
 					}
 				}

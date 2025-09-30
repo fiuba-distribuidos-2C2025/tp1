@@ -104,16 +104,10 @@ func (w *Worker) Start() error {
 	// TODO: fix broadcast
 	// outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
 	outputQueues := make([]*middleware.MessageMiddlewareExchange, w.config.OutputReceivers)
-	if w.config.OutputReceivers == 0 {
-		// TODO: the only case where this value should be zero is when testing only parts of the system
-		// really crappy way to handle this, fix later
-		outputQueues = make([]*middleware.MessageMiddlewareExchange, 1)
-		outputQueues[0] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
-	} else {
-		for id := 0; id <= w.config.OutputReceivers-1; id++ {
-			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), w.config.OutputQueue)
-			outputQueues[id] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{strconv.Itoa(id + 1)}, w.channel)
-		}
+
+	for id := 0; id <= w.config.OutputReceivers-1; id++ {
+		log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), w.config.OutputQueue)
+		outputQueues[id] = middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{strconv.Itoa(id + 1)}, w.channel)
 	}
 
 	idx := 0
@@ -137,16 +131,9 @@ func (w *Worker) Start() error {
 				continue
 			}
 
-			if w.config.OutputReceivers == 0 {
-				// TODO: the only case where this value should be zero is when testing only parts of the system
-				// really crappy way to handle this, fix later
-				log.Infof("Forwarding message: %s to worker 1", msg)
-				outputQueues[0].Send([]byte(msg))
-			} else {
-				receiver := (idx + w.config.ID) % w.config.OutputReceivers
-				log.Infof("Forwarding message: %s to worker %d", msg, receiver+1)
-				outputQueues[receiver].Send([]byte(msg))
-			}
+			receiver := (idx + w.config.ID) % w.config.OutputReceivers
+			log.Infof("Forwarding message: %s to worker %d", msg, receiver+1)
+			outputQueues[receiver].Send([]byte(msg))
 			idx += 1
 		}
 

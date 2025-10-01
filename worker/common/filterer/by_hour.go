@@ -61,7 +61,8 @@ func transactionInHourRange(transaction string, minHour string, maxHour string, 
 //
 // Output format of each row (batched when processed):
 // transaction_id,store_id,user_id,final_amount,created_at
-func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	eofCount := 0
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -84,8 +85,11 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 				}
 				body := strings.TrimSpace(string(msg.Body))
 				if body == "EOF" {
-					outChan <- "EOF"
-					continue
+					eofCount++
+					if eofCount == neededEof {
+						outChan <- "EOF"
+						continue
+					}
 				}
 				outBuilder.Reset()
 				transactions := splitBatchInRows(body)

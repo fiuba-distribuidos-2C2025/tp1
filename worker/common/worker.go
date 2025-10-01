@@ -86,16 +86,17 @@ func (w *Worker) Start() error {
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue+"_"+strconv.Itoa(w.config.ID), w.channel)
 	log.Infof("Input queue declared: %s", w.config.InputQueue+"_"+strconv.Itoa(w.config.ID))
 
+	neededEof := w.config.InputSenders
 	switch w.config.WorkerJob {
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "HOUR_FILTER":
 		log.Info("Starting HOUR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof))
 	default:
 		log.Error("Unknown worker job")
 		return errors.New("Unknown worker job")
@@ -120,7 +121,7 @@ func (w *Worker) Start() error {
 	}
 
 	idx := 0
-	sendersFinCount := 0
+	// sendersFinCount := 0
 	for {
 		select {
 		case <-w.shutdown:
@@ -129,19 +130,26 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 			if msg == "EOF" {
-				log.Infof("EOF received")
-				sendersFinCount += 1
-				if sendersFinCount >= w.config.InputSenders {
-					log.Infof("Broadcasting EOF")
-					for _, queues := range outputQueues {
-						for _, queue := range queues {
-							log.Infof("Broadcasting EOF to queue: %s", queue)
-							queue.Send([]byte("EOF"))
-						}
+				// log.Debugf("EOF received")
+				// sendersFinCount += 1
+				// if sendersFinCount >= w.config.InputSenders {
+				// 	log.Infof("Broadcasting EOF")
+				// 	for _, queues := range outputQueues {
+				// 		for _, queue := range queues {
+				// 			log.Debugf("Broadcasting EOF to queue: ", queue)
+				// 			queue.Send([]byte("EOF"))
+				// 		}
+				// 	}
+				// 	return nil
+				// }
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte("EOF"))
 					}
-					return nil
 				}
-				continue
+				return nil
 			}
 
 			for i, queues := range outputQueues {

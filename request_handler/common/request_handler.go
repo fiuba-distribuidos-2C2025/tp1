@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,9 +24,10 @@ const (
 
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
-	Port          string
-	IP            string
-	MiddlewareURL string
+	Port           string
+	IP             string
+	MiddlewareURL  string
+	ReceiversCount int
 }
 
 // RequestHandler handles incoming client connections and manages message flow
@@ -177,19 +179,26 @@ func (rh *RequestHandler) processMessage(message *BatchMessage) (string, error) 
 	}
 	defer channel.Close()
 
-	resultsExchange := middleware.NewMessageMiddlewareExchange(
-		"final_results",
-		[]string{"query1"},
+	resultsExchange := middleware.NewMessageMiddlewareQueue(
+		"final_results_1",
 		channel,
 	)
 	resultChan := make(chan string, 1)
 	doneChan := make(chan error, 1)
 	// Start consuming
 	resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
+	receiverID := (message.CurrentChunk % rh.Config.ReceiversCount)
+	if receiverID == 0 {
+		receiverID = 1
+	}
 
 	// Send message to transactions queue
-	if err := rh.sendToQueue(channel, message); err != nil {
+	if err := rh.sendToQueue(channel, message, receiverID); err != nil {
 		return "", fmt.Errorf("failed to send to queue: %w", err)
+	}
+
+	if err := rh.sendEOF(channel); err != nil {
+		return "", fmt.Errorf("failed to send EOF: %w", err)
 	}
 
 	// Wait for result
@@ -202,28 +211,25 @@ func (rh *RequestHandler) processMessage(message *BatchMessage) (string, error) 
 }
 
 // sendToQueue sends the batch message to the transactions queue
-func (rh *RequestHandler) sendToQueue(channel *amqp.Channel, message *BatchMessage) error {
-	queue := middleware.NewMessageMiddlewareQueue("transactions", channel)
+func (rh *RequestHandler) sendToQueue(channel *amqp.Channel, message *BatchMessage, receiverID int) error {
+	queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), channel)
 	payload := strings.Join(message.CSVRows, "\n")
 	queue.Send([]byte(payload))
 	log.Infof("Successfully forwarded batch to queue")
 	return nil
 }
 
+func (rh *RequestHandler) sendEOF(channel *amqp.Channel) error {
+	for i := 0; i < rh.Config.ReceiversCount; i++ {
+		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(i), channel)
+		queue.Send([]byte("EOF"))
+		log.Infof("Successfully sent EOF")
+	}
+	return nil
+}
+
 // waitForResult waits for a result from the final_results exchange
 func (rh *RequestHandler) waitForResult(resultChan chan string, doneChan chan error) (string, error) {
-	// resultsExchange := middleware.NewMessageMiddlewareExchange(
-	// 	"final_results",
-	// 	[]string{"query1"},
-	// 	channel,
-	// )
-
-	// resultChan := make(chan string, 1)
-	// doneChan := make(chan error, 1)
-
-	// Start consuming
-	// resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
-
 	// Wait for result with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), resultTimeout)
 	defer cancel()

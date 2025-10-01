@@ -34,7 +34,7 @@ func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 func (m *ResponseBuilder) Start() error {
 	rabbit_conn, _ := amqp.Dial(m.Config.MiddlewareUrl)
 	channel, _ := rabbit_conn.Channel()
-	resultsExchange1 := middleware.NewMessageMiddlewareExchange("results", []string{"query1"}, channel)
+	resultsExchange1 := middleware.NewMessageMiddlewareQueue("results_1", channel)
 	outChan := make(chan string)
 	doneChan := make(chan error)
 	resultsExchange1.StartConsuming(createResultsCallback(outChan, doneChan))
@@ -43,7 +43,7 @@ func (m *ResponseBuilder) Start() error {
 	case msg := <-outChan:
 		channel, _ = rabbit_conn.Channel()
 		log.Info("Resending query 1 result")
-		finalResultsExchange := middleware.NewMessageMiddlewareExchange("final_results", []string{"query1"}, channel)
+		finalResultsExchange := middleware.NewMessageMiddlewareQueue("final_results_1", channel)
 		finalResultsExchange.Send([]byte(msg))
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	// "errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -24,7 +25,7 @@ func InitConfig() (*viper.Viper, error) {
 
 	// Configure viper to read env variables with the CLI_ prefix
 	v.AutomaticEnv()
-	v.SetEnvPrefix("cli")
+	v.SetEnvPrefix("worker")
 	// Use a replacer to replace env variables underscores with points. This let us
 	// use nested configurations in the config file and at the same time define
 	// env variables for the nested configurations
@@ -35,8 +36,10 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("middleware", "url")
 	v.BindEnv("middleware", "inputQueue")
 	v.BindEnv("middleware", "outputQueue")
-	v.BindEnv("worker", "job")
-	v.SetDefault("middleware", "outputRoutingKey")
+	v.BindEnv("middleware", "senders")
+	v.BindEnv("middleware", "receivers")
+	v.BindEnv("job")
+	v.BindEnv("id")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -47,6 +50,13 @@ func InitConfig() (*viper.Viper, error) {
 		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
 		fmt.Printf("Error: %s", err)
 	}
+
+	// TODO: this check is valid if the whole system is running, but fails
+	// if it's ran in parts
+	// TODO: fix later
+	// if v.GetInt("middleware.receivers") <= 0 {
+	// 	return nil, errors.New("middleware.receivers must be greater than zero")
+	// }
 
 	return v, nil
 }
@@ -88,12 +98,17 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	OutputQueue := strings.Split(v.GetString("middleware.outputQueue"), ",")
+	OutputReceivers := strings.Split(v.GetString("middleware.receivers"), ",")
+
 	workerConfig := common.WorkerConfig{
-		MiddlewareUrl:         v.GetString("middleware.url"),
-		InputQueue:            v.GetString("middleware.inputQueue"),
-		OutputQueueOrExchange: v.GetString("middleware.outputQueueOrExchange"),
-		WorkerJob:             v.GetString("worker.job"),
-		OutputRoutingKey:      v.GetString("middleware.outputRoutingKey"),
+		MiddlewareUrl:   v.GetString("middleware.url"),
+		InputQueue:      v.GetString("middleware.inputQueue"),
+		OutputQueue:     OutputQueue,
+		InputSenders:    v.GetInt("middleware.senders"),
+		OutputReceivers: OutputReceivers,
+		WorkerJob:       v.GetString("job"),
+		ID:              v.GetInt("id"),
 	}
 
 	worker, err := common.NewWorker(workerConfig)

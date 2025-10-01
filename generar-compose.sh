@@ -10,6 +10,8 @@ OUTPUT_FILE="$1"
 WORKER_COUNT_FILTER_BY_YEAR="$2"
 WORKER_COUNT_FILTER_BY_HOUR="$3"
 WORKER_COUNT_FILTER_BY_AMOUNT="$4"
+WORKER_COUNT_GROUPER_BY_MONTH_YEAR=1
+REQUEST_CONTROLLER_COUNT=1
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -56,6 +58,8 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_COUNT=$WORKER_COUNT_FILTER_BY_YEAR
 
   response_builder:
     container_name: response_builder
@@ -84,9 +88,13 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=transactions
-      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=by_year_filter_output
+      - WORKER_JOB=YEAR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
+      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_MONTH_YEAR
+      - WORKER_ID=$i
+
 
 EOL
 done
@@ -104,9 +112,13 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=HOUR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_year_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=by_hour_filter_output
+      - WORKER_JOB=HOUR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT
+      - WORKER_ID=$i
+
 EOL
 done
 
@@ -123,10 +135,13 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=AMOUNT_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=by_hour_filter_output
-      - CLI_MIDDLEWARE_OUTPUTQUEUEOREXCHANGE=results
-      - CLI_MIDDLEWARE_OUTPUTROUTINGKEY=query1
+      - WORKER_JOB=AMOUNT_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
+      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_ID=$i
+
 EOL
 done
 

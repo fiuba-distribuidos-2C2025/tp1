@@ -1,0 +1,1 @@
+# This file makes the suite directory a Python package

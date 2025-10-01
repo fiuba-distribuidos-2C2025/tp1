@@ -45,11 +45,18 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 			// return
 
 			case msg, ok := <-*consumeChannel:
+				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
+
+				if body == "EOF" {
+					outChan <- "EOF"
+					continue
+				}
+
 				transactions := splitBatchInRows(body)
 
 				outMsg := ""
@@ -61,7 +68,6 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 					}
 				}
 
-				msg.Ack(false)
 				if outMsg != "" {
 					outChan <- outMsg
 				}

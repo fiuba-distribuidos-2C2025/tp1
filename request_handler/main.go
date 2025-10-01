@@ -16,7 +16,7 @@ var log = logging.MustGetLogger("log")
 
 const (
 	defaultConfigPath = "/config/config.yaml"
-	envPrefix         = "cli"
+	envPrefix         = "request"
 	defaultLogLevel   = "info"
 )
 
@@ -91,9 +91,10 @@ func initLogger(logLevel string) error {
 // buildRequestHandlerConfig extracts configuration from Viper and builds the config struct
 func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
 	return common.RequestHandlerConfig{
-		Port:          v.GetString("request_handler.port"),
-		IP:            v.GetString("request_handler.ip"),
-		MiddlewareURL: v.GetString("rabbit.url"),
+		Port:           v.GetString("request_handler.port"),
+		IP:             v.GetString("request_handler.ip"),
+		MiddlewareURL:  v.GetString("rabbit.url"),
+		ReceiversCount: v.GetInt("middleware.receivers.count"),
 	}
 }
 

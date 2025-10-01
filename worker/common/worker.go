@@ -1,8 +1,8 @@
 package common
 
 import (
-	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -14,11 +14,13 @@ import (
 var log = logging.MustGetLogger("log")
 
 type WorkerConfig struct {
-	MiddlewareUrl         string
-	InputQueue            string
-	OutputQueueOrExchange string
-	OutputRoutingKey      string
-	WorkerJob             string
+	MiddlewareUrl   string
+	InputQueue      string
+	OutputQueue     []string
+	InputSenders    int
+	OutputReceivers []string
+	WorkerJob       string
+	ID              int
 }
 
 type Worker struct {
@@ -72,6 +74,7 @@ func (w *Worker) Start() error {
 	log.Infof("Worker started!")
 
 	// Start cleanup
+	// TODO: We should use the middleware interface.
 	defer func() {
 		_ = w.channel.Close()
 		_ = w.conn.Close()
@@ -80,7 +83,8 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue, w.channel)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue+"_"+strconv.Itoa(w.config.ID), w.channel)
+	log.Infof("Input queue declared: %s", w.config.InputQueue)
 
 	switch w.config.WorkerJob {
 	case "YEAR_FILTER":
@@ -97,55 +101,63 @@ func (w *Worker) Start() error {
 		return errors.New("Unknown worker job")
 	}
 
-	if w.config.OutputRoutingKey == "" {
-		log.Infof("Listening on queue %s", w.config.OutputQueueOrExchange)
-		outQueue := middleware.NewMessageMiddlewareQueue(w.config.OutputQueueOrExchange, w.channel)
-		for {
-			select {
-			case <-w.shutdown:
-				log.Info("Shutdown signal received, stopping worker...")
-				return nil
-
-			case msg := <-inQueueResponseChan:
-				log.Infof("Forwarding message: %s", msg)
-				outQueue.Send([]byte(msg))
-			}
-
+	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
+	for i := 0; i < len(w.config.OutputReceivers); i++ {
+		outputQueueName := w.config.OutputQueue[i]
+		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+		if err != nil {
+			log.Errorf("Error parsing output receivers: %s", err)
+			return err
 		}
-	} else {
-		log.Infof("Listening on exchange %s", w.config.OutputQueueOrExchange)
-		outExchange := middleware.NewMessageMiddlewareExchange(w.config.OutputQueueOrExchange, []string{w.config.OutputRoutingKey}, w.channel)
-		for {
-			select {
-			case <-w.shutdown:
-				log.Info("Shutdown signal received, stopping worker...")
-				return nil
 
-			case msg := <-inQueueResponseChan:
-				log.Infof("Forwarding message: %s", msg)
-				outExchange.Send([]byte(msg))
-			}
+		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
+		for id := 0; id < outputWorkerCount; id++ {
 
+			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), outputQueueName)
+
+			outputQueues[i][id] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(id+1), w.channel)
 		}
 	}
-}
 
-func (w *Worker) forwardMsg(msg string) error {
-	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	idx := 0
+	sendersFinCount := 0
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return nil
 
-	defer cancel()
+		case msg := <-inQueueResponseChan:
+			if msg == "EOF" {
+				log.Debugf("EOF received")
+				sendersFinCount += 1
+				if sendersFinCount >= w.config.InputSenders {
+					log.Infof("Broadcasting EOF")
+					for _, queues := range outputQueues {
+						for _, queue := range queues {
+							log.Debugf("Broadcasting EOF to queue: ", queue)
+							queue.Send([]byte("EOF"))
+						}
+					}
+					return nil
+				}
+				continue
+			}
 
-	if err := w.channel.PublishWithContext(
-		pubCtx,
-		"", w.config.OutputQueueOrExchange,
-		false, false,
-		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(msg)},
-	); err != nil {
-		return err
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					return err
+				}
+
+				receiver := (idx + w.config.ID) % outputWorkerCount
+				log.Infof("Forwarding message: %s to worker %d with ", msg, receiver+1)
+				queues[receiver].Send([]byte(msg))
+			}
+			idx += 1
+		}
+		// TODO: know when input queue is finished!
 	}
-
-	log.Infof("Forwarded message: %s", msg)
-	return nil
 }
 
 func (w *Worker) Stop() {

@@ -83,7 +83,7 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareExchange(w.config.InputQueue, []string{strconv.Itoa(w.config.ID)}, w.channel)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue + "_" + strconv.Itoa(w.config.ID), w.channel)
 	log.Infof("Input queue declared: %s", w.config.InputQueue)
 
 	switch w.config.WorkerJob {
@@ -101,22 +101,21 @@ func (w *Worker) Start() error {
 		return errors.New("Unknown worker job")
 	}
 
-	// TODO: fix broadcast
-	// outputBroadcast := middleware.NewMessageMiddlewareExchange(w.config.OutputQueue, []string{"#"}, w.channel)
-	outputQueues := make([][]*middleware.MessageMiddlewareExchange, len(w.config.OutputReceivers))
+	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
 	for i := 0; i < len(w.config.OutputReceivers); i++ {
-		exchangeName := w.config.OutputQueue[i]
+		outputQueueName := w.config.OutputQueue[i]
 		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
 		if err != nil {
 			log.Errorf("Error parsing output receivers: %s", err)
 			return err
 		}
 
-		outputQueues[i] = make([]*middleware.MessageMiddlewareExchange, outputWorkerCount)
+		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
 		for id := 0; id < outputWorkerCount; id++ {
-			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), exchangeName)
 
-			outputQueues[i][id] = middleware.NewMessageMiddlewareExchange(exchangeName, []string{strconv.Itoa(id + 1)}, w.channel)
+			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), outputQueueName)
+
+			outputQueues[i][id] = middleware.NewMessageMiddlewareQueue(outputQueueName + "_" + strconv.Itoa(id+1), w.channel)
 		}
 	}
 

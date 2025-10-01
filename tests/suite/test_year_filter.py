@@ -13,8 +13,8 @@ IN_QUEUE = "transactions"
 OUT_QUEUE = "transactions_2024_2025_q1"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-NUM_IN_WORKERS = 1
-NUM_OUT_WORKERS = 1
+NUM_IN_WORKERS = 3
+NUM_OUT_WORKERS = 3
 
 def main():  # Generate transactions
     transactions_batch = """

@@ -26,23 +26,29 @@ def connect_with_retry(
                 sys.exit(2)
             time.sleep(retry_delay)
 
-def setup_consumer_queue(connection, out_queue):
+def setup_consumer_queue(connection, queue_name):
     ch = connection.channel()
-    ch.exchange_declare(exchange=out_queue, exchange_type="topic", durable=True, auto_delete=False)
-    result = ch.queue_declare('', exclusive=True)
-    queue_name = result.method.queue
-    ch.queue_bind(exchange=out_queue, queue=queue_name, routing_key="#")
+    ch.queue_declare(queue=queue_name, durable=True, auto_delete=False)
     return ch, queue_name
 
-def send_batches(channel, batches, exchange, num_workers):
+def send_batches(channel, batches, queue_name, num_workers):
+    # Declare worker queues
+    worker_queues = []
+    for i in range(num_workers):
+        worker_queue = f"{queue_name}_{i + 1}"
+        channel.queue_declare(queue=worker_queue, durable=True, auto_delete=False)
+        worker_queues.append(worker_queue)
+
+    # Distribute batches across worker queues
     for i in range(len(batches)):
+        target_queue = worker_queues[i % num_workers]
         channel.basic_publish(
-            exchange=exchange,
-            routing_key=str((i % num_workers) + 1),
+            exchange='',
+            routing_key=target_queue,
             body=str(batches[i]).encode("utf-8"),
         )
 
-def send_eof(channel, exchange, num_workers):
+def send_eof(channel, queue_name, num_workers):
     for i in range(num_workers):
-        routing_key = str(i + 1)
-        channel.basic_publish(exchange=exchange, routing_key=routing_key, body=b"EOF")
+        worker_queue = f"{queue_name}_{i + 1}"
+        channel.basic_publish(exchange='', routing_key=worker_queue, body=b"EOF")

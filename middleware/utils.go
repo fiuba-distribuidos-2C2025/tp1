@@ -39,7 +39,6 @@ func createTestCallback(messages *[]string) onMessageCallback {
 		for d := range deliveries {
 			*messages = append(*messages, string(d.Body))
 			d.Ack(false)
-			return
 		}
 	}
 }

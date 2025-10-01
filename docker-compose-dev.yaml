@@ -7,6 +7,9 @@ services:
     volumes:
       - ./client:/config
       - ./data:/data
+    depends_on:
+      - rabbit
+      - request_handler
     networks:
       - testing_net
 
@@ -19,15 +22,40 @@ services:
     networks:
       - testing_net
     environment:
-        RABBITMQ_DEFAULT_USER: guest
-        RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   request_handler:
     container_name: request_handler
     image: request_handler:latest
     entrypoint: /request_handler
     volumes:
-      - ./request_handler:/config
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    networks:
+      - testing_net
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_COUNT=2
+
+  response_builder:
+    container_name: response_builder
+    image: response_builder:latest
+    entrypoint: /response_builder
+    volumes:
+      - ./response_builder/config.yaml:/config/config.yaml
+    environment:
+      - RESPONSE_MIDDLEWARE_RECEIVERS_COUNT=1
+    depends_on:
+      rabbit:
+        condition: service_healthy
     networks:
       - testing_net
 
@@ -42,9 +70,12 @@ services:
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=input
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
+      - WORKER_JOB=YEAR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
+      - WORKER_MIDDLEWARE_SENDERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2,1
+      - WORKER_ID=1
 
   filter_by_year_worker2:
     container_name: filter_by_year_worker2
@@ -57,12 +88,15 @@ services:
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=input
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
+      - WORKER_JOB=YEAR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
+      - WORKER_MIDDLEWARE_SENDERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2,1
+      - WORKER_ID=2
 
-  filter_by_year_worker3:
-    container_name: filter_by_year_worker3
+  filter_by_hour_worker1:
+    container_name: filter_by_hour_worker1
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -72,9 +106,66 @@ services:
     depends_on:
       - rabbit
     environment:
-      - CLI_WORKER_JOB=YEAR_FILTER
-      - CLI_MIDDLEWARE_INPUTQUEUE=input
-      - CLI_MIDDLEWARE_OUTPUTQUEUE=output
+      - WORKER_JOB=HOUR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_ID=1
+
+  filter_by_hour_worker2:
+    container_name: filter_by_hour_worker2
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=HOUR_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_ID=2
+
+  filter_by_amount_worker1:
+    container_name: filter_by_amount_worker1
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AMOUNT_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_ID=1
+
+  filter_by_amount_worker2:
+    container_name: filter_by_amount_worker2
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AMOUNT_FILTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_ID=2
 
 networks:
   testing_net:

@@ -86,7 +86,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 				body := strings.TrimSpace(string(msg.Body))
 				if body == "EOF" {
 					eofCount++
-					if eofCount == neededEof {
+					if eofCount >= neededEof {
 						outChan <- "EOF"
 						continue
 					}

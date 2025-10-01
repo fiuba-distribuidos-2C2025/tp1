@@ -8,10 +8,10 @@ import (
 )
 
 type ItemStats struct {
-	id            string
-	quantity      int
-	subtotal      float64
-	date          string
+	id       string
+	quantity int
+	subtotal float64
+	date     string
 }
 
 // sample string input
@@ -48,11 +48,38 @@ func parseTransactionData(transaction string) (string, ItemStats) {
 	stats := ItemStats{
 		id:       itemId,
 		quantity: quantity,
-		subtotal:   subtotal,
+		subtotal: subtotal,
 		date:     yearMonth,
 	}
 
-	return itemId + yearMonth, stats
+	return yearMonth + itemId, stats
+}
+
+// Convert accumulator map to batches of at most 10mb strings for output
+func get_accumulator_batches(accumulator map[string]ItemStats) []string {
+	var batches []string
+	var currentBatch strings.Builder
+	currentSize := 0
+	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	for key, stats := range accumulator {
+		line := key + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+		lineSize := len(line)
+
+		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
+			batches = append(batches, currentBatch.String())
+			currentBatch.Reset()
+			currentSize = 0
+		}
+
+		currentBatch.WriteString(line)
+		currentSize += lineSize
+	}
+	if currentSize > 0 {
+		batches = append(batches, currentBatch.String())
+	}
+
+	return batches
 }
 
 func CreateByProfitGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -78,8 +105,11 @@ func CreateByProfitGrouperCallbackWithOutput(outChan chan string, neededEof int)
 
 				if body == "EOF" {
 					eofCount++
-					if eofCount == neededEof {
-						outChan <- "TODO" // accumulator
+					if eofCount >= neededEof {
+						batches := get_accumulator_batches(accumulator)
+						for _, batch := range batches {
+							outChan <- batch
+						}
 						outChan <- "EOF"
 						continue
 					}
@@ -87,14 +117,14 @@ func CreateByProfitGrouperCallbackWithOutput(outChan chan string, neededEof int)
 
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
-					item_id, item_tx_stat := parseTransactionData(transaction)
-				    if _, ok := accumulator[item_id]; !ok {
-				        accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0}
-				    }
-				    txStat := accumulator[item_id]
-				    txStat.quantity += item_tx_stat.quantity
-				    txStat.subtotal += item_tx_stat.subtotal
-				    accumulator[item_id] = txStat
+					item_key, item_tx_stat := parseTransactionData(transaction)
+					if _, ok := accumulator[item_key]; !ok {
+						accumulator[item_key] = ItemStats{quantity: 0, subtotal: 0}
+					}
+					txStat := accumulator[item_key]
+					txStat.quantity += item_tx_stat.quantity
+					txStat.subtotal += item_tx_stat.subtotal
+					accumulator[item_key] = txStat
 				}
 			}
 		}

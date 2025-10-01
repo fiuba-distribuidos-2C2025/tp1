@@ -65,7 +65,7 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) 
 
 				if body == "EOF" {
 					eofCount++
-					if eofCount == neededEof {
+					if eofCount >= neededEof {
 						outChan <- "EOF"
 						continue
 					}

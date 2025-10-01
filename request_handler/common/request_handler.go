@@ -228,7 +228,7 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 			rh.currentWorkerQueue++
 		}
 
-		if err := rh.sendToQueue(message, receiverID); err != nil {
+		if err := rh.sendToQueue(message, receiverID, message.FileType); err != nil {
 			return false, false, fmt.Errorf("failed to send to queue: %w", err)
 		}
 
@@ -314,12 +314,25 @@ func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bo
 }
 
 // sendToQueue sends the batch message to the transactions queue
-func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int) error {
-	queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), rh.Channel)
-	payload := strings.Join(message.CSVRows, "\n")
-	queue.Send([]byte(payload))
-	log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
-		message.CurrentChunk, message.TotalChunks, receiverID)
+func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fileType string) error {
+	fileTypeInt, _ := strconv.Atoi(fileType)
+	switch fileTypeInt {
+	case 0:
+		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), rh.Channel)
+		payload := strings.Join(message.CSVRows, "\n")
+		queue.Send([]byte(payload))
+		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+			message.CurrentChunk, message.TotalChunks, receiverID)
+		return nil
+	case 1:
+		queue := middleware.NewMessageMiddlewareQueue("transactions_items"+"_"+strconv.Itoa(receiverID), rh.Channel)
+		payload := strings.Join(message.CSVRows, "\n")
+		queue.Send([]byte(payload))
+		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+			message.CurrentChunk, message.TotalChunks, receiverID)
+		return nil
+	}
+
 	return nil
 }
 

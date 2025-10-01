@@ -16,7 +16,7 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize     = 10 * 1024 * 1024 // 64MB
+	defaultBatchSize     = 10 * 1024 * 1024 // 10MB
 	expectedResultsCount = 1
 )
 
@@ -56,9 +56,9 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	// Transfer all CSV files in the directory
-	if err := c.TransferCSVFolder("/data"); err != nil {
-		log.Errorf("Failed to transfer CSV files: %v", err)
+	// Transfer all CSV files organized by directory/file type
+	if err := c.TransferDataDirectory("/data"); err != nil {
+		log.Errorf("Failed to transfer data: %v", err)
 		return err
 	}
 
@@ -89,8 +89,45 @@ func (c *Client) Stop() {
 	log.Info("Client shutdown complete")
 }
 
-// TransferCSVFolder finds and transfers all CSV files in a directory
-func (c *Client) TransferCSVFolder(folderPath string) error {
+// TransferDataDirectory iterates over subdirectories and assigns file types
+func (c *Client) TransferDataDirectory(dataPath string) error {
+	// Read directory contents
+	entries, err := os.ReadDir(dataPath)
+	if err != nil {
+		return fmt.Errorf("failed to read data directory: %w", err)
+	}
+
+	fileType := 0
+	processedDirs := 0
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		dirPath := filepath.Join(dataPath, entry.Name())
+		log.Infof("Processing directory: %s (FileType: %d)", entry.Name(), fileType)
+
+		// Transfer all CSV files in this directory with the current fileType
+		if err := c.TransferCSVFolder(dirPath, fileType); err != nil {
+			log.Errorf("Failed to transfer CSVs from directory %s: %v", entry.Name(), err)
+			return err
+		}
+
+		processedDirs++
+		fileType++
+	}
+
+	if processedDirs == 0 {
+		return fmt.Errorf("no subdirectories found in: %s", dataPath)
+	}
+
+	log.Infof("Processed %d directories successfully", processedDirs)
+	return nil
+}
+
+// TransferCSVFolder finds and transfers all CSV files in a directory with the given fileType
+func (c *Client) TransferCSVFolder(folderPath string, fileType int) error {
 	// Read directory contents
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
@@ -110,28 +147,29 @@ func (c *Client) TransferCSVFolder(folderPath string) error {
 	}
 
 	if len(csvFiles) == 0 {
-		return fmt.Errorf("no CSV files found in directory: %s", folderPath)
+		log.Warningf("No CSV files found in directory: %s", folderPath)
+		return nil
 	}
 
-	log.Infof("Found %d CSV file(s) to transfer", len(csvFiles))
+	log.Infof("Found %d CSV file(s) to transfer with fileType %d", len(csvFiles), fileType)
 
 	// Transfer each CSV file
 	for i, filePath := range csvFiles {
-		log.Infof("Transferring file %d/%d: %s", i+1, len(csvFiles), filePath)
+		log.Infof("Transferring file %d/%d: %s (FileType: %d)", i+1, len(csvFiles), filePath, fileType)
 
-		if err := c.TransferCSVFile(filePath); err != nil {
+		if err := c.TransferCSVFile(filePath, fileType); err != nil {
 			return fmt.Errorf("failed to transfer file %s: %w", filePath, err)
 		}
 
 		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(csvFiles), filePath)
 	}
 
-	log.Infof("All %d CSV files transferred successfully", len(csvFiles))
+	log.Infof("All %d CSV files transferred successfully from %s", len(csvFiles), folderPath)
 	return nil
 }
 
 // TransferCSVFile reads and transfers a CSV file in batches
-func (c *Client) TransferCSVFile(path string) error {
+func (c *Client) TransferCSVFile(path string, fileType int) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
@@ -150,20 +188,20 @@ func (c *Client) TransferCSVFile(path string) error {
 		return fmt.Errorf("failed to read header: %w", err)
 	}
 
-	metadata := c.calculateFileMetadata(fileInfo)
+	metadata := c.calculateFileMetadata(fileInfo, fileType)
 
 	return c.transferFileInBatches(reader, metadata)
 }
 
 // calculateFileMetadata extracts and calculates file metadata
-func (c *Client) calculateFileMetadata(fileInfo os.FileInfo) fileMetadata {
+func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType int) fileMetadata {
 	totalChunks := int(fileInfo.Size()) / defaultBatchSize
 	if totalChunks == 0 {
 		totalChunks = 1
 	}
 
 	return fileMetadata{
-		fileType:    0,               // TODO: CREATE ENUM
+		fileType:    fileType,
 		fileHash:    fileInfo.Name(), // TODO: CALCULATE FILE HASH
 		totalChunks: totalChunks,
 	}
@@ -183,7 +221,7 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 			if err := c.sendCSVBatch(metadata, currentChunk, rows); err != nil {
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
-			log.Infof("Sent chunk %d/%d of file %s", currentChunk, metadata.totalChunks, metadata.fileHash)
+			log.Infof("Sent chunk %d/%d of file %s (FileType: %d)", currentChunk, metadata.totalChunks, metadata.fileHash, metadata.fileType)
 		}
 
 		if isEOF {
@@ -346,10 +384,6 @@ func (c *Client) readResults() error {
 	log.Info("Waiting for results from server...")
 
 	scanner := bufio.NewScanner(c.conn)
-	// // Read header
-	// if !scanner.Scan() {
-	// 	return fmt.Errorf("failed to read header")
-	// }
 
 	result := []string{}
 	for {
@@ -360,12 +394,9 @@ func (c *Client) readResults() error {
 			}
 			result = append(result, row)
 		}
-		result := strings.Join(result, "\n")
+		resultStr := strings.Join(result, "\n")
 
 		log.Infof("Result received - Length: %d bytes - Message: %s",
-			len(result), result)
-
+			len(resultStr), resultStr)
 	}
-
-	// log.Infof("All results received (%d/%d)", expectedResultsCount, expectedResultsCount)
 }

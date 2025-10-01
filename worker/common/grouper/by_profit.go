@@ -8,10 +8,10 @@ import (
 )
 
 type ItemStats struct {
-	id            string
-	quantity      int
-	subtotal      float64
-	date          string
+	id       string
+	quantity int
+	subtotal float64
+	date     string
 }
 
 // sample string input
@@ -48,7 +48,7 @@ func parseTransactionData(transaction string) (string, ItemStats) {
 	stats := ItemStats{
 		id:       itemId,
 		quantity: quantity,
-		subtotal:   subtotal,
+		subtotal: subtotal,
 		date:     yearMonth,
 	}
 
@@ -88,13 +88,13 @@ func CreateByProfitGrouperCallbackWithOutput(outChan chan string, neededEof int)
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 					item_id, item_tx_stat := parseTransactionData(transaction)
-				    if _, ok := accumulator[item_id]; !ok {
-				        accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0}
-				    }
-				    txStat := accumulator[item_id]
-				    txStat.quantity += item_tx_stat.quantity
-				    txStat.subtotal += item_tx_stat.subtotal
-				    accumulator[item_id] = txStat
+					if _, ok := accumulator[item_id]; !ok {
+						accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0}
+					}
+					txStat := accumulator[item_id]
+					txStat.quantity += item_tx_stat.quantity
+					txStat.subtotal += item_tx_stat.subtotal
+					accumulator[item_id] = txStat
 				}
 			}
 		}

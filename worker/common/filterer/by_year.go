@@ -79,6 +79,7 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 						outChan <- "EOF"
 						continue
 					}
+					continue
 				}
 				outBuilder.Reset()
 

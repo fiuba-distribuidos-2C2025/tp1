@@ -90,7 +90,9 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 						outChan <- "EOF"
 						continue
 					}
+					continue
 				}
+
 				outBuilder.Reset()
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {

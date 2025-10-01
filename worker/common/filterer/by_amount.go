@@ -69,6 +69,7 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) 
 						outChan <- "EOF"
 						continue
 					}
+					continue
 				}
 
 				// Reset builder for reuse

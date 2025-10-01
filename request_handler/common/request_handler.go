@@ -224,13 +224,14 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 		receiverID := rh.currentWorkerQueue
 		if receiverID > rh.Config.ReceiversCount {
 			rh.currentWorkerQueue = 1
-		} else {
-			rh.currentWorkerQueue++
+			receiverID = rh.currentWorkerQueue
 		}
 
 		if err := rh.sendToQueue(message, receiverID, message.FileType); err != nil {
 			return false, false, fmt.Errorf("failed to send to queue: %w", err)
 		}
+
+		rh.currentWorkerQueue++
 
 		// Send ACK after successfully processing the chunk
 		if err := rh.sendACK(conn); err != nil {

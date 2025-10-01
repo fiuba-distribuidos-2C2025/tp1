@@ -16,7 +16,7 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize     = 64 * 1024 * 1024 // 64MB
+	defaultBatchSize     = 10 * 1024 * 1024 // 64MB
 	expectedResultsCount = 1
 )
 

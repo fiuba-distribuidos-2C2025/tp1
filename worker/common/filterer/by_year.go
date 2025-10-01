@@ -11,44 +11,46 @@ var transactionFieldIndices = []int{0, 1, 4, 7, 8}
 var minYearAllowed = 2024
 var maxYearAllowed = 2025
 
-// Validates if a transaction is within the specified year range.
-// Sample transaction received:
-// 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,,,38.0,0.0,38.0,2023-07-01 07:00:00
-func transactionInYearRange(transaction string, minYear int, maxYear int) bool {
+// Combined validation and field extraction to avoid splitting twice
+func filterAndExtractFields(transaction string, minYear int, maxYear int, indices []int) (string, bool) {
 	elements := strings.Split(transaction, ",")
 	if len(elements) < 9 {
-		return false
+		return "", false
 	}
-	createdAt := elements[8]
 
-	// TODO: should we assume the time format is always corrects (no errors)?
+	// Extract and validate year (field index 8)
+	createdAt := elements[8]
 	t, _ := time.Parse(time.DateTime, createdAt)
-	return t.Year() >= minYear && t.Year() <= maxYear
+	// year := extractYear(createdAt)
+	if t.Year() < minYear || t.Year() > maxYear {
+		return "", false
+	}
+
+	// Build output with only needed fields
+	var sb strings.Builder
+
+	for i, idx := range indices {
+		elem := elements[idx]
+		if idx <= len(elements)-1 {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(elem)
+		}
+	}
+
+	return sb.String(), true
 }
 
-// Filter responsible for filtering transactions by year.
-// Minimum year to filter transactions: 2024
-// Maximum year to filter transactions: 2025
-//
-// Assumes it receives data in batches: csv rows separated by newlines.
-//
-// Sample row received:
-// transaction_id,store_id,payment_method_id,voucher_id,user_id,original_amount,discount_applied,final_amount,created_at
-// 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,,,38.0,0.0,38.0,2023-07-01 07:00:00
-//
-// Output format of each row (batched when processed):
-// transaction_id,store_id,user_id,final_amount,created_at
 func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
+		// Reusable buffer for building output
+		var outBuilder strings.Builder
+
 		for {
 			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
-
 			case msg, ok := <-*consumeChannel:
 				log.Info("PROCESSING MESSAGE")
 				msg.Ack(false)
@@ -56,26 +58,25 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
 
+				body := strings.TrimSpace(string(msg.Body))
 				if body == "EOF" {
 					outChan <- "EOF"
 					continue
 				}
+				outBuilder.Reset()
 
 				transactions := splitBatchInRows(body)
-
-				outMsg := ""
 				for _, transaction := range transactions {
-					if transactionInYearRange(transaction, minYearAllowed, maxYearAllowed) {
-						transaction := removeNeedlessFields(transaction, transactionFieldIndices)
-						outMsg += transaction + "\n"
+					if filtered, ok := filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, transactionFieldIndices); ok {
+						outBuilder.WriteString(filtered)
+						outBuilder.WriteByte('\n')
 					}
 				}
 
-				if outMsg != "" {
+				if outBuilder.Len() > 0 {
 					log.Info("MESSAGE OUT")
-					outChan <- outMsg
+					outChan <- outBuilder.String()
 				}
 			}
 		}

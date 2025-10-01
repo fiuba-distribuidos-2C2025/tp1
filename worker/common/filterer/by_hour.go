@@ -10,28 +10,43 @@ import (
 // Validates if a transaction is within the specified hour range.
 // Sample transaction received:
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,100,2023-07-01 07:00:00
-func transactionInHourRange(transaction string, minHour string, maxHour string) bool {
+func transactionInHourRange(transaction string, minHour string, maxHour string, indices []int) (string, bool) {
 	elements := strings.Split(transaction, ",")
 	if len(elements) < 5 {
-		return false
+		return "", false
 	}
 	createdAtTime := strings.Split(elements[4], " ")
 	if len(createdAtTime) != 2 {
-		return false
+		return "", false
 	}
 	timestamp, err := time.Parse(time.TimeOnly, createdAtTime[1])
 	if err != nil {
-		return false
+		return "", false
 	}
 	minHourParsed, err := time.Parse(time.TimeOnly, minHour)
 	if err != nil {
-		return false
+		return "", false
 	}
 	maxHourParsed, err := time.Parse(time.TimeOnly, maxHour)
 	if err != nil {
-		return false
+		return "", false
 	}
-	return (timestamp.After(minHourParsed) || timestamp.Equal(minHourParsed)) && (timestamp.Before(maxHourParsed) || timestamp.Equal(maxHourParsed))
+
+	if timestamp.Before(minHourParsed) || timestamp.After(maxHourParsed) {
+		return "", false
+	}
+
+	var sb strings.Builder
+	for i, idx := range indices {
+		elem := elements[idx]
+		if idx <= len(elements)-1 {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(elem)
+		}
+	}
+	return sb.String(), true
 }
 
 // Filter responsible for filtering transactions by hour.
@@ -49,6 +64,9 @@ func transactionInHourRange(transaction string, minHour string, maxHour string) 
 func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
+
+		// Reusable buffer for building output
+		var outBuilder strings.Builder
 
 		for {
 			select {
@@ -69,17 +87,18 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 					outChan <- "EOF"
 					continue
 				}
+				outBuilder.Reset()
 				transactions := splitBatchInRows(body)
-
-				outMsg := ""
 				for _, transaction := range transactions {
-					if transactionInHourRange(transaction, "06:00:00", "23:00:00") {
-						outMsg += transaction + "\n"
+					if filtered, ok := transactionInHourRange(transaction, "06:00:00", "23:00:00", []int{0, 1, 2, 3, 4}); ok {
+						outBuilder.WriteString(filtered)
+						outBuilder.WriteByte('\n')
 					}
 				}
 
-				if outMsg != "" {
-					outChan <- outMsg
+				if outBuilder.Len() > 0 {
+					log.Info("MESSAGE OUT")
+					outChan <- outBuilder.String()
 				}
 				log.Infof("Processed message")
 			}

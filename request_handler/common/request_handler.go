@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -206,14 +207,14 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 		if lastFileHash == "" {
 			lastFileHash = message.FileHash
 			totalChunks = message.TotalChunks
-			log.Debugf("Starting new file: %s with %d total chunks", lastFileHash, totalChunks)
+			log.Infof("Starting new file: %s with %d total chunks", lastFileHash, totalChunks)
 		}
 
-		// If we receive a new file, we need to handle the previous file first
-		if message.FileHash != lastFileHash {
-			log.Errorf("Received chunk from different file. Expected: %s, Got: %s", lastFileHash, message.FileHash)
-			return false, false, fmt.Errorf("received chunks from multiple files simultaneously")
-		}
+		// // If we receive a new file, we need to handle the previous file first
+		// if message.FileHash != lastFileHash {
+		// 	log.Errorf("Received chunk from different file. Expected: %s, Got: %s", lastFileHash, message.FileHash)
+		// 	return false, false, fmt.Errorf("received chunks from multiple files simultaneously")
+		// }
 
 		chunksReceived++
 		log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
@@ -336,9 +337,13 @@ func (rh *RequestHandler) sendEOF() error {
 func (rh *RequestHandler) waitForFinalResult(resultChan chan string, doneChan chan error, conn net.Conn) {
 	select {
 	case result := <-resultChan:
-		log.Infof("Result received - Length: %d - Message: %s", len(result), result)
+		// log.Infof("Result received - Length: %d - Message: %s", len(result), result)
+		list := strings.Split(result, "\n")
+		slices.Sort(list)
+		finalResult := strings.Join(list, "\n")
+		log.Infof("Result received - Length: %d - Message: %s", len(finalResult), finalResult)
 		// Send result back to client
-		if err := rh.sendResponse(conn, result); err != nil {
+		if err := rh.sendResponse(conn, finalResult); err != nil {
 			log.Errorf("Failed to send response: %v", err)
 		}
 	}

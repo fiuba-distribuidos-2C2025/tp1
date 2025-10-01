@@ -33,7 +33,8 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64) boo
 //
 // Output format of each row (batched when processed):
 // transaction_id,final_amount
-func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	eofCount := 0
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -53,8 +54,11 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeCha
 				body := strings.TrimSpace(string(msg.Body))
 
 				if body == "EOF" {
-					outChan <- "EOF"
-					continue
+					eofCount++
+					if eofCount == neededEof {
+						outChan <- "EOF"
+						continue
+					}
 				}
 
 				transactions := splitBatchInRows(body)

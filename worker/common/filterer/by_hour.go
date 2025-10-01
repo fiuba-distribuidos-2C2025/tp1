@@ -58,7 +58,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 			// return
 
 			case msg, ok := <-*consumeChannel:
-				log.Infof("Received message: %s", msg.Body)
+				log.Infof("Received message")
 				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
@@ -81,7 +81,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string) func(consumeChann
 				if outMsg != "" {
 					outChan <- outMsg
 				}
-				log.Infof("Processed message: %s", msg.Body)
+				log.Infof("Processed message")
 			}
 		}
 	}

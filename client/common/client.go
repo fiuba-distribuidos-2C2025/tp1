@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/op/go-logging"
@@ -15,7 +16,7 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize     = 8 * 1024 // 8KB
+	defaultBatchSize     = 64 * 1024 * 1024 // 64MB
 	expectedResultsCount = 1
 )
 
@@ -55,8 +56,15 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	if err := c.TransferCSVFile("/data/transactions_test.csv"); err != nil {
-		log.Errorf("Failed to transfer directory: %v", err)
+	// Transfer all CSV files in the directory
+	if err := c.TransferCSVFolder("/data"); err != nil {
+		log.Errorf("Failed to transfer CSV files: %v", err)
+		return err
+	}
+
+	// Send EOF after all files are transferred
+	if err := c.sendEOF(); err != nil {
+		log.Errorf("Failed to send EOF: %v", err)
 		return err
 	}
 
@@ -79,6 +87,47 @@ func (c *Client) Stop() {
 
 	close(c.shutdown)
 	log.Info("Client shutdown complete")
+}
+
+// TransferCSVFolder finds and transfers all CSV files in a directory
+func (c *Client) TransferCSVFolder(folderPath string) error {
+	// Read directory contents
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	csvFiles := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// Check if file has .csv extension
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".csv") {
+			csvFiles = append(csvFiles, filepath.Join(folderPath, entry.Name()))
+		}
+	}
+
+	if len(csvFiles) == 0 {
+		return fmt.Errorf("no CSV files found in directory: %s", folderPath)
+	}
+
+	log.Infof("Found %d CSV file(s) to transfer", len(csvFiles))
+
+	// Transfer each CSV file
+	for i, filePath := range csvFiles {
+		log.Infof("Transferring file %d/%d: %s", i+1, len(csvFiles), filePath)
+
+		if err := c.TransferCSVFile(filePath); err != nil {
+			return fmt.Errorf("failed to transfer file %s: %w", filePath, err)
+		}
+
+		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(csvFiles), filePath)
+	}
+
+	log.Infof("All %d CSV files transferred successfully", len(csvFiles))
+	return nil
 }
 
 // TransferCSVFile reads and transfers a CSV file in batches
@@ -209,7 +258,7 @@ func (c *Client) connectToServer() error {
 	return nil
 }
 
-// sendBatch sends a batch message to the server
+// sendBatch sends a batch message to the server and waits for ACK
 func (c *Client) sendBatch(csvBatchMsg string) error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected to server")
@@ -230,7 +279,61 @@ func (c *Client) sendBatch(csvBatchMsg string) error {
 		return fmt.Errorf("failed to flush message: %w", err)
 	}
 
-	log.Debug("Batch sent and flushed")
+	log.Debug("Batch sent and flushed, waiting for ACK...")
+
+	// Wait for ACK from server
+	if err := c.waitForACK(); err != nil {
+		return fmt.Errorf("failed to receive ACK: %w", err)
+	}
+
+	log.Debug("ACK received")
+	return nil
+}
+
+// sendEOF sends an EOF message to the server and waits for ACK
+func (c *Client) sendEOF() error {
+	if c.conn == nil {
+		return fmt.Errorf("not connected to server")
+	}
+
+	writer := bufio.NewWriter(c.conn)
+
+	// Send EOF message
+	if _, err := writer.WriteString("EOF\n"); err != nil {
+		return fmt.Errorf("failed to write EOF: %w", err)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush EOF: %w", err)
+	}
+
+	log.Info("EOF sent to server, waiting for ACK...")
+
+	// Wait for ACK from server
+	if err := c.waitForACK(); err != nil {
+		return fmt.Errorf("failed to receive EOF ACK: %w", err)
+	}
+
+	log.Info("EOF ACK received")
+	return nil
+}
+
+// waitForACK waits for an acknowledgment from the server
+func (c *Client) waitForACK() error {
+	scanner := bufio.NewScanner(c.conn)
+
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("scanner error while waiting for ACK: %w", err)
+		}
+		return fmt.Errorf("connection closed while waiting for ACK")
+	}
+
+	ack := scanner.Text()
+	if ack != "ACK" {
+		return fmt.Errorf("expected ACK, got: %s", ack)
+	}
+
 	return nil
 }
 
@@ -243,13 +346,13 @@ func (c *Client) readResults() error {
 	log.Info("Waiting for results from server...")
 
 	scanner := bufio.NewScanner(c.conn)
-	// Read header
-	if !scanner.Scan() {
-		return fmt.Errorf("failed to read header")
-	}
+	// // Read header
+	// if !scanner.Scan() {
+	// 	return fmt.Errorf("failed to read header")
+	// }
 
 	result := []string{}
-	for i := 0; i < expectedResultsCount; i++ {
+	for {
 		for scanner.Scan() {
 			row := scanner.Text()
 			if row == "" {
@@ -259,10 +362,10 @@ func (c *Client) readResults() error {
 		}
 		result := strings.Join(result, "\n")
 
-		log.Infof("Result %d/%d received - Length: %d bytes - Message: %s",
-			i+1, expectedResultsCount, len(result), result)
+		log.Infof("Result received - Length: %d bytes - Message: %s",
+			len(result), result)
+
 	}
 
-	log.Infof("All results received (%d/%d)", expectedResultsCount, expectedResultsCount)
-	return nil
+	// log.Infof("All results received (%d/%d)", expectedResultsCount, expectedResultsCount)
 }

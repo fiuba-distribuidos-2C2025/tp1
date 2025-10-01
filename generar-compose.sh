@@ -67,6 +67,8 @@ services:
     entrypoint: /response_builder
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
+    environment:
+      - RESPONSE_MIDDLEWARE_RECEIVERS_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
     depends_on:
         rabbit:
             condition: service_healthy

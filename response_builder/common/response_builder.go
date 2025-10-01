@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
@@ -13,6 +14,7 @@ var log = logging.MustGetLogger("log")
 
 type ResponseBuilderConfig struct {
 	MiddlewareUrl string
+	WorkerCount   int
 }
 
 type ResponseBuilder struct {
@@ -32,22 +34,42 @@ func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 }
 
 func (m *ResponseBuilder) Start() error {
+	log.Info("Starting response builder")
 	rabbit_conn, _ := amqp.Dial(m.Config.MiddlewareUrl)
 	channel, _ := rabbit_conn.Channel()
-	resultsExchange1 := middleware.NewMessageMiddlewareQueue("results_1", channel)
 	outChan := make(chan string)
 	doneChan := make(chan error)
-	resultsExchange1.StartConsuming(createResultsCallback(outChan, doneChan))
+	// for i := 1; i <= m.Config.WorkerCount; i++ {
+	// 	log.Infof("Listening on queue results_%d", i)
+	// 	doneChan := make(chan error)
+	// 	resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d", i), channel)
+	// 	resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan))
+	// }
+	resultsExchange := middleware.NewMessageMiddlewareQueue("results_1", channel)
+	resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan))
 
-	select {
-	case msg := <-outChan:
-		channel, _ = rabbit_conn.Channel()
-		log.Info("Resending query 1 result")
-		finalResultsExchange := middleware.NewMessageMiddlewareQueue("final_results_1", channel)
-		finalResultsExchange.Send([]byte(msg))
+	final_result := []string{}
+	totalEOFs := 0
+	for {
+		select {
+		case msg := <-outChan:
+			if msg == "EOF" {
+				log.Info("EOF received")
+				totalEOFs++
+				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFs, m.Config.WorkerCount)
+				if totalEOFs == m.Config.WorkerCount {
+					finalResultsExchange := middleware.NewMessageMiddlewareQueue("final_results_1", channel)
+					finalResultsExchange.Send([]byte(strings.Join(final_result, "\n")))
+					log.Info("Total EOFS received, sending query 1 result")
+					return nil
+				}
+				continue
+			}
+
+			log.Info("Result received query 1")
+			final_result = append(final_result, msg)
+		}
 	}
-
-	return nil
 }
 
 // createResultsCallback creates a callback function for consuming results
@@ -73,12 +95,10 @@ func createResultsCallback(resultChan chan string, doneChan chan error) func(mid
 				}
 
 				resultChan <- string(msg.Body)
-				return
 
 			case err := <-done:
 				log.Errorf("Consumer error: %v", err)
 				doneChan <- err
-				return
 			}
 		}
 	}

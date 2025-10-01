@@ -18,15 +18,11 @@ var log = logging.MustGetLogger("log")
 func InitConfig() (*viper.Viper, error) {
 	v := viper.New()
 	v.AutomaticEnv()
-	v.SetEnvPrefix("cli")
+	v.SetEnvPrefix("response")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Add env variables supported
-	v.BindEnv("request_handler", "port")
-	v.BindEnv("request_handler", "ip")
 	v.BindEnv("rabbitmq", "url")
-	v.BindEnv("rabbitmq", "exchange")
-	v.BindEnv("rabbitmq", "final_queue")
 	v.BindEnv("log", "level")
 
 	v.SetConfigFile("/config/config.yaml")
@@ -81,6 +77,7 @@ func main() {
 	// Start original request handler
 	requestBuilderConfig := common.ResponseBuilderConfig{
 		MiddlewareUrl: v.GetString("rabbit.url"),
+		WorkerCount:   v.GetInt("middleware.receivers.count"),
 	}
 	requestBuilder := common.NewResponseBuilder(requestBuilderConfig)
 

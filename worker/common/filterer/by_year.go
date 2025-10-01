@@ -50,6 +50,7 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChann
 			// return
 
 			case msg, ok := <-*consumeChannel:
+				log.Info("PROCESSING MESSAGE")
 				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
@@ -73,6 +74,7 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string) func(consumeChann
 				}
 
 				if outMsg != "" {
+					log.Info("MESSAGE OUT")
 					outChan <- outMsg
 				}
 			}

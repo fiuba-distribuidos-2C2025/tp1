@@ -84,7 +84,7 @@ func (w *Worker) Start() error {
 
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue+"_"+strconv.Itoa(w.config.ID), w.channel)
-	log.Infof("Input queue declared: %s", w.config.InputQueue)
+	log.Infof("Input queue declared: %s", w.config.InputQueue+"_"+strconv.Itoa(w.config.ID))
 
 	switch w.config.WorkerJob {
 	case "YEAR_FILTER":
@@ -129,13 +129,13 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 			if msg == "EOF" {
-				log.Debugf("EOF received")
+				log.Infof("EOF received")
 				sendersFinCount += 1
 				if sendersFinCount >= w.config.InputSenders {
 					log.Infof("Broadcasting EOF")
 					for _, queues := range outputQueues {
 						for _, queue := range queues {
-							log.Debugf("Broadcasting EOF to queue: ", queue)
+							log.Infof("Broadcasting EOF to queue: %s", queue)
 							queue.Send([]byte("EOF"))
 						}
 					}

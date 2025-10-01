@@ -2,8 +2,8 @@ package common
 
 import (
 	"bufio"
-	"context"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -19,7 +19,8 @@ var log = logging.MustGetLogger("log")
 const (
 	messageTypeTransfer = "TRANSFER"
 	headerPartsCount    = 5
-	resultTimeout       = 30 * time.Second
+	resultTimeout       = 60 * time.Second
+	maxScannerBuffer    = 128 * 1024 * 1024 // 128MB to handle 64MB chunks with overhead
 )
 
 // RequestHandlerConfig holds configuration for the request handler
@@ -32,9 +33,11 @@ type RequestHandlerConfig struct {
 
 // RequestHandler handles incoming client connections and manages message flow
 type RequestHandler struct {
-	Config   RequestHandlerConfig
-	listener net.Listener
-	shutdown chan struct{}
+	Config             RequestHandlerConfig
+	listener           net.Listener
+	shutdown           chan struct{}
+	Channel            *amqp.Channel
+	currentWorkerQueue int
 }
 
 // BatchMessage represents a parsed batch message from the client
@@ -49,8 +52,9 @@ type BatchMessage struct {
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 	return &RequestHandler{
-		Config:   config,
-		shutdown: make(chan struct{}),
+		Config:             config,
+		shutdown:           make(chan struct{}),
+		currentWorkerQueue: 1,
 	}
 }
 
@@ -64,6 +68,17 @@ func (rh *RequestHandler) Start() error {
 	rh.listener = listener
 	log.Infof("RequestHandler listening on %s", addr)
 
+	rabbit_conn, err := amqp.Dial(rh.Config.MiddlewareURL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to AMQP server: %w", err)
+	}
+
+	rabbit_channel, err := rabbit_conn.Channel()
+	if err != nil {
+		return fmt.Errorf("failed to open AMQP channel: %w", err)
+	}
+
+	rh.Channel = rabbit_channel
 	go rh.acceptConnections()
 
 	<-rh.shutdown
@@ -107,141 +122,225 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	log.Infof("New connection from %s", conn.RemoteAddr())
 
-	// Read and parse the message
-	message, err := rh.readMessage(conn)
-	if err != nil {
-		log.Errorf("Failed to read message: %v", err)
-		return
-	}
-
-	log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
-		message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
-
-	// Process the message through RabbitMQ
-	result, err := rh.processMessage(message)
-	if err != nil {
-		log.Errorf("Failed to process message: %v", err)
-		return
-	}
-
-	// Send result back to client
-	if err := rh.sendResponse(conn, result); err != nil {
-		log.Errorf("Failed to send response: %v", err)
-		return
-	}
-
-	log.Infof("Successfully processed and responded to client")
-}
-
-// readMessage reads and parses a message from the connection
-func (rh *RequestHandler) readMessage(conn net.Conn) (*BatchMessage, error) {
+	// Create a single scanner for the entire connection
 	scanner := bufio.NewScanner(conn)
+	buf := make([]byte, maxScannerBuffer)
+	scanner.Buffer(buf, maxScannerBuffer)
+	filesProcessed := 0
 
-	// Read header
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("failed to read header")
-	}
+	// Keep processing files until EOF is received
+	for {
+		fileProcessed, isEOF, err := rh.processFile(scanner, conn)
 
-	message, err := parseHeader(scanner.Text())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse header: %w", err)
-	}
+		if err != nil {
+			if err == io.EOF {
+				log.Infof("Client closed connection after %d files", filesProcessed)
+				return
+			}
+			log.Errorf("Failed to process file: %v", err)
+			return
+		}
 
-	// Read CSV rows
-	for scanner.Scan() {
-		row := scanner.Text()
-		if row == "" {
+		if fileProcessed {
+			filesProcessed++
+			log.Infof("Successfully processed file %d", filesProcessed)
+		}
+
+		if isEOF {
+			log.Infof("Received EOF from client after %d files", filesProcessed)
+
+			// Send EOF to RabbitMQ queues
+			if err := rh.sendEOF(); err != nil {
+				log.Errorf("Failed to send EOF to queues: %v", err)
+				return
+			}
+
+			// Send ACK for EOF
+			if err := rh.sendACK(conn); err != nil {
+				log.Errorf("Failed to send EOF ACK: %v", err)
+				return
+			}
+
+			log.Info("Successfully processed all files")
 			break
 		}
-		message.CSVRows = append(message.CSVRows, row)
 	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading connection: %w", err)
-	}
-
-	return message, nil
-}
-
-// processMessage sends the message to RabbitMQ and waits for a result
-func (rh *RequestHandler) processMessage(message *BatchMessage) (string, error) {
-	// Connect to RabbitMQ
-	rabbitConn, err := amqp.Dial(rh.Config.MiddlewareURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-	defer rabbitConn.Close()
-
-	// Create channel
-	channel, err := rabbitConn.Channel()
-	if err != nil {
-		return "", fmt.Errorf("failed to open channel: %w", err)
-	}
-	defer channel.Close()
 
 	resultsExchange := middleware.NewMessageMiddlewareQueue(
 		"final_results_1",
-		channel,
+		rh.Channel,
 	)
 	resultChan := make(chan string, 1)
 	doneChan := make(chan error, 1)
+
 	// Start consuming
 	resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
-	receiverID := (message.CurrentChunk % rh.Config.ReceiversCount)
-	if receiverID == 0 {
-		receiverID = 1
+	rh.waitForFinalResult(resultChan, doneChan, conn)
+}
+
+// processFile handles the transfer and processing of a single file
+// Returns (fileProcessed, isEOF, error)
+func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bool, bool, error) {
+	var lastFileHash string
+	var totalChunks int
+	chunksReceived := 0
+
+	log.Debug("Starting to process new file or EOF")
+
+	// Keep reading messages until all chunks are received for this file
+	for {
+		log.Debug("Reading next message...")
+		message, isEOF, err := rh.readMessage(scanner)
+		if err != nil {
+			log.Errorf("Error reading message: %v", err)
+			return false, false, err
+		}
+
+		// Check if we received EOF marker
+		if isEOF {
+			log.Info("EOF marker detected")
+			return false, true, nil
+		}
+
+		// Track file transfer progress
+		if lastFileHash == "" {
+			lastFileHash = message.FileHash
+			totalChunks = message.TotalChunks
+			log.Debugf("Starting new file: %s with %d total chunks", lastFileHash, totalChunks)
+		}
+
+		// If we receive a new file, we need to handle the previous file first
+		if message.FileHash != lastFileHash {
+			log.Errorf("Received chunk from different file. Expected: %s, Got: %s", lastFileHash, message.FileHash)
+			return false, false, fmt.Errorf("received chunks from multiple files simultaneously")
+		}
+
+		chunksReceived++
+		log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
+			message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
+
+		// Process each message through RabbitMQ
+		receiverID := rh.currentWorkerQueue
+		if receiverID > rh.Config.ReceiversCount {
+			rh.currentWorkerQueue = 1
+		} else {
+			rh.currentWorkerQueue++
+		}
+
+		if err := rh.sendToQueue(message, receiverID); err != nil {
+			return false, false, fmt.Errorf("failed to send to queue: %w", err)
+		}
+
+		// Send ACK after successfully processing the chunk
+		if err := rh.sendACK(conn); err != nil {
+			return false, false, fmt.Errorf("failed to send ACK: %w", err)
+		}
+		log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
+
+		// Check if all chunks have been received
+		if chunksReceived >= totalChunks {
+			log.Infof("All %d chunks received for file %s", chunksReceived, lastFileHash)
+			return true, false, nil
+		}
+	}
+}
+
+// sendACK sends an acknowledgment message to the client
+func (rh *RequestHandler) sendACK(conn net.Conn) error {
+	writer := bufio.NewWriter(conn)
+
+	if _, err := writer.WriteString("ACK\n"); err != nil {
+		return fmt.Errorf("failed to write ACK: %w", err)
 	}
 
-	// Send message to transactions queue
-	if err := rh.sendToQueue(channel, message, receiverID); err != nil {
-		return "", fmt.Errorf("failed to send to queue: %w", err)
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush ACK: %w", err)
 	}
 
-	if err := rh.sendEOF(channel); err != nil {
-		return "", fmt.Errorf("failed to send EOF: %w", err)
+	return nil
+}
+
+// readMessage reads and parses a message from the connection
+// Returns (message, isEOF, error)
+func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bool, error) {
+	// Read header
+	log.Debug("Scanning for header...")
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			log.Errorf("Scanner error: %v", err)
+			return nil, false, err
+		}
+		log.Debug("Scanner reached EOF (no error)")
+		return nil, false, io.EOF
 	}
 
-	// Wait for result
-	result, err := rh.waitForResult(resultChan, doneChan)
+	headerText := scanner.Text()
+	log.Debugf("Read header: %s", headerText)
+
+	// Check if it's an EOF message
+	if headerText == "EOF" {
+		log.Info("Received EOF marker from client")
+		// Read the empty line after EOF
+		// if scanner.Scan() {
+		// 	log.Debugf("Read line after EOF: '%s'", scanner.Text())
+		// }
+		return nil, true, nil
+	}
+
+	message, err := parseHeader(headerText)
 	if err != nil {
-		return "", fmt.Errorf("failed to receive result: %w", err)
+		return nil, false, fmt.Errorf("failed to parse header: %w", err)
 	}
 
-	return result, nil
+	// Read CSV rows
+	rowCount := 0
+	for scanner.Scan() {
+		row := scanner.Text()
+		if row == "" {
+			log.Debugf("Found empty line (end of message) after %d rows", rowCount)
+			break
+		}
+		message.CSVRows = append(message.CSVRows, row)
+		rowCount++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, false, fmt.Errorf("error reading connection: %w", err)
+	}
+
+	log.Debugf("Successfully read message with %d rows", len(message.CSVRows))
+	return message, false, nil
 }
 
 // sendToQueue sends the batch message to the transactions queue
-func (rh *RequestHandler) sendToQueue(channel *amqp.Channel, message *BatchMessage, receiverID int) error {
-	queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), channel)
+func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int) error {
+	queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), rh.Channel)
 	payload := strings.Join(message.CSVRows, "\n")
 	queue.Send([]byte(payload))
-	log.Infof("Successfully forwarded batch to queue")
+	log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+		message.CurrentChunk, message.TotalChunks, receiverID)
 	return nil
 }
 
-func (rh *RequestHandler) sendEOF(channel *amqp.Channel) error {
-	for i := 0; i < rh.Config.ReceiversCount; i++ {
-		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(i), channel)
+// sendEOF sends EOF message to all receiver queues
+func (rh *RequestHandler) sendEOF() error {
+	for i := 1; i <= rh.Config.ReceiversCount; i++ {
+		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(i), rh.Channel)
 		queue.Send([]byte("EOF"))
-		log.Infof("Successfully sent EOF")
+		log.Infof("Successfully sent EOF to transactions_%d", i)
 	}
 	return nil
 }
 
-// waitForResult waits for a result from the final_results exchange
-func (rh *RequestHandler) waitForResult(resultChan chan string, doneChan chan error) (string, error) {
-	// Wait for result with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), resultTimeout)
-	defer cancel()
-
+// waitForFinalResult waits for the final processing result
+func (rh *RequestHandler) waitForFinalResult(resultChan chan string, doneChan chan error, conn net.Conn) {
 	select {
 	case result := <-resultChan:
 		log.Infof("Result received - Length: %d - Message: %s", len(result), result)
-		return result, nil
-	case err := <-doneChan:
-		return "", fmt.Errorf("consumer error: %w", err)
-	case <-ctx.Done():
-		return "", fmt.Errorf("timeout waiting for result")
+		// Send result back to client
+		if err := rh.sendResponse(conn, result); err != nil {
+			log.Errorf("Failed to send response: %v", err)
+		}
 	}
 }
 
@@ -315,10 +414,8 @@ func createResultsCallback(resultChan chan string, doneChan chan error) func(mid
 				}
 
 				resultChan <- string(msg.Body)
-				return
 			case err := <-done:
 				doneChan <- err
-				return
 			}
 		}
 	}

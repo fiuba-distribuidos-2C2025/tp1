@@ -13,8 +13,6 @@ IN_QUEUE = "transactions"
 OUT_QUEUE = "results_1"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-NUM_IN_WORKERS = 1
-NUM_OUT_WORKERS = 3
 
 def main():  # Generate transactions
 
@@ -106,4 +104,6 @@ def main():  # Generate transactions
 
 
 if __name__ == "__main__":
+    NUM_IN_WORKERS = int(sys.argv[1])
+    NUM_OUT_WORKERS = int(sys.argv[2])
     main()

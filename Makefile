@@ -15,6 +15,7 @@ format:
 	gofmt -s -w ./middleware/
 	gofmt -s -w ./response_builder/
 	gofmt -s -w ./worker/
+	gofmt -s -w ./protocol/
 .PHONY: format
 
 build: deps
@@ -50,7 +51,7 @@ docker-compose-logs:
 .PHONY: docker-compose-logs
 
 middleware_tests:
-	docker compose up -d middleware
+	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
 
 default-compose:

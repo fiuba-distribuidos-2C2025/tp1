@@ -1,7 +1,6 @@
 package common
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -18,17 +18,8 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	messageTypeTransfer = "TRANSFER"
-	headerPartsCount    = 5
-	resultTimeout       = 60 * time.Second
-	maxScannerBuffer    = 128 * 1024 * 1024 // 128MB to handle 64MB chunks with overhead
-	resultChunkSize     = 10 * 1024 * 1024  // 10MB chunks for results
-
-	transactionsFile      = 0
-	transactionsItemsFile = 1
-	storesFile            = 2
-	menuItemsFile         = 3
-	usersFile             = 4
+	resultTimeout   = 60 * time.Second
+	resultChunkSize = 10 * 1024 * 1024 // 10MB chunks for results
 )
 
 // ResultMessage contains a result and which queue it came from
@@ -59,15 +50,6 @@ type RequestHandler struct {
 	currentWorkerQueue int
 }
 
-// BatchMessage represents a parsed batch message from the client
-type BatchMessage struct {
-	FileType     string
-	FileHash     string
-	CurrentChunk int
-	TotalChunks  int
-	CSVRows      []string
-}
-
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 	return &RequestHandler{
@@ -79,7 +61,7 @@ func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 
 // Start begins listening for connections
 func (rh *RequestHandler) Start() error {
-	log.Infof("Starting request handler with config", rh.Config)
+	log.Infof("Starting request handler with config %+v", rh.Config)
 
 	addr := net.JoinHostPort(rh.Config.IP, rh.Config.Port)
 	listener, err := net.Listen("tcp", addr)
@@ -143,22 +125,19 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	log.Infof("New connection from %s", conn.RemoteAddr())
 
-	// Create a single scanner for the entire connection
-	scanner := bufio.NewScanner(conn)
-	buf := make([]byte, maxScannerBuffer)
-	scanner.Buffer(buf, maxScannerBuffer)
+	proto := protocol.NewProtocol(conn)
 	filesProcessed := 0
 
-	// Keep processing files until FINAL_EOF is received
+	// Keep processing messages until FINAL_EOF is received
 	for {
-		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := rh.processFile(scanner, conn)
+		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := rh.processMessages(proto)
 
 		if err != nil {
 			if err == io.EOF {
 				log.Infof("Client closed connection after %d files", filesProcessed)
 				return
 			}
-			log.Errorf("Failed to process file: %v", err)
+			log.Errorf("Failed to process messages: %v", err)
 			return
 		}
 
@@ -169,21 +148,21 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 
 		// Handle EOF for specific fileType
 		if isFileTypeEOF {
-			log.Infof("Received EOF for fileType %d after %d files", fileType, filesProcessed)
+			log.Infof("Received EOF for fileType %s after %d files", fileType, filesProcessed)
 
 			// Send EOF to the appropriate RabbitMQ queues for this fileType
 			if err := rh.sendEOFForFileType(fileType); err != nil {
-				log.Errorf("Failed to send EOF for fileType %d to queues: %v", fileType, err)
+				log.Errorf("Failed to send EOF for fileType %s to queues: %v", fileType, err)
 				return
 			}
 
 			// Send ACK for this fileType EOF
-			if err := rh.sendACK(conn); err != nil {
-				log.Errorf("Failed to send EOF ACK for fileType %d: %v", fileType, err)
+			if err := proto.SendACK(); err != nil {
+				log.Errorf("Failed to send EOF ACK for fileType %s: %v", fileType, err)
 				return
 			}
 
-			log.Infof("Successfully sent EOF for fileType %d to queues", fileType)
+			log.Infof("Successfully sent EOF for fileType %s to queues", fileType)
 			continue
 		}
 
@@ -192,7 +171,7 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 			log.Infof("Received FINAL_EOF from client after %d files", filesProcessed)
 
 			// Send ACK for FINAL_EOF
-			if err := rh.sendACK(conn); err != nil {
+			if err := proto.SendACK(); err != nil {
 				log.Errorf("Failed to send FINAL_EOF ACK: %v", err)
 				return
 			}
@@ -214,257 +193,176 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 		log.Infof("Started consuming from %s", queueName)
 	}
 
-	rh.waitForFinalResults(resultChan, doneChan, conn)
+	rh.waitForFinalResults(resultChan, doneChan, proto)
 }
 
-// processFile handles the transfer and processing of a single file
+// processMessages handles incoming messages until a file is complete or EOF is received
 // Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
-func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bool, bool, bool, int, error) {
-	var lastFileHash string
-	var totalChunks int
-	chunksReceived := 0
+func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool, bool, protocol.FileType, error) {
+	var totalChunks int32
+	chunksReceived := int32(0)
 
-	log.Debug("Starting to process new file or EOF")
+	log.Debug("Starting to process new messages")
 
 	// Keep reading messages until all chunks are received for this file
 	for {
 		log.Debug("Reading next message...")
-		message, isFileTypeEOF, isFinalEOF, fileType, err := rh.readMessage(scanner)
+		msgType, data, err := proto.ReceiveMessage()
 		if err != nil {
 			log.Errorf("Error reading message: %v", err)
 			return false, false, false, 0, err
 		}
 
-		// Check if we received FINAL_EOF marker
-		if isFinalEOF {
+		switch msgType {
+		case protocol.MessageTypeFinalEOF:
 			log.Info("FINAL_EOF marker detected")
 			return false, false, true, 0, nil
-		}
 
-		// Check if we received EOF for a specific fileType
-		if isFileTypeEOF {
-			log.Infof("FileType EOF marker detected for fileType %d", fileType)
-			return false, true, false, fileType, nil
-		}
+		case protocol.MessageTypeEOF:
+			eofMsg := data.(*protocol.EOFMessage)
+			log.Infof("FileType EOF marker detected for fileType %s", eofMsg.FileType)
+			return false, true, false, eofMsg.FileType, nil
 
-		// Track file transfer progress
-		if lastFileHash == "" {
-			lastFileHash = message.FileHash
-			totalChunks = message.TotalChunks
-			log.Infof("Starting new file: %s with %d total chunks", lastFileHash, totalChunks)
-		}
+		case protocol.MessageTypeBatch:
+			message := data.(*protocol.BatchMessage)
 
-		chunksReceived++
-		log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
-			message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
+			chunksReceived++
+			log.Infof("Received batch: chunk %d/%d with %d rows",
+				message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
 
-		if message.FileType == "2" {
-		}
-
-		// Process each message through RabbitMQ
-		receiverID := rh.currentWorkerQueue
-		fileTypeInt, _ := strconv.Atoi(message.FileType)
-		switch fileTypeInt {
-		case transactionsFile:
-			receiverID = receiverID%rh.Config.TransactionsReceiversCount + 1
-		case transactionsItemsFile:
-			receiverID = receiverID%rh.Config.TransactionItemsReceiversCount + 1
-		case menuItemsFile:
-			receiverID = receiverID%rh.Config.MenuItemsReceiversCount + 1
-		case usersFile:
-			receiverID = receiverID%rh.Config.UsersReceiversCount + 1
-		}
-		log.Infof("Calculated receiver", receiverID)
-
-		if err := rh.sendToQueue(message, receiverID, message.FileType); err != nil {
-			return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
-		}
-
-		rh.currentWorkerQueue++
-
-		// Send ACK after successfully processing the chunk
-		if err := rh.sendACK(conn); err != nil {
-			return false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
-		}
-		log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
-
-		// Check if all chunks have been received
-		if chunksReceived >= totalChunks {
-			log.Infof("All %d chunks received for file %s", chunksReceived, lastFileHash)
-			return true, false, false, 0, nil
-		}
-	}
-}
-
-// sendACK sends an acknowledgment message to the client
-func (rh *RequestHandler) sendACK(conn net.Conn) error {
-	writer := bufio.NewWriter(conn)
-
-	if _, err := writer.WriteString("ACK\n"); err != nil {
-		return fmt.Errorf("failed to write ACK: %w", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush ACK: %w", err)
-	}
-
-	return nil
-}
-
-// readMessage reads and parses a message from the connection
-// Returns (message, isFileTypeEOF, isFinalEOF, fileType, error)
-func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bool, bool, int, error) {
-	// Read header
-	log.Debug("Scanning for header...")
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			log.Errorf("Scanner error: %v", err)
-			return nil, false, false, 0, err
-		}
-		log.Debug("Scanner reached EOF (no error)")
-		return nil, false, false, 0, io.EOF
-	}
-
-	headerText := scanner.Text()
-	log.Debugf("Read header: %s", headerText)
-
-	// Check if it's a FINAL_EOF message
-	if headerText == "FINAL_EOF" {
-		log.Info("Received FINAL_EOF marker from client")
-		return nil, false, true, 0, nil
-	}
-
-	// Check if it's an EOF for a specific file type: EOF;<fileType>
-	if strings.HasPrefix(headerText, "EOF;") {
-		parts := strings.Split(headerText, ";")
-		if len(parts) == 2 {
-			fileType, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return nil, false, false, 0, fmt.Errorf("invalid fileType in EOF: %w", err)
+			// Initialize tracking variables on first chunk
+			if chunksReceived == 1 {
+				totalChunks = message.TotalChunks
 			}
-			log.Infof("Received EOF for fileType %d from client", fileType)
-			return nil, true, false, fileType, nil
+
+			// Process each message through RabbitMQ
+			receiverID := rh.currentWorkerQueue
+			switch message.FileType {
+			case protocol.FileTypeTransactions:
+				receiverID = receiverID%rh.Config.TransactionsReceiversCount + 1
+			case protocol.FileTypeTransactionItems:
+				receiverID = receiverID%rh.Config.TransactionItemsReceiversCount + 1
+			case protocol.FileTypeMenuItems:
+				receiverID = receiverID%rh.Config.MenuItemsReceiversCount + 1
+			case protocol.FileTypeUsers:
+				receiverID = receiverID%rh.Config.UsersReceiversCount + 1
+			}
+			log.Infof("Calculated receiver %d", receiverID)
+
+			if err := rh.sendToQueue(message, receiverID); err != nil {
+				return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
+			}
+
+			rh.currentWorkerQueue++
+
+			// Send ACK after successfully processing the chunk
+			if err := proto.SendACK(); err != nil {
+				return false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
+			}
+			log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
+
+			// Check if all chunks have been received
+			if chunksReceived >= totalChunks {
+				log.Infof("All %d chunks received", chunksReceived)
+				return true, false, false, 0, nil
+			}
 		}
 	}
-
-	message, err := parseHeader(headerText)
-	if err != nil {
-		return nil, false, false, 0, fmt.Errorf("failed to parse header: %w", err)
-	}
-
-	// Read CSV rows
-	rowCount := 0
-	for scanner.Scan() {
-		row := scanner.Text()
-		if row == "" {
-			log.Debugf("Found empty line (end of message) after %d rows", rowCount)
-			break
-		}
-		message.CSVRows = append(message.CSVRows, row)
-		rowCount++
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, false, false, 0, fmt.Errorf("error reading connection: %w", err)
-	}
-
-	log.Debugf("Successfully read message with %d rows", len(message.CSVRows))
-	return message, false, false, 0, nil
 }
 
-// sendToQueue sends the batch message to the transactions queue
-func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fileType string) error {
-	fileTypeInt, _ := strconv.Atoi(fileType)
-	switch fileTypeInt {
-	case transactionsFile:
-		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), rh.Channel)
-		payload := strings.Join(message.CSVRows, "\n")
+// sendToQueue sends the batch message to the appropriate queue based on file type
+func (rh *RequestHandler) sendToQueue(message *protocol.BatchMessage, receiverID int) error {
+	payload := strings.Join(message.CSVRows, "\n")
+
+	switch message.FileType {
+	case protocol.FileTypeTransactions:
+		queueName := "transactions_" + strconv.Itoa(receiverID)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte(payload))
-		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
-			message.CurrentChunk, message.TotalChunks, receiverID)
-		return nil
-	case transactionsItemsFile:
-		queue := middleware.NewMessageMiddlewareQueue("transactions_items"+"_"+strconv.Itoa(receiverID), rh.Channel)
-		payload := strings.Join(message.CSVRows, "\n")
+		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
+			message.CurrentChunk, message.TotalChunks, queueName)
+
+	case protocol.FileTypeTransactionItems:
+		queueName := "transactions_items_" + strconv.Itoa(receiverID)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte(payload))
-		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_items_%d",
-			message.CurrentChunk, message.TotalChunks, receiverID)
-		return nil
-	case storesFile:
+		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
+			message.CurrentChunk, message.TotalChunks, queueName)
+
+	case protocol.FileTypeStores:
+		// Broadcast stores data to all receivers
 		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
-			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
-			payload_q3 := strings.Join(message.CSVRows, "\n")
-			queue_q3.Send([]byte(payload_q3))
+			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3_"+strconv.Itoa(i), rh.Channel)
+			queue_q3.Send([]byte(payload))
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
+				message.CurrentChunk, message.TotalChunks, i)
 		}
 
 		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
-			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
-			payload_q4 := strings.Join(message.CSVRows, "\n")
-			queue_q4.Send([]byte(payload_q4))
+			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4_"+strconv.Itoa(i), rh.Channel)
+			queue_q4.Send([]byte(payload))
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q4_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
+				message.CurrentChunk, message.TotalChunks, i)
 		}
-		return nil
-	case menuItemsFile:
-		for i := 1; i <= rh.Config.MenuItemsReceiversCount; i++ {
-			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i), rh.Channel)
-			payload := strings.Join(message.CSVRows, "\n")
-			queue.Send([]byte(payload))
-			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue menu_items_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
+		log.Infof("Broadcasted batch (chunk %d/%d) to all stores queues",
+			message.CurrentChunk, message.TotalChunks)
 
+	case protocol.FileTypeMenuItems:
+		// Broadcast menu items data to all receivers
+		for i := 1; i <= rh.Config.MenuItemsReceiversCount; i++ {
+			queueName := "menu_items_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+			queue.Send([]byte(payload))
 		}
-		return nil
-	case usersFile:
-		queue := middleware.NewMessageMiddlewareQueue("users"+"_"+strconv.Itoa(receiverID), rh.Channel)
-		payload := strings.Join(message.CSVRows, "\n")
+		log.Infof("Broadcasted batch (chunk %d/%d) to all menu_items queues",
+			message.CurrentChunk, message.TotalChunks)
+
+	case protocol.FileTypeUsers:
+		queueName := "users_" + strconv.Itoa(receiverID)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte(payload))
-		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue users_%d",
-			message.CurrentChunk, message.TotalChunks, receiverID)
-		return nil
+		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
+			message.CurrentChunk, message.TotalChunks, queueName)
+	default:
+		return fmt.Errorf("unknown file type: %d", message.FileType)
 	}
 
 	return nil
 }
 
 // sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
-func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
-	fileTypeInt := fileType
+func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
+	queuePrefix := fileType.QueueName()
+	if queuePrefix == "" {
+		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
+		return nil
+	}
 
-	var queuePrefix string
-	receiversCount := 1
-	switch fileTypeInt {
-	case transactionsFile:
-		queuePrefix = "transactions"
+	var receiversCount int
+	switch queuePrefix {
+	case "transactions":
 		receiversCount = rh.Config.TransactionsReceiversCount
-	case transactionsItemsFile:
-		queuePrefix = "transactions_items"
+	case "transactions_items":
 		receiversCount = rh.Config.TransactionItemsReceiversCount
-	case storesFile:
-		// special case for stores
-		// TODO: find better fix
+	case "users":
+		receiversCount = rh.Config.UsersReceiversCount
+	case "menu_items":
+		receiversCount = rh.Config.MenuItemsReceiversCount
+	// Special case for stores
+	case "stores":
 		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
-			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
-			queue_q3.Send([]byte("EOF"))
-			log.Infof("Successfully sent EOF to stores_q3_%d for fileType %d", i, fileType)
+			queueName := "stores_q3_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 		}
 
 		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
-			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
-			queue_q4.Send([]byte("EOF"))
-			log.Infof("Successfully sent EOF to stores_q4_%d for fileType %d", i, fileType)
+			queueName := "stores_q4_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 		}
-		return nil
-	case menuItemsFile:
-		queuePrefix = "menu_items"
-		receiversCount = rh.Config.MenuItemsReceiversCount
-	case usersFile:
-		queuePrefix = "users"
-		receiversCount = rh.Config.UsersReceiversCount
-	default:
-		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
 		return nil
 	}
 
@@ -472,13 +370,13 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 		queueName := queuePrefix + "_" + strconv.Itoa(i)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte("EOF"))
-		log.Infof("Successfully sent EOF to %s for fileType %d", queueName, fileType)
+		log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 	}
 	return nil
 }
 
 // waitForFinalResults waits for results from multiple queues
-func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, doneChan chan error, conn net.Conn) {
+func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, doneChan chan error, proto *protocol.Protocol) {
 	resultsReceived := 0
 	expectedResults := 4
 
@@ -492,8 +390,8 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 			slices.Sort(list)
 			finalResult := strings.Join(list, "\n")
 
-			// Send result back to client with queue ID
-			if err := rh.sendResponse(conn, result.QueueID, finalResult); err != nil {
+			// Send result back to client
+			if err := rh.sendResponse(proto, int32(result.QueueID), []byte(finalResult)); err != nil {
 				log.Errorf("Failed to send response from queue %d: %v", result.QueueID, err)
 				return
 			}
@@ -510,141 +408,47 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 	log.Infof("All %d results sent to client", resultsReceived)
 }
 
-// sendResponse writes the result back to the client in chunks with queue identifier
-func (rh *RequestHandler) sendResponse(conn net.Conn, queueID int, result string) error {
-	resultBytes := []byte(result)
-	totalSize := len(resultBytes)
+// sendResponse writes the result back to the client in chunks
+func (rh *RequestHandler) sendResponse(proto *protocol.Protocol, queueID int32, result []byte) error {
+	totalSize := len(result)
 
 	if totalSize == 0 {
 		log.Warningf("Empty result to send from queue %d", queueID)
-		return rh.sendResultEOF(conn, queueID)
+		return proto.SendResultEOF(queueID)
 	}
 
 	// Calculate number of chunks
-	totalChunks := (totalSize + resultChunkSize - 1) / resultChunkSize
-	log.Infof("Sending result from queue %d in %d chunks (total size: %d bytes)", queueID, totalChunks, totalSize)
-
-	writer := bufio.NewWriter(conn)
-	// reader := bufio.NewReader(conn)
+	totalChunks := int32((totalSize + resultChunkSize - 1) / resultChunkSize)
+	log.Infof("Sending result from queue %d in %d chunks (total size: %d bytes)",
+		queueID, totalChunks, totalSize)
 
 	// Send each chunk
-	for chunkNum := 1; chunkNum <= totalChunks; chunkNum++ {
-		start := (chunkNum - 1) * resultChunkSize
+	for chunkNum := int32(1); chunkNum <= totalChunks; chunkNum++ {
+		start := int((chunkNum - 1) * int32(resultChunkSize))
 		end := start + resultChunkSize
 		if end > totalSize {
 			end = totalSize
 		}
 
-		chunkData := resultBytes[start:end]
-		chunkSize := len(chunkData)
+		chunkData := result[start:end]
 
-		// Send chunk header with queue ID and size
-		header := fmt.Sprintf("RESULT_CHUNK;%d;%d;%d;%d\n", queueID, chunkNum, totalChunks, chunkSize)
-		if _, err := writer.WriteString(header); err != nil {
-			return fmt.Errorf("failed to write chunk header: %w", err)
+		chunkMsg := &protocol.ResultChunkMessage{
+			QueueID:      queueID,
+			CurrentChunk: chunkNum,
+			TotalChunks:  totalChunks,
+			Data:         chunkData,
 		}
 
-		// Send chunk data (raw bytes, may contain newlines)
-		if _, err := writer.Write(chunkData); err != nil {
-			return fmt.Errorf("failed to write chunk data: %w", err)
+		if err := proto.SendResultChunk(chunkMsg); err != nil {
+			return fmt.Errorf("failed to send chunk %d: %w", chunkNum, err)
 		}
 
-		// Send end-of-chunk marker (two newlines)
-		if _, err := writer.WriteString("\n\n"); err != nil {
-			return fmt.Errorf("failed to write chunk end marker: %w", err)
-		}
-
-		if err := writer.Flush(); err != nil {
-			return fmt.Errorf("failed to flush chunk: %w", err)
-		}
-
-		log.Infof("Sent result chunk %d/%d from queue %d (%d bytes)", chunkNum, totalChunks, queueID, chunkSize)
-
-		// TODO: re-enable
-		// Wait for ACK
-		// if err := rh.waitForACK(reader); err != nil {
-		// 	return fmt.Errorf("failed to receive ACK for chunk %d: %w", chunkNum, err)
-		// }
-
-		// log.Debugf("Received ACK for chunk %d/%d from queue %d", chunkNum, totalChunks, queueID)
+		log.Infof("Sent result chunk %d/%d from queue %d (%d bytes)",
+			chunkNum, totalChunks, queueID, len(chunkData))
 	}
 
 	// Send EOF after all chunks for this queue
-	return rh.sendResultEOF(conn, queueID)
-}
-
-// sendResultEOF sends the result EOF marker to the client for a specific queue
-func (rh *RequestHandler) sendResultEOF(conn net.Conn, queueID int) error {
-	writer := bufio.NewWriter(conn)
-
-	eofMsg := fmt.Sprintf("RESULT_EOF;%d\n", queueID)
-	if _, err := writer.WriteString(eofMsg); err != nil {
-		return fmt.Errorf("failed to write RESULT_EOF: %w", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush RESULT_EOF: %w", err)
-	}
-
-	// TODO: re-enable
-	// log.Infof("RESULT_EOF sent to client for queue %d, waiting for ACK...", queueID)
-
-	// Wait for EOF ACK
-	// reader := bufio.NewReader(conn)
-	// if err := rh.waitForACK(reader); err != nil {
-	// 	return fmt.Errorf("failed to receive RESULT_EOF ACK for queue %d: %w", queueID, err)
-	// }
-
-	// log.Infof("RESULT_EOF ACK received for queue %d", queueID)
-	return nil
-}
-
-// waitForACK waits for an acknowledgment from the client
-func (rh *RequestHandler) waitForACK(reader *bufio.Reader) error {
-	ack, err := reader.ReadString('\n')
-	if err != nil {
-		if err == io.EOF {
-			return fmt.Errorf("connection closed while waiting for ACK")
-		}
-		return fmt.Errorf("error reading ACK: %w", err)
-	}
-
-	ack = strings.TrimSpace(ack)
-	if ack != "ACK" {
-		return fmt.Errorf("expected ACK, got: %s", ack)
-	}
-
-	return nil
-}
-
-// parseHeader parses the message header
-func parseHeader(header string) (*BatchMessage, error) {
-	parts := strings.Split(header, ";")
-	if len(parts) != headerPartsCount {
-		return nil, fmt.Errorf("invalid header format: expected %d parts, got %d",
-			headerPartsCount, len(parts))
-	}
-
-	if parts[0] != messageTypeTransfer {
-		return nil, fmt.Errorf("invalid message type: expected %s, got %s",
-			messageTypeTransfer, parts[0])
-	}
-
-	var currentChunk, totalChunks int
-	if _, err := fmt.Sscanf(parts[3], "%d", &currentChunk); err != nil {
-		return nil, fmt.Errorf("invalid current chunk: %w", err)
-	}
-	if _, err := fmt.Sscanf(parts[4], "%d", &totalChunks); err != nil {
-		return nil, fmt.Errorf("invalid total chunks: %w", err)
-	}
-
-	return &BatchMessage{
-		FileType:     parts[1],
-		FileHash:     parts[2],
-		CurrentChunk: currentChunk,
-		TotalChunks:  totalChunks,
-		CSVRows:      make([]string, 0),
-	}, nil
+	return proto.SendResultEOF(queueID)
 }
 
 // createResultsCallback creates a callback function for consuming results from a specific queue
@@ -671,8 +475,11 @@ func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, q
 					QueueID: queueID,
 					Data:    string(msg.Body),
 				}
+				return // Only consume one message per queue
+
 			case err := <-done:
 				doneChan <- err
+				return
 			}
 		}
 	}

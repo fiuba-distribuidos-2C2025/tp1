@@ -22,7 +22,14 @@ const (
 	headerPartsCount    = 5
 	resultTimeout       = 60 * time.Second
 	maxScannerBuffer    = 128 * 1024 * 1024 // 128MB to handle 64MB chunks with overhead
+	resultChunkSize     = 10 * 1024 * 1024  // 10MB chunks for results
 )
+
+// ResultMessage contains a result and which queue it came from
+type ResultMessage struct {
+	QueueID int
+	Data    string
+}
 
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
@@ -129,9 +136,9 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 	scanner.Buffer(buf, maxScannerBuffer)
 	filesProcessed := 0
 
-	// Keep processing files until EOF is received
+	// Keep processing files until FINAL_EOF is received
 	for {
-		fileProcessed, isEOF, err := rh.processFile(scanner, conn)
+		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := rh.processFile(scanner, conn)
 
 		if err != nil {
 			if err == io.EOF {
@@ -147,41 +154,59 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 			log.Infof("Successfully processed file %d", filesProcessed)
 		}
 
-		if isEOF {
-			log.Infof("Received EOF from client after %d files", filesProcessed)
+		// Handle EOF for specific fileType
+		if isFileTypeEOF {
+			log.Infof("Received EOF for fileType %d after %d files", fileType, filesProcessed)
 
-			// Send EOF to RabbitMQ queues
-			if err := rh.sendEOF(); err != nil {
-				log.Errorf("Failed to send EOF to queues: %v", err)
+			// Send EOF to the appropriate RabbitMQ queues for this fileType
+			if err := rh.sendEOFForFileType(fileType); err != nil {
+				log.Errorf("Failed to send EOF for fileType %d to queues: %v", fileType, err)
 				return
 			}
 
-			// Send ACK for EOF
+			// Send ACK for this fileType EOF
 			if err := rh.sendACK(conn); err != nil {
-				log.Errorf("Failed to send EOF ACK: %v", err)
+				log.Errorf("Failed to send EOF ACK for fileType %d: %v", fileType, err)
 				return
 			}
 
-			log.Info("Successfully processed all files")
+			log.Infof("Successfully sent EOF for fileType %d to queues", fileType)
+			continue
+		}
+
+		// Handle FINAL_EOF
+		if isFinalEOF {
+			log.Infof("Received FINAL_EOF from client after %d files", filesProcessed)
+
+			// Send ACK for FINAL_EOF
+			if err := rh.sendACK(conn); err != nil {
+				log.Errorf("Failed to send FINAL_EOF ACK: %v", err)
+				return
+			}
+
+			log.Info("Successfully processed all files and received FINAL_EOF")
 			break
 		}
 	}
 
-	resultsExchange := middleware.NewMessageMiddlewareQueue(
-		"final_results_1",
-		rh.Channel,
-	)
-	resultChan := make(chan string, 1)
+	// Listen to multiple final result queues
+	resultChan := make(chan ResultMessage, 4)
 	doneChan := make(chan error, 1)
 
-	// Start consuming
-	resultsExchange.StartConsuming(createResultsCallback(resultChan, doneChan))
-	rh.waitForFinalResult(resultChan, doneChan, conn)
+	// Start consuming from all final result queues
+	for i := 1; i <= 4; i++ {
+		queueName := fmt.Sprintf("final_results_%d", i)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+		go queue.StartConsuming(createResultsCallback(resultChan, doneChan, i))
+		log.Infof("Started consuming from %s", queueName)
+	}
+
+	rh.waitForFinalResults(resultChan, doneChan, conn)
 }
 
 // processFile handles the transfer and processing of a single file
-// Returns (fileProcessed, isEOF, error)
-func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bool, bool, error) {
+// Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
+func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bool, bool, bool, int, error) {
 	var lastFileHash string
 	var totalChunks int
 	chunksReceived := 0
@@ -191,16 +216,22 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 	// Keep reading messages until all chunks are received for this file
 	for {
 		log.Debug("Reading next message...")
-		message, isEOF, err := rh.readMessage(scanner)
+		message, isFileTypeEOF, isFinalEOF, fileType, err := rh.readMessage(scanner)
 		if err != nil {
 			log.Errorf("Error reading message: %v", err)
-			return false, false, err
+			return false, false, false, 0, err
 		}
 
-		// Check if we received EOF marker
-		if isEOF {
-			log.Info("EOF marker detected")
-			return false, true, nil
+		// Check if we received FINAL_EOF marker
+		if isFinalEOF {
+			log.Info("FINAL_EOF marker detected")
+			return false, false, true, 0, nil
+		}
+
+		// Check if we received EOF for a specific fileType
+		if isFileTypeEOF {
+			log.Infof("FileType EOF marker detected for fileType %d", fileType)
+			return false, true, false, fileType, nil
 		}
 
 		// Track file transfer progress
@@ -209,12 +240,6 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 			totalChunks = message.TotalChunks
 			log.Infof("Starting new file: %s with %d total chunks", lastFileHash, totalChunks)
 		}
-
-		// // If we receive a new file, we need to handle the previous file first
-		// if message.FileHash != lastFileHash {
-		// 	log.Errorf("Received chunk from different file. Expected: %s, Got: %s", lastFileHash, message.FileHash)
-		// 	return false, false, fmt.Errorf("received chunks from multiple files simultaneously")
-		// }
 
 		chunksReceived++
 		log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
@@ -227,24 +252,25 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 		receiverID := rh.currentWorkerQueue
 		if receiverID > rh.Config.ReceiversCount {
 			rh.currentWorkerQueue = 1
-		} else {
-			rh.currentWorkerQueue++
+			receiverID = rh.currentWorkerQueue
 		}
 
 		if err := rh.sendToQueue(message, receiverID, message.FileType); err != nil {
-			return false, false, fmt.Errorf("failed to send to queue: %w", err)
+			return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
 		}
+
+		rh.currentWorkerQueue++
 
 		// Send ACK after successfully processing the chunk
 		if err := rh.sendACK(conn); err != nil {
-			return false, false, fmt.Errorf("failed to send ACK: %w", err)
+			return false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
 		}
 		log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
 
 		// Check if all chunks have been received
 		if chunksReceived >= totalChunks {
 			log.Infof("All %d chunks received for file %s", chunksReceived, lastFileHash)
-			return true, false, nil
+			return true, false, false, 0, nil
 		}
 	}
 }
@@ -265,35 +291,44 @@ func (rh *RequestHandler) sendACK(conn net.Conn) error {
 }
 
 // readMessage reads and parses a message from the connection
-// Returns (message, isEOF, error)
-func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bool, error) {
+// Returns (message, isFileTypeEOF, isFinalEOF, fileType, error)
+func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bool, bool, int, error) {
 	// Read header
 	log.Debug("Scanning for header...")
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			log.Errorf("Scanner error: %v", err)
-			return nil, false, err
+			return nil, false, false, 0, err
 		}
 		log.Debug("Scanner reached EOF (no error)")
-		return nil, false, io.EOF
+		return nil, false, false, 0, io.EOF
 	}
 
 	headerText := scanner.Text()
 	log.Debugf("Read header: %s", headerText)
 
-	// Check if it's an EOF message
-	if headerText == "EOF" {
-		log.Info("Received EOF marker from client")
-		// Read the empty line after EOF
-		// if scanner.Scan() {
-		// 	log.Debugf("Read line after EOF: '%s'", scanner.Text())
-		// }
-		return nil, true, nil
+	// Check if it's a FINAL_EOF message
+	if headerText == "FINAL_EOF" {
+		log.Info("Received FINAL_EOF marker from client")
+		return nil, false, true, 0, nil
+	}
+
+	// Check if it's an EOF for a specific file type: EOF;<fileType>
+	if strings.HasPrefix(headerText, "EOF;") {
+		parts := strings.Split(headerText, ";")
+		if len(parts) == 2 {
+			fileType, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return nil, false, false, 0, fmt.Errorf("invalid fileType in EOF: %w", err)
+			}
+			log.Infof("Received EOF for fileType %d from client", fileType)
+			return nil, true, false, fileType, nil
+		}
 	}
 
 	message, err := parseHeader(headerText)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to parse header: %w", err)
+		return nil, false, false, 0, fmt.Errorf("failed to parse header: %w", err)
 	}
 
 	// Read CSV rows
@@ -309,11 +344,11 @@ func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bo
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, false, fmt.Errorf("error reading connection: %w", err)
+		return nil, false, false, 0, fmt.Errorf("error reading connection: %w", err)
 	}
 
 	log.Debugf("Successfully read message with %d rows", len(message.CSVRows))
-	return message, false, nil
+	return message, false, false, 0, nil
 }
 
 // sendToQueue sends the batch message to the transactions queue
@@ -331,7 +366,7 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		queue := middleware.NewMessageMiddlewareQueue("transactions_items"+"_"+strconv.Itoa(receiverID), rh.Channel)
 		payload := strings.Join(message.CSVRows, "\n")
 		queue.Send([]byte(payload))
-		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_items_%d",
 			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
 	case 2:
@@ -349,46 +384,165 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 	return nil
 }
 
-// sendEOF sends EOF message to all receiver queues
-func (rh *RequestHandler) sendEOF() error {
+// sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
+func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
+	fileTypeInt := fileType
+
+	var queuePrefix string
+	switch fileTypeInt {
+	case 0:
+		queuePrefix = "transactions"
+	case 1:
+		queuePrefix = "transactions_items"
+	default:
+		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
+		return nil
+	}
+
 	for i := 1; i <= rh.Config.ReceiversCount; i++ {
-		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(i), rh.Channel)
+		queueName := queuePrefix + "_" + strconv.Itoa(i)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte("EOF"))
-		log.Infof("Successfully sent EOF to transactions_%d", i)
+		log.Infof("Successfully sent EOF to %s for fileType %d", queueName, fileType)
 	}
 	return nil
 }
 
-// waitForFinalResult waits for the final processing result
-func (rh *RequestHandler) waitForFinalResult(resultChan chan string, doneChan chan error, conn net.Conn) {
-	select {
-	case result := <-resultChan:
-		// log.Infof("Result received - Length: %d - Message: %s", len(result), result)
-		list := strings.Split(result, "\n")
-		slices.Sort(list)
-		finalResult := strings.Join(list, "\n")
-		log.Infof("Result received - Length: %d - Message: %s", len(finalResult), finalResult)
-		// Send result back to client
-		if err := rh.sendResponse(conn, finalResult); err != nil {
-			log.Errorf("Failed to send response: %v", err)
+// waitForFinalResults waits for results from multiple queues
+func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, doneChan chan error, conn net.Conn) {
+	resultsReceived := 0
+	expectedResults := 4
+
+	for resultsReceived < expectedResults {
+		select {
+		case result := <-resultChan:
+			resultsReceived++
+			log.Infof("Result %d/%d received from final_results_%d - Length: %d",
+				resultsReceived, expectedResults, result.QueueID, len(result.Data))
+
+			// Sort the result
+			list := strings.Split(result.Data, "\n")
+			slices.Sort(list)
+			finalResult := strings.Join(list, "\n")
+
+			// Send result back to client with queue ID
+			if err := rh.sendResponse(conn, result.QueueID, finalResult); err != nil {
+				log.Errorf("Failed to send response from queue %d: %v", result.QueueID, err)
+				return
+			}
+
+			log.Infof("Successfully sent result %d/%d from final_results_%d",
+				resultsReceived, expectedResults, result.QueueID)
+
+		case err := <-doneChan:
+			log.Errorf("Error while waiting for results: %v", err)
+			return
 		}
 	}
+
+	log.Infof("All %d results sent to client", resultsReceived)
 }
 
-// sendResponse writes the result back to the client
-func (rh *RequestHandler) sendResponse(conn net.Conn, result string) error {
-	writer := bufio.NewWriter(conn)
+// sendResponse writes the result back to the client in chunks with queue identifier
+func (rh *RequestHandler) sendResponse(conn net.Conn, queueID int, result string) error {
+	resultBytes := []byte(result)
+	totalSize := len(resultBytes)
 
-	if _, err := writer.WriteString(result); err != nil {
-		return fmt.Errorf("failed to write response: %w", err)
+	if totalSize == 0 {
+		log.Warningf("Empty result to send from queue %d", queueID)
+		return rh.sendResultEOF(conn, queueID)
 	}
 
-	if _, err := writer.WriteString("\n"); err != nil {
-		return fmt.Errorf("failed to write end marker: %w", err)
+	// Calculate number of chunks
+	totalChunks := (totalSize + resultChunkSize - 1) / resultChunkSize
+	log.Infof("Sending result from queue %d in %d chunks (total size: %d bytes)", queueID, totalChunks, totalSize)
+
+	writer := bufio.NewWriter(conn)
+	reader := bufio.NewReader(conn)
+
+	// Send each chunk
+	for chunkNum := 1; chunkNum <= totalChunks; chunkNum++ {
+		start := (chunkNum - 1) * resultChunkSize
+		end := start + resultChunkSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		chunkData := resultBytes[start:end]
+		chunkSize := len(chunkData)
+
+		// Send chunk header with queue ID and size
+		header := fmt.Sprintf("RESULT_CHUNK;%d;%d;%d;%d\n", queueID, chunkNum, totalChunks, chunkSize)
+		if _, err := writer.WriteString(header); err != nil {
+			return fmt.Errorf("failed to write chunk header: %w", err)
+		}
+
+		// Send chunk data (raw bytes, may contain newlines)
+		if _, err := writer.Write(chunkData); err != nil {
+			return fmt.Errorf("failed to write chunk data: %w", err)
+		}
+
+		// Send end-of-chunk marker (two newlines)
+		if _, err := writer.WriteString("\n\n"); err != nil {
+			return fmt.Errorf("failed to write chunk end marker: %w", err)
+		}
+
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("failed to flush chunk: %w", err)
+		}
+
+		log.Infof("Sent result chunk %d/%d from queue %d (%d bytes)", chunkNum, totalChunks, queueID, chunkSize)
+
+		// Wait for ACK
+		if err := rh.waitForACK(reader); err != nil {
+			return fmt.Errorf("failed to receive ACK for chunk %d: %w", chunkNum, err)
+		}
+
+		log.Debugf("Received ACK for chunk %d/%d from queue %d", chunkNum, totalChunks, queueID)
+	}
+
+	// Send EOF after all chunks for this queue
+	return rh.sendResultEOF(conn, queueID)
+}
+
+// sendResultEOF sends the result EOF marker to the client for a specific queue
+func (rh *RequestHandler) sendResultEOF(conn net.Conn, queueID int) error {
+	writer := bufio.NewWriter(conn)
+
+	eofMsg := fmt.Sprintf("RESULT_EOF;%d\n", queueID)
+	if _, err := writer.WriteString(eofMsg); err != nil {
+		return fmt.Errorf("failed to write RESULT_EOF: %w", err)
 	}
 
 	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush response: %w", err)
+		return fmt.Errorf("failed to flush RESULT_EOF: %w", err)
+	}
+
+	log.Infof("RESULT_EOF sent to client for queue %d, waiting for ACK...", queueID)
+
+	// Wait for EOF ACK
+	reader := bufio.NewReader(conn)
+	if err := rh.waitForACK(reader); err != nil {
+		return fmt.Errorf("failed to receive RESULT_EOF ACK for queue %d: %w", queueID, err)
+	}
+
+	log.Infof("RESULT_EOF ACK received for queue %d", queueID)
+	return nil
+}
+
+// waitForACK waits for an acknowledgment from the client
+func (rh *RequestHandler) waitForACK(reader *bufio.Reader) error {
+	ack, err := reader.ReadString('\n')
+	if err != nil {
+		if err == io.EOF {
+			return fmt.Errorf("connection closed while waiting for ACK")
+		}
+		return fmt.Errorf("error reading ACK: %w", err)
+	}
+
+	ack = strings.TrimSpace(ack)
+	if ack != "ACK" {
+		return fmt.Errorf("expected ACK, got: %s", ack)
 	}
 
 	return nil
@@ -424,27 +578,30 @@ func parseHeader(header string) (*BatchMessage, error) {
 	}, nil
 }
 
-// createResultsCallback creates a callback function for consuming results
-func createResultsCallback(resultChan chan string, doneChan chan error) func(middleware.ConsumeChannel, chan error) {
+// createResultsCallback creates a callback function for consuming results from a specific queue
+func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, queueID int) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for response...")
+		log.Infof("Waiting for response from final_results_%d...", queueID)
 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
 				if !ok {
-					log.Info("Channel closed")
-					doneChan <- fmt.Errorf("channel closed unexpectedly")
+					log.Infof("Channel closed for final_results_%d", queueID)
+					doneChan <- fmt.Errorf("channel closed unexpectedly for queue %d", queueID)
 					return
 				}
 
-				log.Infof("Message received - Length: %d", len(msg.Body))
+				log.Infof("Message received from final_results_%d - Length: %d", queueID, len(msg.Body))
 
 				if err := msg.Ack(false); err != nil {
-					log.Errorf("Failed to ack message: %v", err)
+					log.Errorf("Failed to ack message from queue %d: %v", queueID, err)
 				}
 
-				resultChan <- string(msg.Body)
+				resultChan <- ResultMessage{
+					QueueID: queueID,
+					Data:    string(msg.Body),
+				}
 			case err := <-done:
 				doneChan <- err
 			}

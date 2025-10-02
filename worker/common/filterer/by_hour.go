@@ -91,6 +91,7 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 					}
 					continue
 				}
+
 				outBuilder.Reset()
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {

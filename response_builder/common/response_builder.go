@@ -24,6 +24,11 @@ type ResponseBuilder struct {
 	shutdown    chan struct{}
 }
 
+type ResultMessage struct {
+	ID    int
+	Value string
+}
+
 func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 	return &ResponseBuilder{
 		Config:      config,
@@ -37,43 +42,40 @@ func (m *ResponseBuilder) Start() error {
 	log.Info("Starting response builder")
 	rabbit_conn, _ := amqp.Dial(m.Config.MiddlewareUrl)
 	channel, _ := rabbit_conn.Channel()
-	outChan := make(chan string)
-	doneChan := make(chan error)
-	// for i := 1; i <= m.Config.WorkerCount; i++ {
-	// 	log.Infof("Listening on queue results_%d", i)
-	// 	doneChan := make(chan error)
-	// 	resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d", i), channel)
-	// 	resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan))
-	// }
-	resultsExchange := middleware.NewMessageMiddlewareQueue("results_1", channel)
-	resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan))
+	outChan := make(chan ResultMessage)
+	for resultID := 1; resultID <= 4; resultID++ {
+		log.Infof("Listening on queue results_%d", resultID)
+		doneChan := make(chan error)
+		resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d", resultID), channel)
+		resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan, resultID))
+	}
 
 	final_result := []string{}
 	totalEOFs := 0
 	for {
 		select {
 		case msg := <-outChan:
-			if msg == "EOF" {
+			if msg.Value == "EOF" {
 				log.Info("EOF received")
 				totalEOFs++
 				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFs, m.Config.WorkerCount)
 				if totalEOFs == m.Config.WorkerCount {
-					finalResultsExchange := middleware.NewMessageMiddlewareQueue("final_results_1", channel)
+					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
 					finalResultsExchange.Send([]byte(strings.Join(final_result, "\n")))
-					log.Info("Total EOFS received, sending query 1 result")
+					log.Info("Total EOFS received, sending query ", msg.ID, " result")
 					return nil
 				}
 				continue
 			}
 
-			log.Info("Result received query 1")
-			final_result = append(final_result, msg)
+			log.Info("Result received query ", msg.ID)
+			final_result = append(final_result, msg.Value)
 		}
 	}
 }
 
 // createResultsCallback creates a callback function for consuming results
-func createResultsCallback(resultChan chan string, doneChan chan error) func(middleware.ConsumeChannel, chan error) {
+func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, resultID int) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Info("Results consumer started")
 
@@ -94,7 +96,10 @@ func createResultsCallback(resultChan chan string, doneChan chan error) func(mid
 					return
 				}
 
-				resultChan <- string(msg.Body)
+				resultChan <- ResultMessage{
+					Value: string(msg.Body),
+					ID:    resultID,
+				}
 
 			case err := <-done:
 				log.Errorf("Consumer error: %v", err)

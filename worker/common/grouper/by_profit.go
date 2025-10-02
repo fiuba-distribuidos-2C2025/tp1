@@ -117,14 +117,14 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
-					item_key, item_tx_stat := parseTransactionData(transaction)
-					if _, ok := accumulator[item_key]; !ok {
-						accumulator[item_key] = ItemStats{quantity: 0, subtotal: 0}
+					item_id, item_tx_stat := parseTransactionData(transaction)
+					if _, ok := accumulator[item_id]; !ok {
+						accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0}
 					}
-					txStat := accumulator[item_key]
+					txStat := accumulator[item_id]
 					txStat.quantity += item_tx_stat.quantity
 					txStat.subtotal += item_tx_stat.subtotal
-					accumulator[item_key] = txStat
+					accumulator[item_id] = txStat
 				}
 			}
 		}

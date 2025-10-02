@@ -98,10 +98,11 @@ func (w *Worker) Start() error {
 
 	var secondaryQueueMessages string
 	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" {
-		secondaryQueueMessages := w.listenToSecondaryQueue()
+		secondaryQueueMessages = w.listenToSecondaryQueue()
 		if secondaryQueueMessages == "" {
 			return nil
 		}
+		log.Debugf("Finished reading from secondary queue")
 	}
 
 	switch w.config.WorkerJob {
@@ -211,7 +212,6 @@ func (w *Worker) listenToSecondaryQueue() string {
 	inQueue.StartConsuming(joiner.CreateMenuItemsCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""
-
 	for {
 		select {
 		case <-w.shutdown:

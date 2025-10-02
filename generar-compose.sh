@@ -1,13 +1,17 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 6 ]; then
+if [ $# -lt 5 ]; then
   echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_items> <cantidad_trabajadores_grouper_by_year_month>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
 REQUEST_CONTROLLER_COUNT=1
+WORKER_COUNT_FILTER_BY_YEAR="$2"
+WORKER_COUNT_FILTER_BY_HOUR="$3"
+WORKER_COUNT_FILTER_BY_AMOUNT="$4"
+WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$5"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -76,10 +80,6 @@ EOL
 # ==============================================================================
 # First Query
 # ==============================================================================
-
-WORKER_COUNT_FILTER_BY_YEAR="$2"
-WORKER_COUNT_FILTER_BY_HOUR="$3"
-WORKER_COUNT_FILTER_BY_AMOUNT="$4"
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -157,7 +157,6 @@ done
 
 
 WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
-WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$6"
 WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH # TODO: should be set as parameter
 WORKER_COUNT_JOINER_BY_ITEM_ID=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
 
@@ -186,7 +185,7 @@ done
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
-  grouper_by_year_moth_worker$i:
+  grouper_by_year_month_worker$i:
     container_name: grouper_by_year_moth_worker$i
     image: worker:latest
     entrypoint: /worker

@@ -20,24 +20,6 @@ const (
 	FileTypeUsers
 )
 
-// String returns the string representation of FileType
-func (ft FileType) String() string {
-	switch ft {
-	case FileTypeTransactions:
-		return "transactions"
-	case FileTypeTransactionItems:
-		return "transaction_items"
-	case FileTypeStores:
-		return "stores"
-	case FileTypeMenuItems:
-		return "menu_items"
-	case FileTypeUsers:
-		return "users"
-	default:
-		return "unknown"
-	}
-}
-
 // QueueName returns the queue name prefix for this file type
 func (ft FileType) QueueName() string {
 	switch ft {

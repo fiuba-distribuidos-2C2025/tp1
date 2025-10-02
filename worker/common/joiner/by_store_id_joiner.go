@@ -8,50 +8,58 @@ import (
 
 // Validates if a transaction final amount is greater than the target amount.
 // Sample transaction received:
-// "TYPE,DATE,ITEM_ID,VALUE"
-// "QUANTITY,2023-08,5,10"
-func concatWithMenuItemsData(transaction string, menuItemsData map[string]string) (string, bool) {
+// key,year,yearHalf,storeId,tpv
+// 1-2024-H1,2024,H1,1,100.3
+func concatWithStoresData(transaction string, storesData map[string]string) (string, bool) {
 	elements := strings.Split(transaction, ",")
 	if len(elements) < 4 {
 		return "", false
 	}
-	itemId := elements[2]
+	year := elements[1]
+	yearHalf := elements[2]
+	storeId := elements[3]
+	tpv := elements[4]
 
-	menuItemData, exists := menuItemsData[itemId]
+	storeName, exists := storesData[storeId]
 	if !exists {
 		return "", false
 	}
 
 	var sb strings.Builder
-	sb.WriteString(transaction)
+	sb.WriteString(year)
+	sb.WriteByte('-')
+	sb.WriteString(yearHalf)
 	sb.WriteByte(',')
-	sb.WriteString(menuItemData)
+	sb.WriteString(storeName)
+	sb.WriteByte(',')
+	sb.WriteString(tpv)
 
 	return sb.String(), true
 }
 
-// example menu items data input
-// item_id,item_name,category,price,is_seasonal,available_from,available_to
-// 1,Espresso,coffee,6.0,False,,
-func processMenuItems(menuItemRows string) map[string]string {
-	// Preprocess menu items data into a map for quick lookup
-	menuItemsData := make(map[string]string)
-	menuItemLines := splitBatchInRows(menuItemRows)
-	for _, line := range menuItemLines {
+// example store ids data input
+// store_id,store_name,city,state:
+//
+//	1,G Coffee @ USJ 89q,USJ 89q,Kuala Lumpur
+func processStoreIds(storeRows string) map[string]string {
+	// Preprocess stores data into a map for quick lookup
+	storesData := make(map[string]string)
+	storesDataLines := splitBatchInRows(storeRows)
+	for _, line := range storesDataLines {
 		fields := strings.Split(line, ",")
-		if len(fields) < 7 {
-			log.Errorf("Invalid menu item format: %s", line)
+		if len(fields) < 4 {
+			log.Errorf("Invalid store data format: %s", line)
 			continue
 		}
-		itemId := fields[0]
-		menuItemsData[itemId] = fields[1]
+		storeId := fields[0]
+		storesData[storeId] = fields[1]
 	}
-	return menuItemsData
+	return storesData
 }
 
-func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	processedMenuItems := processMenuItems(menuItemRows)
+	processedStores := processStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -81,7 +89,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				outBuilder.Reset()
 
 				for _, transaction := range transactions {
-					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems); ok {
+					if concatenated, ok := concatWithStoresData(transaction, processedStores); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')
 					}

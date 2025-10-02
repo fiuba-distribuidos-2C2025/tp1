@@ -17,7 +17,7 @@ type ItemStats struct {
 // sample string input
 // transaction_id,item_id,quantity,unit_price,subtotal,created_at
 // 3e02f6c2-fcf5-4e79-9bef-50f2a479f18d,5,3,9.0,27.0,2023-08-01 07:00:02
-func parseTransactionData(transaction string) (string, ItemStats) {
+func parseTransactionItemData(transaction string) (string, ItemStats) {
 	// Parse CSV: transaction_id,item_id,quantity,unit_price,subtotal,created_at
 	fields := strings.Split(transaction, ",")
 	if len(fields) < 6 {
@@ -118,9 +118,9 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
-					item_id, item_tx_stat := parseTransactionData(transaction)
+					item_id, item_tx_stat := parseTransactionItemData(transaction)
 					if _, ok := accumulator[item_id]; !ok {
-						accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0}
+						accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0, date: item_tx_stat.date, id: item_tx_stat.id}
 					}
 					txStat := accumulator[item_id]
 					txStat.quantity += item_tx_stat.quantity

@@ -97,7 +97,7 @@ func (w *Worker) Start() error {
 	}
 
 	var secondaryQueueMessages string
-	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" {
+	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" || w.config.WorkerJob == "JOINER_BY_STORE_ID" {
 		secondaryQueueMessages := w.listenToSecondaryQueue()
 		if secondaryQueueMessages == "" {
 			return nil
@@ -105,7 +105,9 @@ func (w *Worker) Start() error {
 	}
 
 	switch w.config.WorkerJob {
+	// ==============================================================================
 	// First Query
+	// ==============================================================================
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
 		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof))
@@ -115,7 +117,9 @@ func (w *Worker) Start() error {
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
 		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof))
-		// Second Query
+	// ==============================================================================
+	// Second Query
+	// ==============================================================================
 	case "YEAR_FILTER_ITEMS":
 		log.Info("Starting YEAR_FILTER_ITEMS worker...")
 		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof))
@@ -125,10 +129,21 @@ func (w *Worker) Start() error {
 	case "AGGREGATOR_BY_PROFIT_QUANTITY":
 		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
 		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
-
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		// ==============================================================================
+		// Third Query
+		// ==============================================================================
+	case "GROUPER_BY_SEMESTER":
+		log.Info("Starting GROUPER_BY_SEMESTER worker...")
+		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "AGGREGATOR_SEMESTER":
+		log.Info("Starting AGGREGATOR_SEMESTER worker...")
+		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "JOINER_BY_STORE_ID":
+		log.Info("Starting JOINER_BY_STORE_ID worker...")
+		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
 
 	default:
 		log.Error("Unknown worker job")
@@ -208,7 +223,8 @@ func (w *Worker) listenToSecondaryQueue() string {
 	if err != nil {
 		return "" // TODO: should return error
 	}
-	inQueue.StartConsuming(joiner.CreateMenuItemsCallbackWithOutput(inQueueResponseChan, neededEof))
+	// All joiner use the same callback.
+	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""
 

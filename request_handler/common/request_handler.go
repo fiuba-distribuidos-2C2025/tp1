@@ -371,10 +371,19 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		return nil
 	case 2:
 		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
+			queue := middleware.NewMessageMiddlewareQueue("stores"+"_"+strconv.Itoa(i), rh.Channel)
+			payload := strings.Join(message.CSVRows, "\n")
+			queue.Send([]byte(payload))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+		}
+		return nil
+	case 3:
+		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
 			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i), rh.Channel)
 			payload := strings.Join(message.CSVRows, "\n")
 			queue.Send([]byte(payload))
-			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue menu_items_%d",
 				message.CurrentChunk, message.TotalChunks, receiverID)
 
 		}
@@ -395,6 +404,8 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 	case 1:
 		queuePrefix = "transactions_items"
 	case 2:
+		queuePrefix = "stores"
+	case 3:
 		queuePrefix = "menu_items"
 	default:
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
@@ -460,7 +471,7 @@ func (rh *RequestHandler) sendResponse(conn net.Conn, queueID int, result string
 	log.Infof("Sending result from queue %d in %d chunks (total size: %d bytes)", queueID, totalChunks, totalSize)
 
 	writer := bufio.NewWriter(conn)
-	reader := bufio.NewReader(conn)
+	// reader := bufio.NewReader(conn)
 
 	// Send each chunk
 	for chunkNum := 1; chunkNum <= totalChunks; chunkNum++ {
@@ -495,12 +506,13 @@ func (rh *RequestHandler) sendResponse(conn net.Conn, queueID int, result string
 
 		log.Infof("Sent result chunk %d/%d from queue %d (%d bytes)", chunkNum, totalChunks, queueID, chunkSize)
 
+		// TODO: re-enable
 		// Wait for ACK
-		if err := rh.waitForACK(reader); err != nil {
-			return fmt.Errorf("failed to receive ACK for chunk %d: %w", chunkNum, err)
-		}
+		// if err := rh.waitForACK(reader); err != nil {
+		// 	return fmt.Errorf("failed to receive ACK for chunk %d: %w", chunkNum, err)
+		// }
 
-		log.Debugf("Received ACK for chunk %d/%d from queue %d", chunkNum, totalChunks, queueID)
+		// log.Debugf("Received ACK for chunk %d/%d from queue %d", chunkNum, totalChunks, queueID)
 	}
 
 	// Send EOF after all chunks for this queue
@@ -520,15 +532,16 @@ func (rh *RequestHandler) sendResultEOF(conn net.Conn, queueID int) error {
 		return fmt.Errorf("failed to flush RESULT_EOF: %w", err)
 	}
 
-	log.Infof("RESULT_EOF sent to client for queue %d, waiting for ACK...", queueID)
+	// TODO: re-enable
+	// log.Infof("RESULT_EOF sent to client for queue %d, waiting for ACK...", queueID)
 
 	// Wait for EOF ACK
-	reader := bufio.NewReader(conn)
-	if err := rh.waitForACK(reader); err != nil {
-		return fmt.Errorf("failed to receive RESULT_EOF ACK for queue %d: %w", queueID, err)
-	}
+	// reader := bufio.NewReader(conn)
+	// if err := rh.waitForACK(reader); err != nil {
+	// 	return fmt.Errorf("failed to receive RESULT_EOF ACK for queue %d: %w", queueID, err)
+	// }
 
-	log.Infof("RESULT_EOF ACK received for queue %d", queueID)
+	// log.Infof("RESULT_EOF ACK received for queue %d", queueID)
 	return nil
 }
 

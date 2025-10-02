@@ -387,8 +387,8 @@ func (c *Client) readResults() error {
 
 	scanner := bufio.NewScanner(c.conn)
 
-	result := []string{}
 	for {
+		result := []string{}
 		for scanner.Scan() {
 			row := scanner.Text()
 			if row == "" {
@@ -396,9 +396,12 @@ func (c *Client) readResults() error {
 			}
 			result = append(result, row)
 		}
-		resultStr := strings.Join(result, "\n")
 
-		log.Infof("Result received - Length: %d bytes - Message: %s",
-			len(resultStr), resultStr)
+		if len(result) > 0 {
+			resultStr := strings.Join(result, "\n")
+			log.Infof("Result received - Length: %d bytes - Message: %s",
+				len(resultStr), resultStr)
+		}
+		// TODO: Eventually ack here
 	}
 }

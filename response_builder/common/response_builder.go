@@ -62,7 +62,11 @@ func (m *ResponseBuilder) Start() error {
 				if totalEOFsPerQuery[msg.ID] == m.Config.WorkerCount {
 					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
 					finalResultsExchange.Send([]byte(strings.Join(final_result[msg.ID], "\n")))
-					log.Info("Total EOFS received, sending query ", msg.ID, " result")
+					log.Infof("Total EOFs received, sending query %d result", msg.ID)
+
+					// Clear the accumulated results and EOF count for this query
+					final_result[msg.ID] = nil
+					totalEOFsPerQuery[msg.ID] = 0
 				}
 				continue
 			}

@@ -1,7 +1,6 @@
 package common
 
 import (
-	"bufio"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -9,16 +8,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
 )
 
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize     = 10 * 1024 * 1024 // 10MB
-	expectedResultsCount = 1
+	defaultBatchSize = 10 * 1024 * 1024 // 10MB
 )
 
 // ClientConfig holds configuration for the client
@@ -32,13 +30,13 @@ type Client struct {
 	config   ClientConfig
 	shutdown chan struct{}
 	conn     net.Conn
+	protocol *protocol.Protocol
 }
 
 // fileMetadata holds metadata about the file being transferred
 type fileMetadata struct {
-	fileType    int
-	fileHash    string
-	totalChunks int
+	fileType    protocol.FileType
+	totalChunks int32
 }
 
 // NewClient creates a new Client instance
@@ -51,8 +49,7 @@ func NewClient(config ClientConfig) *Client {
 
 // Start begins the client operations
 func (c *Client) Start() error {
-	err := c.connectToServer()
-	if err != nil {
+	if err := c.connectToServer(); err != nil {
 		log.Errorf("Failed to connect to server: %v", err)
 		return err
 	}
@@ -63,8 +60,14 @@ func (c *Client) Start() error {
 	}
 
 	// Send final EOF after all directories are transferred
-	if err := c.sendFinalEOF(); err != nil {
+	if err := c.protocol.SendFinalEOF(); err != nil {
 		log.Errorf("Failed to send final EOF: %v", err)
+		return err
+	}
+
+	// Wait for ACK
+	if err := c.waitForACK(); err != nil {
+		log.Errorf("Failed to receive final EOF ACK: %v", err)
 		return err
 	}
 
@@ -91,70 +94,104 @@ func (c *Client) Stop() {
 
 // TransferDataDirectory iterates over subdirectories and assigns file types
 func (c *Client) TransferDataDirectory(dataPath string) error {
-	// Read directory contents
 	entries, err := os.ReadDir(dataPath)
 	if err != nil {
 		return fmt.Errorf("failed to read data directory: %w", err)
 	}
 
-	fileType := 0
-	processedDirs := 0
-
-	for _, entry := range entries {
-		dirPath := filepath.Join(dataPath, entry.Name())
-		log.Infof("Processing directory: %s (FileType: %d)", entry.Name(), fileType)
-
-		// Transfer all CSV files in this directory with the current fileType
-		if err := c.TransferCSVFolder(dirPath, fileType); err != nil {
-			log.Errorf("Failed to transfer CSVs from directory %s: %v", entry.Name(), err)
-			return err
-		}
-
-		// Send EOF after completing this directory/fileType
-		if err := c.sendEOFForFileType(fileType); err != nil {
-			log.Errorf("Failed to send EOF for fileType %d: %v", fileType, err)
-			return err
-		}
-
-		log.Infof("Completed directory %s (FileType: %d)", entry.Name(), fileType)
-
-		processedDirs++
-		fileType++
+	// Define expected directory structure
+	expectedDirs := []struct {
+		name     string
+		fileType protocol.FileType
+	}{
+		{"transactions", protocol.FileTypeTransactions},
+		{"transactions_items", protocol.FileTypeTransactionItems},
+		{"stores", protocol.FileTypeStores},
+		{"menu_items", protocol.FileTypeMenuItems},
+		{"users", protocol.FileTypeUsers},
 	}
 
-	if processedDirs == 0 {
-		return fmt.Errorf("no subdirectories found in: %s", dataPath)
+	processedCount := 0
+
+	for _, expected := range expectedDirs {
+		found := false
+		for _, entry := range entries {
+			if entry.Name() == expected.name && entry.IsDir() {
+				found = true
+				dirPath := filepath.Join(dataPath, entry.Name())
+				log.Infof("Processing directory: %s (FileType: %s)", entry.Name(), expected.fileType)
+
+				if err := c.TransferCSVFolder(dirPath, expected.fileType); err != nil {
+					log.Errorf("Failed to transfer CSVs from directory %s: %v", entry.Name(), err)
+					return err
+				}
+
+				if err := c.protocol.SendEOF(expected.fileType); err != nil {
+					log.Errorf("Failed to send EOF for fileType %s: %v", expected.fileType, err)
+					return err
+				}
+
+				if err := c.waitForACK(); err != nil {
+					log.Errorf("Failed to receive EOF ACK for fileType %s: %v", expected.fileType, err)
+					return err
+				}
+
+				log.Infof("Completed directory %s (FileType: %s)", entry.Name(), expected.fileType)
+				processedCount++
+				break
+			}
+		}
+
+		if !found {
+			log.Warningf("Expected directory not found: %s", expected.name)
+		}
 	}
 
-	log.Infof("Processed %d directories successfully", processedDirs)
+	if processedCount == 0 {
+		return fmt.Errorf("no expected subdirectories found in: %s", dataPath)
+	}
+
+	log.Infof("Processed %d directories successfully", processedCount)
 	return nil
 }
 
-// TransferCSVFolder finds and transfers all CSV files in a directory with the given fileType
-func (c *Client) TransferCSVFolder(folderPath string, fileType int) error {
-	// Read directory contents
+// TransferCSVFolder finds and transfers all CSV files in a directory
+func (c *Client) TransferCSVFolder(folderPath string, fileType protocol.FileType) error {
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	for i, entry := range entries {
+	csvFiles := []os.DirEntry{}
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".csv" {
+			csvFiles = append(csvFiles, entry)
+		}
+	}
+
+	if len(csvFiles) == 0 {
+		log.Warningf("No CSV files found in %s", folderPath)
+		return nil
+	}
+
+	for i, entry := range csvFiles {
 		filePath := filepath.Join(folderPath, entry.Name())
-		log.Infof("Transferring file %d/%d: %s (FileType: %d)", i+1, len(entries), filePath, fileType)
+		log.Infof("Transferring file %d/%d: %s (FileType: %s)",
+			i+1, len(csvFiles), entry.Name(), fileType)
 
 		if err := c.TransferCSVFile(filePath, fileType); err != nil {
 			return fmt.Errorf("failed to transfer file %s: %w", filePath, err)
 		}
 
-		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(entries), filePath)
+		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(csvFiles), entry.Name())
 	}
 
-	log.Infof("All %d CSV files transferred successfully from %s", len(entries), folderPath)
+	log.Infof("All %d CSV files transferred successfully from %s", len(csvFiles), folderPath)
 	return nil
 }
 
 // TransferCSVFile reads and transfers a CSV file in batches
-func (c *Client) TransferCSVFile(path string, fileType int) error {
+func (c *Client) TransferCSVFile(path string, fileType protocol.FileType) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
@@ -174,12 +211,11 @@ func (c *Client) TransferCSVFile(path string, fileType int) error {
 	}
 
 	metadata := c.calculateFileMetadata(fileInfo, fileType)
-
 	return c.transferFileInBatches(reader, metadata)
 }
 
 // calculateFileMetadata extracts and calculates file metadata
-func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType int) fileMetadata {
+func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType protocol.FileType) fileMetadata {
 	totalChunks := math.Ceil(float64(fileInfo.Size()) / float64(defaultBatchSize))
 	if totalChunks == 0 {
 		totalChunks = 1
@@ -187,14 +223,13 @@ func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType int) fileM
 
 	return fileMetadata{
 		fileType:    fileType,
-		fileHash:    fileInfo.Name(), // TODO: CALCULATE FILE HASH
-		totalChunks: int(totalChunks),
+		totalChunks: int32(totalChunks),
 	}
 }
 
 // transferFileInBatches reads and sends the file in batches
 func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata) error {
-	currentChunk := 1
+	currentChunk := int32(1)
 
 	for {
 		rows, isEOF, err := c.readBatch(reader, defaultBatchSize)
@@ -203,11 +238,30 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 		}
 
 		if len(rows) > 0 {
-			batchMessage := SerializeCSVBatch(metadata.fileType, metadata.fileHash, metadata.totalChunks, currentChunk, rows)
-			if err := c.sendBatch(batchMessage); err != nil {
+			// Convert [][]string to []string (CSV format)
+			csvRows := make([]string, len(rows))
+			for i, row := range rows {
+				csvRows[i] = joinCSVRow(row)
+			}
+
+			batchMsg := &protocol.BatchMessage{
+				FileType:     metadata.fileType,
+				CurrentChunk: currentChunk,
+				TotalChunks:  metadata.totalChunks,
+				CSVRows:      csvRows,
+			}
+
+			if err := c.protocol.SendBatch(batchMsg); err != nil {
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
-			log.Infof("Sent chunk %d/%d of file %s (FileType: %d)", currentChunk, metadata.totalChunks, metadata.fileHash, metadata.fileType)
+
+			log.Infof("Sent chunk %d/%d (FileType: %s)",
+				currentChunk, metadata.totalChunks, metadata.fileType)
+
+			// Wait for ACK
+			if err := c.waitForACK(); err != nil {
+				return fmt.Errorf("failed to receive ACK for chunk %d: %w", currentChunk, err)
+			}
 		}
 
 		if isEOF {
@@ -245,15 +299,55 @@ func (c *Client) readBatch(reader *csv.Reader, batchSize int) ([][]string, bool,
 func calculateRecordSize(record []string) int {
 	size := 0
 	for _, field := range record {
-		size += len(field)
+		size += len(field) + 1 // +1 for comma or newline
 	}
 	return size
+}
+
+// joinCSVRow joins a CSV row into a single string
+func joinCSVRow(row []string) string {
+	result := ""
+	for i, field := range row {
+		if i > 0 {
+			result += ","
+		}
+		// Escape fields containing commas or quotes
+		if containsSpecialChars(field) {
+			result += "\"" + escapeQuotes(field) + "\""
+		} else {
+			result += field
+		}
+	}
+	return result
+}
+
+// containsSpecialChars checks if a field needs quoting
+func containsSpecialChars(field string) bool {
+	for _, ch := range field {
+		if ch == ',' || ch == '"' || ch == '\n' || ch == '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// escapeQuotes escapes quotes in a field
+func escapeQuotes(field string) string {
+	result := ""
+	for _, ch := range field {
+		if ch == '"' {
+			result += "\"\""
+		} else {
+			result += string(ch)
+		}
+	}
+	return result
 }
 
 // connectToServer establishes a connection to the server
 func (c *Client) connectToServer() error {
 	if c.conn != nil {
-		return nil // Already connected
+		return nil
 	}
 
 	addr := net.JoinHostPort(c.config.ServerIP, c.config.ServerPort)
@@ -265,113 +359,20 @@ func (c *Client) connectToServer() error {
 	}
 
 	c.conn = conn
+	c.protocol = protocol.NewProtocol(conn)
 	log.Info("Successfully connected to server")
-	return nil
-}
-
-// sendBatch sends a batch message to the server and waits for ACK
-func (c *Client) sendBatch(csvBatchMsg string) error {
-	if c.conn == nil {
-		return fmt.Errorf("not connected to server")
-	}
-
-	writer := bufio.NewWriter(c.conn)
-
-	if _, err := writer.WriteString(csvBatchMsg); err != nil {
-		return fmt.Errorf("failed to write message: %w", err)
-	}
-
-	// Send end-of-message marker
-	if _, err := writer.WriteString("\n"); err != nil {
-		return fmt.Errorf("failed to write end marker: %w", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush message: %w", err)
-	}
-
-	log.Debug("Batch sent and flushed, waiting for ACK...")
-
-	// Wait for ACK from server
-	if err := c.waitForACK(); err != nil {
-		return fmt.Errorf("failed to receive ACK: %w", err)
-	}
-
-	log.Debug("ACK received")
-	return nil
-}
-
-// sendEOFForFileType sends an EOF message for a specific file type to the server and waits for ACK
-func (c *Client) sendEOFForFileType(fileType int) error {
-	if c.conn == nil {
-		return fmt.Errorf("not connected to server")
-	}
-
-	writer := bufio.NewWriter(c.conn)
-
-	// Send EOF message with file type
-	eofMsg := fmt.Sprintf("EOF;%d\n", fileType)
-	if _, err := writer.WriteString(eofMsg); err != nil {
-		return fmt.Errorf("failed to write EOF for fileType %d: %w", fileType, err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush EOF for fileType %d: %w", fileType, err)
-	}
-
-	log.Infof("EOF sent to server for fileType %d, waiting for ACK...", fileType)
-
-	// Wait for ACK from server
-	if err := c.waitForACK(); err != nil {
-		return fmt.Errorf("failed to receive EOF ACK for fileType %d: %w", fileType, err)
-	}
-
-	log.Infof("EOF ACK received for fileType %d", fileType)
-	return nil
-}
-
-// sendFinalEOF sends a final EOF message to indicate all transfers are complete
-func (c *Client) sendFinalEOF() error {
-	if c.conn == nil {
-		return fmt.Errorf("not connected to server")
-	}
-
-	writer := bufio.NewWriter(c.conn)
-
-	// Send final EOF message
-	if _, err := writer.WriteString("FINAL_EOF\n"); err != nil {
-		return fmt.Errorf("failed to write FINAL_EOF: %w", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush FINAL_EOF: %w", err)
-	}
-
-	log.Info("FINAL_EOF sent to server, waiting for ACK...")
-
-	// Wait for ACK from server
-	if err := c.waitForACK(); err != nil {
-		return fmt.Errorf("failed to receive FINAL_EOF ACK: %w", err)
-	}
-
-	log.Info("FINAL_EOF ACK received")
 	return nil
 }
 
 // waitForACK waits for an acknowledgment from the server
 func (c *Client) waitForACK() error {
-	scanner := bufio.NewScanner(c.conn)
-
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("scanner error while waiting for ACK: %w", err)
-		}
-		return fmt.Errorf("connection closed while waiting for ACK")
+	msgType, _, err := c.protocol.ReceiveMessage()
+	if err != nil {
+		return fmt.Errorf("failed to receive message: %w", err)
 	}
 
-	ack := scanner.Text()
-	if ack != "ACK" {
-		return fmt.Errorf("expected ACK, got: %s", ack)
+	if msgType != protocol.MessageTypeACK {
+		return fmt.Errorf("expected ACK, got message type: 0x%02x", msgType)
 	}
 
 	return nil
@@ -385,23 +386,51 @@ func (c *Client) readResults() error {
 
 	log.Info("Waiting for results from server...")
 
-	scanner := bufio.NewScanner(c.conn)
+	resultsReceived := 0
+	expectedResults := 4
+	resultBuffers := make(map[int32][]byte)
 
-	for {
-		result := []string{}
-		for scanner.Scan() {
-			row := scanner.Text()
-			if row == "" {
-				break
+	for resultsReceived < expectedResults {
+		msgType, data, err := c.protocol.ReceiveMessage()
+		if err != nil {
+			return fmt.Errorf("failed to receive message: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MessageTypeResultChunk:
+			chunk := data.(*protocol.ResultChunkMessage)
+			log.Infof("Received result chunk %d/%d from queue %d (%d bytes)",
+				chunk.CurrentChunk, chunk.TotalChunks, chunk.QueueID, len(chunk.Data))
+
+			// Accumulate chunks
+			resultBuffers[chunk.QueueID] = append(resultBuffers[chunk.QueueID], chunk.Data...)
+
+		case protocol.MessageTypeResultEOF:
+			eofMsg := data.(*protocol.ResultEOFMessage)
+			resultsReceived++
+
+			if result, ok := resultBuffers[eofMsg.QueueID]; ok {
+				log.Infof("Result %d/%d received from queue %d - Total size: %d bytes",
+					resultsReceived, expectedResults, eofMsg.QueueID, len(result))
+
+				// Process result here (save to file, print, etc.)
+				c.processResult(eofMsg.QueueID, result)
+
+				// Clean up buffer
+				delete(resultBuffers, eofMsg.QueueID)
 			}
-			result = append(result, row)
-		}
 
-		if len(result) > 0 {
-			resultStr := strings.Join(result, "\n")
-			log.Infof("Result received - Length: %d bytes - Message: %s",
-				len(resultStr), resultStr)
+		default:
+			return fmt.Errorf("unexpected message type while reading results: 0x%02x", msgType)
 		}
-		// TODO: Eventually ack here
 	}
+
+	log.Infof("All %d results received successfully", expectedResults)
+	return nil
+}
+
+// processResult processes a complete result from a queue
+func (c *Client) processResult(queueID int32, data []byte) {
+	// Here you can save to file, print, or process the result
+	log.Infof("Processing result from queue %d:\n%s", queueID, string(data))
 }

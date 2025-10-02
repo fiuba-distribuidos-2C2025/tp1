@@ -102,6 +102,7 @@ func (w *Worker) Start() error {
 		if secondaryQueueMessages == "" {
 			return nil
 		}
+		log.Debugf("Finished reading from secondary queue")
 	}
 
 	switch w.config.WorkerJob {
@@ -227,7 +228,6 @@ func (w *Worker) listenToSecondaryQueue() string {
 	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""
-
 	for {
 		select {
 		case <-w.shutdown:

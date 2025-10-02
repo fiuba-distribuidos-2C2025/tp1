@@ -12,7 +12,7 @@ import (
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,6,3,9.5,28.5,2023-07-01 07:00:00
 func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) bool {
 	elements := strings.Split(transaction, ",")
-	if len(elements) < 9 {
+	if len(elements) < 6 {
 		return false
 	}
 

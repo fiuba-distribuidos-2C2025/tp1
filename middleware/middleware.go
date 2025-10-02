@@ -16,7 +16,7 @@ func (q *MessageMiddlewareQueue) StartConsuming(onMessageCallback onMessageCallb
 
 	_, err := (*amqp.Channel)(q.channel).QueueDeclare(
 		q.queueName,
-		true,
+		false,
 		false,
 		false,
 		false,
@@ -101,7 +101,7 @@ func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 
 	_, err := (*amqp.Channel)(q.channel).QueueDeclare(
 		q.queueName,
-		true,
+		false,
 		false,
 		false,
 		false,
@@ -186,7 +186,7 @@ func (e *MessageMiddlewareExchange) StartConsuming(onMessageCallback onMessageCa
 	err := (*amqp.Channel)(e.amqpChannel).ExchangeDeclare(
 		e.exchangeName,
 		"topic",
-		true,
+		false,
 		false,
 		false,
 		false,

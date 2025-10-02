@@ -53,6 +53,63 @@ func TestWorkingQueueOneToOne(t *testing.T) {
 	ch.QueueDelete(queueName, false, false, false)
 }
 
+func TestWorkingQueueOneToOneTwice(t *testing.T) {
+	conn, ch := setupRabbitMQConnection()
+
+	defer conn.Close()
+	defer ch.Close()
+
+	queueName := "test_queue_1to1"
+
+	// Clean up any existing queue
+	ch.QueueDelete(queueName, false, false, false)
+
+	// Create sender and receiver
+	sender := NewMessageMiddlewareQueue(queueName, ch)
+	receiver := NewMessageMiddlewareQueue(queueName, ch)
+
+	// Setup message collection
+	var receivedMessages []string
+
+	callback := createTestCallback(&receivedMessages)
+
+	// Start consuming
+	middlewareErr := receiver.StartConsuming(callback)
+
+	// MessageMiddlewareError(0) means that no error occurred.
+	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to start consuming")
+
+	// Send a message
+	testMessage := []byte("Hello from sender")
+	middlewareErr = sender.Send(testMessage)
+	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message")
+
+	// Wait a second for message to be received
+	time.Sleep(1 * time.Second)
+
+	// Verify correct message was received
+	assert.Len(t, receivedMessages, 1, "Should receive exactly 1 message")
+	assert.Equal(t, "Hello from sender", receivedMessages[0], "Message content mismatch")
+
+	// Send another message
+	testMessage = []byte("Goodbye from sender")
+	middlewareErr = sender.Send(testMessage)
+	assert.Equal(t, MessageMiddlewareError(0), middlewareErr, "Failed to send message")
+
+	// Wait a second for message to be received
+	time.Sleep(1 * time.Second)
+
+	// Verify correct message was received
+	assert.Len(t, receivedMessages, 2, "Should receive exactly 2 message")
+	assert.Equal(t, "Goodbye from sender", receivedMessages[1], "Message content mismatch")
+
+	// Clean up
+	receiver.StopConsuming()
+	sender.Close()
+	receiver.Close()
+	ch.QueueDelete(queueName, false, false, false)
+}
+
 func TestWorkingQueueOneToMany(t *testing.T) {
 	conn, ch := setupRabbitMQConnection()
 	defer conn.Close()

@@ -2,23 +2,26 @@ package common
 
 import (
 	"fmt"
+	"strings"
 )
 
-// HEADER OF TRANSFER MSG
-// TRANSFER;<FILE_TYPE>;<FILE_HASH>;<CURRENT_CHUNK>;<TOTAL_CHUNKS>
-func SerializeCSVBatch(fileType int, fileHash string, totalChunks int, currentChunk int, rows [][]string) string {
-	header := fmt.Sprintf("TRANSFER;%d;%s;%d;%d\n", fileType, fileHash, currentChunk, totalChunks)
-	body := ""
+// SerializeCSVBatch creates the message format expected by the request handler
+// Format: TRANSFER;<FILE_TYPE>;<FILE_HASH>;<CURRENT_CHUNK>;<TOTAL_CHUNKS>\n
+//
+//	csv_row0\n
+//	csv_row1\n
+//	...\n
+func SerializeCSVBatch(fileType int, fileHash string, totalChunks, currentChunk int, rows [][]string) string {
+	var sb strings.Builder
+
+	// Write header
+	sb.WriteString(fmt.Sprintf("TRANSFER;%d;%s;%d;%d\n", fileType, fileHash, currentChunk, totalChunks))
+
+	// Write CSV rows (joining fields with commas)
 	for _, row := range rows {
-		for j, field := range row {
-			body += field
-			if j < len(row)-1 {
-				body += ","
-			}
-		}
-		body += "\n"
+		sb.WriteString(strings.Join(row, ","))
+		sb.WriteString("\n")
 	}
 
-	return header + body
-
+	return sb.String()
 }

@@ -1,5 +1,9 @@
-middleware:
+client:
   port: 12345
-  ip: "middleware"
+  ip: "request_handler"
 log:
   level: "DEBUG"
+middleware:
+  url: "amqp://guest:guest@rabbit:5672/"
+file_paths:
+  - "/data/transactions_test.csv"

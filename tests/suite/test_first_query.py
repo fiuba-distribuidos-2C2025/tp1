@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 import time
-import pika
+
+# Add the current directory to Python path for importing rabbitmq_utils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rabbitmq_utils import connect_with_retry, setup_consumer_queue, send_batches, send_eof
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
-IN_QUEUE = "by_year_filter_input"
-OUT_QUEUE = "by_amount_filter_output"
+IN_QUEUE = "transactions"
+OUT_QUEUE = "results_1"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
 
-
 def main():  # Generate transactions
+
     transactions_batch_1 = """
     8a9b0c1d-2e3f-4567-8901-2345ef67890a,4,2,198,,67.90,8.15,59.75,2024-12-03 10:44:19
     6e7f8a9b-0c1d-4e2f-3456-789012345abc,18,1,,,189.25,0.00,189.25,2024-02-18 19:37:51
@@ -41,60 +45,65 @@ def main():  # Generate transactions
     4f5a6b7c-8d9e-4012-3456-789012345def,17,1,,,102.65,0.00,102.65,2024-05-19 23:07:34
     """
 
+    expected_results = [
+        "6e7f8a9b-0c1d-4e2f-3456-789012345abc",
+        "5a6b7c8d-9e0f-4123-4567-89abcdef0123",
+        "1e2f3a4b-5c6d-4789-abcd-ef0123456789",
+        "c9f2a847-5b6d-4e8f-9a7c-2d5e8f1b4c73",
+        "a1b2c3d4-e5f6-4789-abcd-ef1234567890",
+        "f5d8e9c2-3a4b-4567-8901-c2d3e4f5a678",
+        "e7f8a9b0-c1d2-4e3f-4567-89ab01cd23ef",
+        "3b4c5d6e-7f8a-4901-2345-6789abcdef01",
+        "7f8a9b0c-1d2e-4345-6789-abcd01234567",
+        "0a1b2c3d-4e5f-4678-9abc-def012345678",
+        "8e9f0a1b-2c3d-4456-7890-123456789abc",
+        "2a3b4c5d-6e7f-4890-abcd-ef1234567890",
+    ]
+
     # Try to connect to RabbitMQ with retries
-    for attempt in range(MAX_RETRY_ATTEMPTS):
-        try:
-            conn = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-            break
-        except Exception as e:
-            if attempt == MAX_RETRY_ATTEMPTS - 1:
-                print(
-                    f"Failed to connect to RabbitMQ after {MAX_RETRY_ATTEMPTS} attempts: {e}",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            time.sleep(RETRY_DELAY)
+    conn = connect_with_retry(AMQP_URL, MAX_RETRY_ATTEMPTS, RETRY_DELAY)
 
     with conn:
-        ch = conn.channel()
-        ch.queue_declare(
-            queue=IN_QUEUE, durable=True, auto_delete=False, exclusive=False
-        )
-        ch.queue_declare(
-            queue=OUT_QUEUE, durable=True, auto_delete=False, exclusive=False
-        )
+        ch, queue_name = setup_consumer_queue(conn, OUT_QUEUE)
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_1).encode("utf-8"),
-        )
+        # Prepare batches
+        batches = [transactions_batch_1, transactions_batch_2, transactions_batch_3]
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_2).encode("utf-8"),
-        )
+        # Publish each batch to its worker via routing key = worker number ("1"..)
+        send_batches(ch, batches, IN_QUEUE, NUM_IN_WORKERS)
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_3).encode("utf-8"),
-        )
+        # Send EOF to each worker
+        send_eof(ch, IN_QUEUE, NUM_IN_WORKERS)
 
-        # Receive whatever workers forward
         print("Waiting for forwarded results on output queue...")
-        time.sleep(5)  # give workers a moment to process
+        time.sleep(1)  # give workers a moment to process
 
-        results = ""
-        while True:
-            method, props, body = ch.basic_get(queue=OUT_QUEUE, auto_ack=False)
-            if not method:
-                break
-            results += body.decode("utf-8")
+        eof_target = NUM_OUT_WORKERS
+        eof_count = 0
 
-        print("Results received:\n", results)
+        def callback(ch, method, properties, body):
+            nonlocal eof_count, eof_target
+            body_str = body.decode("utf-8").strip()
+
+            if body_str == "EOF":
+                eof_count += 1
+                print(f"Received EOF ({eof_count}/{eof_target})")
+                if eof_count >= eof_target:
+                    print("Received all EOFs — stopping consumer.")
+                    ch.stop_consuming()  # cleanly exit start_consuming loop
+                return
+
+            transactions = [line for line in body_str.split("\n") if line.strip()]
+            for tx in transactions:
+                tx = tx.strip()
+                tx_id = tx.split(",")[0]
+                print(f"Transaction {tx} -> valid {tx_id in expected_results}.")
+
+        ch.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
+        ch.start_consuming()
 
 
 if __name__ == "__main__":
+    NUM_IN_WORKERS = int(sys.argv[1])
+    NUM_OUT_WORKERS = int(sys.argv[2])
     main()

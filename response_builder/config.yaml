@@ -1,0 +1,4 @@
+rabbit:
+  url: "amqp://guest:guest@rabbit:5672/"
+log:
+  level: "DEBUG"

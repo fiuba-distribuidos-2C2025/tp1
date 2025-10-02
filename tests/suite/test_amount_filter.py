@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 import time
-import pika
+
+# Add the current directory to Python path for importing rabbitmq_utils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rabbitmq_utils import connect_with_retry, setup_consumer_queue, send_batches, send_eof
 
 AMQP_URL = "amqp://guest:guest@localhost:5672/%2F"
-IN_QUEUE = "by_hour_filter_output"
-OUT_QUEUE = "by_amount_filter_output"
+IN_QUEUE = "transactions_filtered_by_hour"
+OUT_QUEUE = "results"
 MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 2  # seconds
-
+NUM_IN_WORKERS = 3
+NUM_OUT_WORKERS = 3
 
 def main():  # Generate transactions
     transactions_batch_1 = """
@@ -28,58 +33,41 @@ def main():  # Generate transactions
     """
 
     # Try to connect to RabbitMQ with retries
-    for attempt in range(MAX_RETRY_ATTEMPTS):
-        try:
-            conn = pika.BlockingConnection(pika.URLParameters(AMQP_URL))
-            break
-        except Exception as e:
-            if attempt == MAX_RETRY_ATTEMPTS - 1:
-                print(
-                    f"Failed to connect to RabbitMQ after {MAX_RETRY_ATTEMPTS} attempts: {e}",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            time.sleep(RETRY_DELAY)
+    conn = connect_with_retry(AMQP_URL, MAX_RETRY_ATTEMPTS, RETRY_DELAY)
 
     with conn:
-        ch = conn.channel()
-        ch.queue_declare(
-            queue=IN_QUEUE, durable=True, auto_delete=False, exclusive=False
-        )
-        ch.queue_declare(
-            queue=OUT_QUEUE, durable=True, auto_delete=False, exclusive=False
-        )
+        ch, queue_name = setup_consumer_queue(conn, OUT_QUEUE)
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_1).encode("utf-8"),
-        )
+        # Prepare batches
+        batches = [transactions_batch_1, transactions_batch_2, transactions_batch_3]
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_2).encode("utf-8"),
-        )
+        # Publish each batch to its worker via routing key = worker number ("1"..)
+        send_batches(ch, batches, IN_QUEUE, NUM_IN_WORKERS)
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=IN_QUEUE,
-            body=str(transactions_batch_3).encode("utf-8"),
-        )
+        # Send EOF to each worker
+        send_eof(ch, IN_QUEUE, NUM_IN_WORKERS)
 
         # Receive whatever workers forward
         print("Waiting for forwarded results on output queue...")
         time.sleep(1)  # give workers a moment to process
 
-        results = ""
-        while True:
-            method, props, body = ch.basic_get(queue=OUT_QUEUE, auto_ack=True)
-            if not method:
-                break
-            results += body.decode("utf-8")
+        eof_target = NUM_OUT_WORKERS
+        eof_count = 0
+        def callback(ch, method, properties, body):
+            nonlocal eof_count, eof_target
+            body_str = body.decode("utf-8").strip()
 
-        print("Results received:\n", results)
+            if body_str == "EOF":
+                eof_count += 1
+                print(f"Received EOF ({eof_count}/{eof_target})")
+                if eof_count >= eof_target:
+                    print("Received all EOFs — stopping consumer.")
+                    ch.stop_consuming()  # cleanly exit start_consuming loop
+                return
+            print(f"{body_str}")
+
+        ch.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
+        ch.start_consuming()
 
 
 if __name__ == "__main__":

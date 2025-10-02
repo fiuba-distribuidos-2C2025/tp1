@@ -1,5 +1,7 @@
-middleware:
+request_handler:
   port: 12345
-  ip: "middleware"
+  ip: "request_handler"
 log:
   level: "DEBUG"
+rabbit:
+  url: "amqp://guest:guest@rabbit:5672/"

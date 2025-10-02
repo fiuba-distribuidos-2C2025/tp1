@@ -14,88 +14,147 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-// InitConfig Function that uses viper library to parse configuration parameters.
-// Viper is configured to read variables from both environment variables and the
-// config file ./config.yaml. Environment variables takes precedence over parameters
-// defined in the configuration file. If some of the variables cannot be parsed,
-// an error is returned
-func InitConfig() (*viper.Viper, error) {
+const (
+	defaultConfigPath = "/config/config.yaml"
+	envPrefix         = "request"
+	defaultLogLevel   = "info"
+)
+
+// initConfig initializes Viper configuration from file and environment variables
+func initConfig() (*viper.Viper, error) {
 	v := viper.New()
 
-	// Configure viper to read env variables with the CLI_ prefix
+	// Configure environment variable handling
 	v.AutomaticEnv()
-	v.SetEnvPrefix("cli")
-	// Use a replacer to replace env variables underscores with points. This let us
-	// use nested configurations in the config file and at the same time define
-	// env variables for the nested configurations
+	v.SetEnvPrefix(envPrefix)
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Add env variables supported
-	v.BindEnv("request_handler", "port")
-	v.BindEnv("request_handler", "ip")
-	v.BindEnv("log", "level")
+	// Bind specific environment variables
+	configKeys := []string{
+		"request_handler.port",
+		"request_handler.ip",
+		"request_handler.url",
+		"log.level",
+	}
 
-	// Try to read configuration from config file. If config file
-	// does not exists then ReadInConfig will fail but configuration
-	// can be loaded from the environment variables so we shouldn't
-	// return an error in that case
-	v.SetConfigFile("/config/config.yaml")
+	for _, key := range configKeys {
+		if err := v.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("failed to bind env var %s: %w", key, err)
+		}
+	}
+
+	// Set defaults
+	v.SetDefault("log.level", defaultLogLevel)
+	v.SetDefault("request_handler.port", "8080")
+	v.SetDefault("request_handler.ip", "0.0.0.0")
+	v.SetDefault("rabbit.url", "amqp://guest:guest@localhost:5672/")
+
+	// Try to read config file (optional)
+	v.SetConfigFile(defaultConfigPath)
 	if err := v.ReadInConfig(); err != nil {
-		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
+		log.Infof("Config file not found, using environment variables and defaults")
+	} else {
+		log.Infof("Configuration loaded from %s", defaultConfigPath)
 	}
 
 	return v, nil
 }
 
-// InitLogger Receives the log level to be set in go-logging as a string. This method
-// parses the string and set the level to the logger. If the level string is not
-// valid an error is returned
-func InitLogger(logLevel string) error {
-	baseBackend := logging.NewLogBackend(os.Stdout, "", 0)
+// initLogger configures the logging backend with the specified log level
+func initLogger(logLevel string) error {
+	// Parse log level
+	logLevelCode, err := logging.LogLevel(logLevel)
+	if err != nil {
+		return fmt.Errorf("invalid log level '%s': %w", logLevel, err)
+	}
+
+	// Create log backend
+	backend := logging.NewLogBackend(os.Stdout, "", 0)
+
+	// Define log format
 	format := logging.MustStringFormatter(
 		`%{time:2006-01-02 15:04:05} %{level:.5s}     %{message}`,
 	)
-	backendFormatter := logging.NewBackendFormatter(baseBackend, format)
 
-	backendLeveled := logging.AddModuleLevel(backendFormatter)
-	logLevelCode, err := logging.LogLevel(logLevel)
-	if err != nil {
-		return err
-	}
-	backendLeveled.SetLevel(logLevelCode, "")
+	// Apply format and level
+	formattedBackend := logging.NewBackendFormatter(backend, format)
+	leveledBackend := logging.AddModuleLevel(formattedBackend)
+	leveledBackend.SetLevel(logLevelCode, "")
 
-	// Set the backends to be used.
-	logging.SetBackend(backendLeveled)
+	// Set the backend
+	logging.SetBackend(leveledBackend)
+
+	log.Infof("Logger initialized with level: %s", logLevel)
 	return nil
 }
 
-func main() {
-	v, err := InitConfig()
-	if err != nil {
-		log.Criticalf("%s", err)
+// buildRequestHandlerConfig extracts configuration from Viper and builds the config struct
+func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
+	return common.RequestHandlerConfig{
+		Port:           v.GetString("request_handler.port"),
+		IP:             v.GetString("request_handler.ip"),
+		MiddlewareURL:  v.GetString("rabbit.url"),
+		ReceiversCount: v.GetInt("middleware.receivers.count"),
 	}
+}
 
-	if err := InitLogger(v.GetString("log.level")); err != nil {
-		log.Criticalf("%s", err)
-	}
+// runWithGracefulShutdown starts the request handler and handles shutdown signals
+func runWithGracefulShutdown(requestHandler *common.RequestHandler) error {
+	// Set up signal handling
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
-	// Set up signal handling to gracefully shutdown the request_handler
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	request_handlerConfig := common.RequestHandlerConfig{
-		Port: v.GetString("request_handler.port"),
-		Ip:   v.GetString("request_handler.ip"),
-	}
-
-	request_handler := common.NewRequestHandler(request_handlerConfig)
-
+	// Start request handler in goroutine
+	errChan := make(chan error, 1)
 	go func() {
-		request_handler.Start()
+		log.Infof("Starting request handler on %s:%s",
+			requestHandler.Config.IP,
+			requestHandler.Config.Port)
+
+		if err := requestHandler.Start(); err != nil {
+			errChan <- err
+		}
 	}()
 
+	// Wait for shutdown signal or error
 	select {
-	case <-stop:
-		request_handler.Stop()
+	case sig := <-signalChan:
+		log.Infof("Received signal: %v, initiating graceful shutdown", sig)
+		requestHandler.Stop()
+		return nil
+	case err := <-errChan:
+		return fmt.Errorf("request handler error: %w", err)
 	}
+}
+
+func main() {
+	// Initialize configuration
+	v, err := initConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logger
+	logLevel := v.GetString("log.level")
+	if logLevel == "" {
+		logLevel = defaultLogLevel
+	}
+
+	if err := initLogger(logLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create and start request handler
+	config := buildRequestHandlerConfig(v)
+	requestHandler := common.NewRequestHandler(config)
+
+	// Set up graceful shutdown
+	if err := runWithGracefulShutdown(requestHandler); err != nil {
+		log.Criticalf("Request handler error: %v", err)
+		os.Exit(1)
+	}
+
+	log.Info("Request handler shut down gracefully")
 }

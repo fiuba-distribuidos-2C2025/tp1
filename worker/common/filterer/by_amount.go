@@ -10,16 +10,28 @@ import (
 // Validates if a transaction final amount is greater than the target amount.
 // Sample transaction received:
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,100,2023-07-01 07:00:00
-func transactionGreaterFinalAmount(transaction string, targetAmount float64) bool {
+func transactionGreaterFinalAmount(transaction string, targetAmount float64, indices []int) (string, bool) {
 	elements := strings.Split(transaction, ",")
 	if len(elements) < 5 {
-		return false
+		return "", false
 	}
 	finalAmount, err := strconv.ParseFloat(strings.TrimSpace(elements[3]), 64)
-	if err != nil {
-		return false
+	if err != nil || finalAmount < targetAmount {
+		return "", false
 	}
-	return finalAmount >= targetAmount
+
+	var sb strings.Builder
+	for i, idx := range indices {
+		elem := elements[idx]
+		if idx <= len(elements)-1 {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(elem)
+		}
+	}
+
+	return sb.String(), true
 }
 
 // Filter responsible for filtering transactions by amount.
@@ -33,37 +45,47 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64) boo
 //
 // Output format of each row (batched when processed):
 // transaction_id,final_amount
-func CreateByAmountFilterCallbackWithOutput(outChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	eofCount := 0
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
+		var outBuilder strings.Builder
+
 		for {
 			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
-
 			case msg, ok := <-*consumeChannel:
+				log.Infof("MESSAGE RECEIVED")
+				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
-				transactions := splitBatchInRows(body)
 
-				outMsg := ""
+				if body == "EOF" {
+					eofCount++
+					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					if eofCount >= neededEof {
+						outChan <- "EOF"
+					}
+					continue
+				}
+
+				// Reset builder for reuse
+				transactions := splitBatchInRows(body)
+				outBuilder.Reset()
+
 				for _, transaction := range transactions {
-					if transactionGreaterFinalAmount(transaction, 75) {
-						indices := []int{0, 3}
-						transaction := removeNeedlessFields(transaction, indices)
-						outMsg += transaction + "\n"
+					if filtered, ok := transactionGreaterFinalAmount(transaction, 75, []int{0, 3}); ok {
+						outBuilder.WriteString(filtered)
+						outBuilder.WriteByte('\n')
 					}
 				}
 
-				msg.Ack(false)
-				if outMsg != "" {
-					outChan <- outMsg
+				if outBuilder.Len() > 0 {
+					outChan <- outBuilder.String()
+					log.Infof("Processed message")
 				}
 			}
 		}

@@ -12,8 +12,8 @@ COPY vendor/ ./vendor/
 COPY . .
 
 # Build the binary from local path (not module path)
-RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/request_handler ./request_handler
+RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bin/response_builder ./response_builder
 
 FROM busybox:latest
-COPY --from=builder /build/bin/request_handler /request_handler
+COPY --from=builder /build/bin/response_builder /response_builder
 ENTRYPOINT ["/bin/sh"]

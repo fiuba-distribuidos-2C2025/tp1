@@ -1,23 +1,32 @@
 package common
 
 import (
-	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/aggregator"
 	filter "github.com/fiuba-distribuidos-2C2025/tp1/worker/common/filterer"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/grouper"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/joiner"
 	"github.com/op/go-logging"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 var log = logging.MustGetLogger("log")
 
+const MAIN_QUEUE = 0
+const SECONDARY_QUEUE = 1
+
 type WorkerConfig struct {
-	MiddlewareUrl string
-	InputQueue    string
-	OutputQueue   string
-	WorkerJob     string
+	MiddlewareUrl   string
+	InputQueue      []string
+	InputSenders    []string
+	OutputQueue     []string
+	OutputReceivers []string
+	WorkerJob       string
+	ID              int
 }
 
 type Worker struct {
@@ -71,6 +80,7 @@ func (w *Worker) Start() error {
 	log.Infof("Worker started!")
 
 	// Start cleanup
+	// TODO: We should use the middleware interface.
 	defer func() {
 		_ = w.channel.Close()
 		_ = w.conn.Close()
@@ -79,24 +89,73 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue, w.channel)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
+	if err != nil {
+		return err
+	}
+
+	var secondaryQueueMessages string
+	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" {
+		secondaryQueueMessages = w.listenToSecondaryQueue()
+		if secondaryQueueMessages == "" {
+			return nil
+		}
+		log.Debugf("Finished reading from secondary queue")
+	}
 
 	switch w.config.WorkerJob {
+	// First Query
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "HOUR_FILTER":
 		log.Info("Starting HOUR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan))
+		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof))
+		// Second Query
+	case "YEAR_FILTER_ITEMS":
+		log.Info("Starting YEAR_FILTER_ITEMS worker...")
+		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "GROUPER_BY_YEAR_MONTH":
+		log.Info("Starting GROUPER_BY_YEAR_MONTH worker...")
+		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "AGGREGATOR_BY_PROFIT_QUANTITY":
+		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
+		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+
+	case "JOINER_BY_ITEM_ID":
+		log.Info("Starting JOINER_BY_ITEM_ID worker...")
+		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+
 	default:
 		log.Error("Unknown worker job")
 		return errors.New("Unknown worker job")
 	}
 
-	outQueue := middleware.NewMessageMiddlewareQueue(w.config.OutputQueue, w.channel)
+	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
+	for i := 0; i < len(w.config.OutputReceivers); i++ {
+		outputQueueName := w.config.OutputQueue[i]
+		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+		if err != nil {
+			log.Errorf("Error parsing output receivers: %s", err)
+			return err
+		}
+
+		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
+		for id := 0; id < outputWorkerCount; id++ {
+
+			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), outputQueueName)
+
+			outputQueues[i][id] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(id+1), w.channel)
+		}
+	}
+
+	idx := 0
+	// sendersFinCount := 0
 	for {
 		select {
 		case <-w.shutdown:
@@ -104,30 +163,68 @@ func (w *Worker) Start() error {
 			return nil
 
 		case msg := <-inQueueResponseChan:
-			log.Infof("Forwarding message: %s", msg)
-			outQueue.Send([]byte(msg))
-		}
+			if msg == "EOF" {
+				// log.Debugf("EOF received")
+				// sendersFinCount += 1
+				// if sendersFinCount >= w.config.InputSenders {
+				// 	log.Infof("Broadcasting EOF")
+				// 	for _, queues := range outputQueues {
+				// 		for _, queue := range queues {
+				// 			log.Debugf("Broadcasting EOF to queue: ", queue)
+				// 			queue.Send([]byte("EOF"))
+				// 		}
+				// 	}
+				// 	return nil
+				// }
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte("EOF"))
+					}
+				}
+				return nil
+			}
 
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					return err
+				}
+
+				receiver := (idx + w.config.ID) % outputWorkerCount
+				log.Infof("Forwarding message: %s to worker %d with ", msg, receiver+1)
+				queues[receiver].Send([]byte(msg))
+			}
+			idx += 1
+		}
 		// TODO: know when input queue is finished!
 	}
 }
 
-func (w *Worker) forwardMsg(msg string) error {
-	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-	defer cancel()
-
-	if err := w.channel.PublishWithContext(
-		pubCtx,
-		"", w.config.OutputQueue,
-		false, false,
-		amqp.Publishing{ContentType: "text/plain", DeliveryMode: amqp.Persistent, Body: []byte(msg)},
-	); err != nil {
-		return err
+func (w *Worker) listenToSecondaryQueue() string {
+	inQueueResponseChan := make(chan string)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
+	if err != nil {
+		return "" // TODO: should return error
 	}
+	inQueue.StartConsuming(joiner.CreateMenuItemsCallbackWithOutput(inQueueResponseChan, neededEof))
 
-	log.Infof("Forwarded message: %s", msg)
-	return nil
+	messages := ""
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return ""
+
+		case msg := <-inQueueResponseChan:
+			if msg == "EOF" {
+				return messages
+			}
+			messages += msg
+		}
+	}
 }
 
 func (w *Worker) Stop() {

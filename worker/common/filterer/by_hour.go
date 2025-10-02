@@ -88,8 +88,8 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 					eofCount++
 					if eofCount >= neededEof {
 						outChan <- "EOF"
-						continue
 					}
+					continue
 				}
 				outBuilder.Reset()
 				transactions := splitBatchInRows(body)

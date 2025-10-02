@@ -1,4 +1,4 @@
-package grouper
+package aggregator
 
 import (
 	"strconv"
@@ -15,18 +15,21 @@ type ItemStats struct {
 }
 
 // sample string input
-// transaction_id,item_id,quantity,unit_price,subtotal,created_at
-// 3e02f6c2-fcf5-4e79-9bef-50f2a479f18d,5,3,9.0,27.0,2023-08-01 07:00:02
+// key,year-month,itemId,quantity,subtotal
+// 2023-08-01-5,2023-08-01,5,10,27.0
 func parseTransactionData(transaction string) (string, ItemStats) {
 	// Parse CSV: transaction_id,item_id,quantity,unit_price,subtotal,created_at
 	fields := strings.Split(transaction, ",")
-	if len(fields) < 6 {
+	if len(fields) < 4 {
 		log.Errorf("Invalid transaction format: %s", transaction)
 		return "", ItemStats{}
 	}
 
-	itemId := fields[1]
-	quantity, err := strconv.Atoi(fields[2])
+	key := fields[0]
+	yearMonth := fields[1]
+
+	itemId := fields[2]
+	quantity, err := strconv.Atoi(fields[3])
 	if err != nil {
 		log.Errorf("Invalid quantity in transaction: %s", transaction)
 		return "", ItemStats{}
@@ -38,13 +41,6 @@ func parseTransactionData(transaction string) (string, ItemStats) {
 		return "", ItemStats{}
 	}
 
-	// Extract year-month from date (e.g., "2023-08-01 07:00:02" -> "2023-08")
-	dateStr := fields[5]
-	yearMonth := dateStr
-	if len(dateStr) >= 7 {
-		yearMonth = dateStr[:7] // Extract first 7 characters (YYYY-MM)
-	}
-
 	stats := ItemStats{
 		id:       itemId,
 		quantity: quantity,
@@ -52,18 +48,54 @@ func parseTransactionData(transaction string) (string, ItemStats) {
 		date:     yearMonth,
 	}
 
-	return yearMonth + itemId, stats
+	return key, stats
 }
 
-// Convert accumulator map to batches of at most 10mb strings for output
-func get_accumulator_batches(accumulator map[string]ItemStats) []string {
+func getMaxItems(accumulator map[string]ItemStats) (map[string]ItemStats, map[string]ItemStats) {
+	var maxQuantityAccumulator map[string]ItemStats = make(map[string]ItemStats)
+	var maxProfitAccumulator map[string]ItemStats = make(map[string]ItemStats)
+
+	for _, stats := range accumulator {
+		// Check and update max quantity per month
+		if existing, ok := maxQuantityAccumulator[stats.date]; !ok || stats.quantity > existing.quantity {
+			maxQuantityAccumulator[stats.date] = stats
+		}
+		// Check and update max profit per month
+		if existing, ok := maxProfitAccumulator[stats.date]; !ok || stats.subtotal > existing.subtotal {
+			maxProfitAccumulator[stats.date] = stats
+		}
+	}
+	return maxQuantityAccumulator, maxProfitAccumulator
+}
+
+// // Convert accumulator map to batches of at most 10mb strings for output
+func get_accumulator_batches(maxQuantityItems map[string]ItemStats, maxProfitItems map[string]ItemStats) []string {
 	var batches []string
 	var currentBatch strings.Builder
 	currentSize := 0
 	maxBatchSize := 10 * 1024 * 1024 // 10 MB
 
-	for key, stats := range accumulator {
-		line := key + "," + stats.date + "," + stats.id + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+	for _, stats := range maxQuantityItems {
+		line := "QUANTITY" + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "\n"
+		lineSize := len(line)
+
+		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
+			batches = append(batches, currentBatch.String())
+			currentBatch.Reset()
+			currentSize = 0
+		}
+
+		currentBatch.WriteString(line)
+		currentSize += lineSize
+	}
+	if currentSize > 0 {
+		batches = append(batches, currentBatch.String())
+		currentBatch.Reset()
+		currentSize = 0
+	}
+
+	for _, stats := range maxProfitItems {
+		line := "PROFIT" + "," + stats.date + "," + stats.id + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
 		lineSize := len(line)
 
 		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
@@ -106,7 +138,9 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 				if body == "EOF" {
 					eofCount++
 					if eofCount >= neededEof {
-						batches := get_accumulator_batches(accumulator)
+						maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
+
+						batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
 						for _, batch := range batches {
 							outChan <- batch
 						}
@@ -117,13 +151,14 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
-					item_key, item_tx_stat := parseTransactionData(transaction)
+
+					item_key, sub_month_item_stats := parseTransactionData(transaction)
 					if _, ok := accumulator[item_key]; !ok {
 						accumulator[item_key] = ItemStats{quantity: 0, subtotal: 0}
 					}
 					txStat := accumulator[item_key]
-					txStat.quantity += item_tx_stat.quantity
-					txStat.subtotal += item_tx_stat.subtotal
+					txStat.quantity += sub_month_item_stats.quantity
+					txStat.subtotal += sub_month_item_stats.subtotal
 					accumulator[item_key] = txStat
 				}
 			}

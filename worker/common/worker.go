@@ -6,18 +6,24 @@ import (
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/aggregator"
 	filter "github.com/fiuba-distribuidos-2C2025/tp1/worker/common/filterer"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/grouper"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/joiner"
 	"github.com/op/go-logging"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 var log = logging.MustGetLogger("log")
 
+const MAIN_QUEUE = 0
+const SECONDARY_QUEUE = 1
+
 type WorkerConfig struct {
 	MiddlewareUrl   string
-	InputQueue      string
+	InputQueue      []string
+	InputSenders    []int
 	OutputQueue     []string
-	InputSenders    int
 	OutputReceivers []string
 	WorkerJob       string
 	ID              int
@@ -83,11 +89,20 @@ func (w *Worker) Start() error {
 	log.Infof("Declaring queues...")
 
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue+"_"+strconv.Itoa(w.config.ID), w.channel)
-	log.Infof("Input queue declared: %s", w.config.InputQueue+"_"+strconv.Itoa(w.config.ID))
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+	neededEof := w.config.InputSenders[MAIN_QUEUE]
 
-	neededEof := w.config.InputSenders
+	var secondaryQueueMessages string
+	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" {
+		secondaryQueueMessages := w.listenToSecondaryQueue()
+		if secondaryQueueMessages == nil {
+			return nil
+		}
+	}
+
 	switch w.config.WorkerJob {
+	// First Query
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
 		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof))
@@ -97,6 +112,21 @@ func (w *Worker) Start() error {
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
 		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof))
+		// Second Query
+	case "YEAR_FILTER_ITEMS":
+		log.Info("Starting YEAR_FILTER_ITEMS worker...")
+		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "GROUPER_BY_YEAR_MONTH":
+		log.Info("Starting GROUPER_BY_YEAR_MONTH worker...")
+		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "AGGREGATOR_BY_PROFIT_QUANTITY":
+		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
+		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+
+	case "JOINER_BY_ITEM_ID":
+		log.Info("Starting JOINER_BY_ITEM_ID worker...")
+		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+
 	default:
 		log.Error("Unknown worker job")
 		return errors.New("Unknown worker job")
@@ -165,6 +195,29 @@ func (w *Worker) Start() error {
 			idx += 1
 		}
 		// TODO: know when input queue is finished!
+	}
+}
+
+func (w *Worker) listenToSecondaryQueue() string {
+	inQueueResponseChan := make(chan string)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	neededEof := w.config.InputSenders[SECONDARY_QUEUE]
+	inQueue.StartConsuming(joiner.CreateMenuItemsCallbackWithOutput(inQueueResponseChan, neededEof))
+
+	messages := ""
+
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return ""
+
+		case msg := <-inQueueResponseChan:
+			if msg == "EOF" {
+				return messages
+			}
+			messages += msg
+		}
 	}
 }
 

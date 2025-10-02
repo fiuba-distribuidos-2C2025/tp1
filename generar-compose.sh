@@ -1,16 +1,12 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 4 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount>"
+if [ $# -lt 6 ]; then
+  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_items> <cantidad_trabajadores_grouper_by_year_month>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
-WORKER_COUNT_FILTER_BY_YEAR="$2"
-WORKER_COUNT_FILTER_BY_HOUR="$3"
-WORKER_COUNT_FILTER_BY_AMOUNT="$4"
-WORKER_COUNT_GROUPER_BY_MONTH_YEAR=1
 REQUEST_CONTROLLER_COUNT=1
 
 cat > "$OUTPUT_FILE" <<EOL
@@ -77,6 +73,14 @@ services:
 
 EOL
 
+# ==============================================================================
+# First Query
+# ==============================================================================
+
+WORKER_COUNT_FILTER_BY_YEAR="$2"
+WORKER_COUNT_FILTER_BY_HOUR="$3"
+WORKER_COUNT_FILTER_BY_AMOUNT="$4"
+
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_worker$i:
@@ -92,9 +96,9 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025
       - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
-      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_MONTH_YEAR
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_ID=$i
 
 
@@ -115,7 +119,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=HOUR_FILTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT
@@ -146,6 +150,86 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 done
+
+# ==============================================================================
+# Second Query
+# ==============================================================================
+
+
+WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
+WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$6"
+
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  filter_by_year_items_worker$i:
+    container_name: filter_by_year_items_worker$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=YEAR_FILTER_ITEMS
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_items_2024_2025
+      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH
+      - WORKER_ID=$i
+
+EOL
+done
+
+for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  grouper_by_year_moth_worker$i:
+    container_name: grouper_by_year_moth_worker$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=GROUPER_BY_YEAR_MONTH
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=year_month_grouped_items
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+      - WORKER_MIDDLEWARE_RECEIVERS=1 # Max profit Filter
+      - WORKER_ID=$i
+
+EOL
+done
+
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  aggregator_by_profit_quantity$i:
+    container_name: aggregator_by_profit_quantity$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
+      - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=max_quantity_profit_items
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_ITEM_ID
+      - WORKER_ID=$i
+
+EOL
+done
+
+# TODO ADD JOINERS BY ID with quantity = WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:

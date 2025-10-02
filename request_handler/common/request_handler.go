@@ -220,6 +220,9 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 		log.Infof("Received batch: %s (chunk %d/%d) with %d rows",
 			message.FileHash, message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
 
+		if message.FileType == "2" {
+		}
+
 		// Process each message through RabbitMQ
 		receiverID := rh.currentWorkerQueue
 		if receiverID > rh.Config.ReceiversCount {
@@ -330,6 +333,16 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		queue.Send([]byte(payload))
 		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
 			message.CurrentChunk, message.TotalChunks, receiverID)
+		return nil
+	case 2:
+		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
+			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i+1), rh.Channel)
+			payload := strings.Join(message.CSVRows, "\n")
+			queue.Send([]byte(payload))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+
+		}
 		return nil
 	}
 

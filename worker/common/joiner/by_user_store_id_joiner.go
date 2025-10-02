@@ -33,7 +33,7 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 	return sb.String(), true
 }
 
-func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
 	processedStores := ProcessStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {

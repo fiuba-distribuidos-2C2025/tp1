@@ -59,7 +59,7 @@ func ProcessStoreIds(storeRows string) map[string]string {
 
 func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	processedStores := processStoreIds(storeIdRows)
+	processedStores := ProcessStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 

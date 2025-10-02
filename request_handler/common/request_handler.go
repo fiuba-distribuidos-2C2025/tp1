@@ -23,6 +23,11 @@ const (
 	resultTimeout       = 60 * time.Second
 	maxScannerBuffer    = 128 * 1024 * 1024 // 128MB to handle 64MB chunks with overhead
 	resultChunkSize     = 10 * 1024 * 1024  // 10MB chunks for results
+
+	transactionsFile      = 0
+	transactionsItemsFile = 1
+	storesFile            = 2
+	menuItemsFile         = 3
 )
 
 // ResultMessage contains a result and which queue it came from
@@ -355,21 +360,21 @@ func (rh *RequestHandler) readMessage(scanner *bufio.Scanner) (*BatchMessage, bo
 func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fileType string) error {
 	fileTypeInt, _ := strconv.Atoi(fileType)
 	switch fileTypeInt {
-	case 0:
+	case transactionsFile:
 		queue := middleware.NewMessageMiddlewareQueue("transactions"+"_"+strconv.Itoa(receiverID), rh.Channel)
 		payload := strings.Join(message.CSVRows, "\n")
 		queue.Send([]byte(payload))
 		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
 			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
-	case 1:
+	case transactionsItemsFile:
 		queue := middleware.NewMessageMiddlewareQueue("transactions_items"+"_"+strconv.Itoa(receiverID), rh.Channel)
 		payload := strings.Join(message.CSVRows, "\n")
 		queue.Send([]byte(payload))
 		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_items_%d",
 			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
-	case 2:
+	case storesFile:
 		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
 			queue := middleware.NewMessageMiddlewareQueue("stores"+"_"+strconv.Itoa(i), rh.Channel)
 			payload := strings.Join(message.CSVRows, "\n")
@@ -378,7 +383,7 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 				message.CurrentChunk, message.TotalChunks, receiverID)
 		}
 		return nil
-	case 3:
+	case menuItemsFile:
 		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
 			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i), rh.Channel)
 			payload := strings.Join(message.CSVRows, "\n")
@@ -399,13 +404,13 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 
 	var queuePrefix string
 	switch fileTypeInt {
-	case 0:
+	case transactionsFile:
 		queuePrefix = "transactions"
-	case 1:
+	case transactionsItemsFile:
 		queuePrefix = "transactions_items"
-	case 2:
+	case storesFile:
 		queuePrefix = "stores"
-	case 3:
+	case menuItemsFile:
 		queuePrefix = "menu_items"
 	default:
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)

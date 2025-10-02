@@ -98,7 +98,8 @@ func (w *Worker) Start() error {
 
 	var secondaryQueueMessages string
 	if hasSecondaryQueue(w.config.WorkerJob) {
-		secondaryQueueMessages := w.listenToSecondaryQueue()
+		log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+		secondaryQueueMessages = w.listenToSecondaryQueue()
 		if secondaryQueueMessages == "" {
 			return nil
 		}
@@ -159,7 +160,7 @@ func (w *Worker) Start() error {
 		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
 	case "JOINER_BY_USER_STORE":
 		log.Info("Starting JOINER_BY_USER_STORE worker...")
-		inQueue.StartConsuming(joiner.CreateByUserStoreJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
 
 	default:
 		log.Error("Unknown worker job")
@@ -190,7 +191,6 @@ func (w *Worker) Start() error {
 	}
 
 	idx := 0
-	// sendersFinCount := 0
 	for {
 		select {
 		case <-w.shutdown:
@@ -199,18 +199,6 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 			if msg == "EOF" {
-				// log.Debugf("EOF received")
-				// sendersFinCount += 1
-				// if sendersFinCount >= w.config.InputSenders {
-				// 	log.Infof("Broadcasting EOF")
-				// 	for _, queues := range outputQueues {
-				// 		for _, queue := range queues {
-				// 			log.Debugf("Broadcasting EOF to queue: ", queue)
-				// 			queue.Send([]byte("EOF"))
-				// 		}
-				// 	}
-				// 	return nil
-				// }
 				log.Infof("Broadcasting EOF")
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
@@ -228,7 +216,11 @@ func (w *Worker) Start() error {
 				}
 
 				receiver := (idx + w.config.ID) % outputWorkerCount
-				log.Infof("Forwarding message: %s to worker %d with ", msg, receiver+1)
+				msg_truncated := msg
+				if len(msg_truncated) > 50 {
+					msg_truncated = msg_truncated[:50] + "\n..."
+				}
+				log.Infof("Forwarding message: %s to worker %d", msg_truncated, receiver+1)
 				queues[receiver].Send([]byte(msg))
 			}
 			idx += 1

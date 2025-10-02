@@ -1,18 +1,23 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 7 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_items> <cantidad_trabajadores_grouper_by_year_month>"
+if [ $# -lt 8 ]; then
+  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_month> <cantidad_trabajadores_grouper_by_semester> <cantidad_trabajadores_grouper_by_store_user> <cantidad_trabajadores_joiner_by_user_id> <cantidad_trabajadores_joiner_by_user_store>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
 REQUEST_CONTROLLER_COUNT=1
 WORKER_COUNT_FILTER_BY_YEAR="$2"
+WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
 WORKER_COUNT_FILTER_BY_HOUR="$3"
 WORKER_COUNT_FILTER_BY_AMOUNT="$4"
 WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$5"
 WORKER_COUNT_GROUPER_BY_SEMESTER="$6"
+WORKER_COUNT_GROUPER_BY_STORE_USER=$7
+WORKER_COUNT_JOINER_BY_USER_ID=$8
+WORKER_COUNT_JOINER_BY_USER_STORE=$8
+
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -78,9 +83,12 @@ services:
 
 EOL
 
+cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
 # First Query
 # ==============================================================================
+
+EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -152,10 +160,12 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
 # Second Query
 # ==============================================================================
 
+EOL
 
 WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
 WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=1
@@ -254,10 +264,14 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
 # Third Query
 # ==============================================================================
-WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
+
+EOL
+
+ORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -282,6 +296,27 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+cat >> "$OUTPUT_FILE" <<EOL
+  aggregator_semester_worker1:
+    container_name: aggregator_semester_worker1
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_SEMESTER
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - WORKER_ID=1
+
+EOL
+
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_store_id$i:
@@ -305,14 +340,12 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
 # Fourth Query
 # ==============================================================================
 
-WORKER_COUNT_GROUPER_BY_STORE_USER=$8
-WORKER_COUNT_JOINER_BY_USER_ID=$9
-WORKER_COUNT_JOINER_BY_USER_STORE=$9
-# WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
+EOL
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_STORE_USER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -406,28 +439,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
-
-cat >> "$OUTPUT_FILE" <<EOL
-  aggregator_semester_worker1:
-    container_name: aggregator_semester_worker1
-    image: worker:latest
-    entrypoint: /worker
-    volumes:
-      - ./worker/config.yaml:/config.yaml
-    networks:
-      - testing_net
-    depends_on:
-      - rabbit
-    environment:
-      - WORKER_JOB=AGGREGATOR_SEMESTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
-      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_SEMESTER
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
-      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - WORKER_ID=1
-
-EOL
-
 cat >> "$OUTPUT_FILE" <<EOL
 networks:
   testing_net:
@@ -437,4 +448,5 @@ networks:
         - subnet: 172.25.125.0/24
 EOL
 
-echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year y $WORKER_COUNT_FILTER_BY_HOUR de tipo filter by hour y $WORKER_COUNT_FILTER_BY_AMOUNT de tipo filter by amount."
+# echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year y $WORKER_COUNT_FILTER_BY_HOUR de tipo filter by hour y $WORKER_COUNT_FILTER_BY_AMOUNT de tipo filter by amount."
+echo "Archivo '$OUTPUT_FILE' creado exitosamente."

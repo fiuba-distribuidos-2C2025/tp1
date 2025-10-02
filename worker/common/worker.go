@@ -129,7 +129,7 @@ func (w *Worker) Start() error {
 		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_BY_PROFIT_QUANTITY":
 		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
-		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateByQuantityProfitAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
@@ -138,10 +138,10 @@ func (w *Worker) Start() error {
 		// ==============================================================================
 	case "GROUPER_BY_SEMESTER":
 		log.Info("Starting GROUPER_BY_SEMESTER worker...")
-		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(grouper.CreateBySemesterGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_SEMESTER":
 		log.Info("Starting AGGREGATOR_SEMESTER worker...")
-		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))

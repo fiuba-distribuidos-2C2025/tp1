@@ -56,17 +56,6 @@ func processMenuItems(menuItemRows string) map[string]string {
 	return menuItemsData
 }
 
-// Filter responsible for filtering transactions by amount.
-// Target amount to filter transactions: 75
-//
-// Assumes it receives data in batches: csv rows separated by newlines.
-//
-// Sample row received:
-// transaction_id,store_id,user_id,final_amount,created_at
-// 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,38.0,2023-07-01 07:00:00
-//
-// Output format of each row (batched when processed):
-// transaction_id,final_amount
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
 	processedMenuItems := processMenuItems(menuItemRows)
@@ -109,35 +98,6 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					outChan <- outBuilder.String()
 					log.Infof("Processed message")
 				}
-			}
-		}
-	}
-}
-
-func CreateMenuItemsCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				body := strings.TrimSpace(string(msg.Body))
-				log.Infof("received", body)
-
-				if body == "EOF" {
-					eofCount++
-					if eofCount >= neededEof {
-						outChan <- "EOF"
-						continue
-					}
-				}
-
-				outChan <- body
 			}
 		}
 	}

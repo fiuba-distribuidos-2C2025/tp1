@@ -114,7 +114,7 @@ func get_accumulator_batches(maxQuantityItems map[string]ItemStats, maxProfitIte
 	return batches
 }
 
-func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
 	accumulator := make(map[string]ItemStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {

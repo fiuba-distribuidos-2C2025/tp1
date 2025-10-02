@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 5 ]; then
+if [ $# -lt 7 ]; then
   echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_items> <cantidad_trabajadores_grouper_by_year_month>"
   exit 1
 fi
@@ -12,6 +12,7 @@ WORKER_COUNT_FILTER_BY_YEAR="$2"
 WORKER_COUNT_FILTER_BY_HOUR="$3"
 WORKER_COUNT_FILTER_BY_AMOUNT="$4"
 WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$5"
+WORKER_COUNT_GROUPER_BY_SEMESTER="$6"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -120,9 +121,9 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
-      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q2
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT,$WORKER_COUNT_GROUPER_BY_SEMESTER
       - WORKER_ID=$i
 
 EOL
@@ -142,7 +143,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=AMOUNT_FILTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
@@ -252,6 +253,78 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 done
+
+# ==============================================================================
+# Third Query
+# ==============================================================================
+WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
+
+for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  grouper_by_semester_worker$i:
+    container_name: grouper_by_semester_worker$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=GROUPER_BY_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q2
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
+      - WORKER_ID=$i
+
+EOL
+done
+
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  joiner_by_store_id$i:
+    container_name: joiner_by_store_id$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=JOINER_BY_STORE_ID
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores
+      - WORKER_MIDDLEWARE_SENDERS=1,$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
+      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_ID=$i
+
+EOL
+done
+
+cat >> "$OUTPUT_FILE" <<EOL
+  aggregator_semester_worker1:
+    container_name: aggregator_semester_worker1
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_SEMESTER
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - WORKER_ID=1
+
+EOL
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:

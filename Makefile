@@ -50,7 +50,7 @@ docker-compose-logs:
 .PHONY: docker-compose-logs
 
 middleware_tests:
-	docker compose up -d middleware
+	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
 
 default-compose:

@@ -331,7 +331,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=1,$REQUEST_CONTROLLER_COUNT
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT

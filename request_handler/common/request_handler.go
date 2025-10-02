@@ -375,11 +375,17 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
 	case storesFile:
-		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
-			queue := middleware.NewMessageMiddlewareQueue("stores"+"_"+strconv.Itoa(i), rh.Channel)
-			payload := strings.Join(message.CSVRows, "\n")
-			queue.Send([]byte(payload))
-			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_%d",
+		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue_q3 count properly
+			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
+			payload_q3 := strings.Join(message.CSVRows, "\n")
+			queue_q3.Send([]byte(payload_q3))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+
+			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
+			payload_q4 := strings.Join(message.CSVRows, "\n")
+			queue_q4.Send([]byte(payload_q4))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q4_%d",
 				message.CurrentChunk, message.TotalChunks, receiverID)
 		}
 		return nil
@@ -409,7 +415,17 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 	case transactionsItemsFile:
 		queuePrefix = "transactions_items"
 	case storesFile:
-		queuePrefix = "stores"
+		// Crappy fix: special case for stores
+		for i := 1; i <= rh.Config.ReceiversCount; i++ {
+			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
+			queue_q3.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to stores_q3_%d for fileType %d", i, fileType)
+
+			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
+			queue_q4.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to stores_q4_%d for fileType %d", i, fileType)
+		}
+		return nil
 	case menuItemsFile:
 		queuePrefix = "menu_items"
 	default:

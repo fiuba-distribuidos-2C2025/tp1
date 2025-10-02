@@ -373,7 +373,7 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
@@ -391,7 +391,7 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1

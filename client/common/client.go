@@ -400,5 +400,7 @@ func (c *Client) readResults() error {
 
 		log.Infof("Result received - Length: %d bytes - Message: %s",
 			len(resultStr), resultStr)
+
+		// TODO: Eventually ack here
 	}
 }

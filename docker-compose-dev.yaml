@@ -205,7 +205,7 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
 
-  grouper_by_year_moth_worker1:
+  grouper_by_year_month_worker1:
     container_name: grouper_by_year_moth_worker1
     image: worker:latest
     entrypoint: /worker
@@ -220,10 +220,10 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=year_month_grouped_items
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Max profit Filter
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
 
-  grouper_by_year_moth_worker2:
+  grouper_by_year_month_worker2:
     container_name: grouper_by_year_moth_worker2
     image: worker:latest
     entrypoint: /worker
@@ -238,7 +238,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=year_month_grouped_items
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Max profit Filter
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
 
   aggregator_by_profit_quantity1:
@@ -259,24 +259,6 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
 
-  aggregator_by_profit_quantity2:
-    container_name: aggregator_by_profit_quantity2
-    image: worker:latest
-    entrypoint: /worker
-    volumes:
-      - ./worker/config.yaml:/config.yaml
-    networks:
-      - testing_net
-    depends_on:
-      - rabbit
-    environment:
-      - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
-      - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=max_quantity_profit_items
-      - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=2
-      - WORKER_ID=2
-
   joiner_by_item_id1:
     container_name: joiner_by_item_id1
     image: worker:latest
@@ -291,7 +273,7 @@ services:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
-      - WORKER_MIDDLEWARE_SENDERS=2,1
+      - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
 
@@ -309,7 +291,7 @@ services:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
-      - WORKER_MIDDLEWARE_SENDERS=2,1
+      - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
 

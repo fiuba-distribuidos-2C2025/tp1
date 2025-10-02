@@ -15,17 +15,24 @@ func concatWithMenuItemsData(transaction string, menuItemsData map[string]string
 	if len(elements) < 4 {
 		return "", false
 	}
+	meassurement := elements[0]
+	date := elements[1]
 	itemId := elements[2]
+	meassure := elements[3]
 
-	menuItemData, exists := menuItemsData[itemId]
+	menuItemName, exists := menuItemsData[itemId]
 	if !exists {
 		return "", false
 	}
 
 	var sb strings.Builder
-	sb.WriteString(transaction)
+	sb.WriteString(meassurement)
 	sb.WriteByte(',')
-	sb.WriteString(menuItemData)
+	sb.WriteString(date)
+	sb.WriteByte(',')
+	sb.WriteString(meassure)
+	sb.WriteByte(',')
+	sb.WriteString(menuItemName)
 
 	return sb.String(), true
 }
@@ -62,7 +69,6 @@ func processMenuItems(menuItemRows string) map[string]string {
 // transaction_id,final_amount
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	log.Info("RECEIVED MENU ITEM", menuItemRows)
 	processedMenuItems := processMenuItems(menuItemRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -81,10 +87,11 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				if body == "EOF" {
 					eofCount++
+					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						outChan <- "EOF"
-						continue
 					}
+					continue
 				}
 
 				// Reset builder for reuse

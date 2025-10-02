@@ -223,7 +223,7 @@ func (w *Worker) listenToSecondaryQueue() string {
 	if err != nil {
 		return "" // TODO: should return error
 	}
-	// All joiner use the same callback.
+	// All joiners use the same callback.
 	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""

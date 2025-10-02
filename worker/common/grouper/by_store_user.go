@@ -8,9 +8,9 @@ import (
 )
 
 type UserStats struct {
-	userId        string
-	storeId       string
-	purchases_qty int
+	UserId       string
+	StoreId      string
+	PurchasesQty int
 }
 
 // sample string input
@@ -28,12 +28,12 @@ func parseTransactionUserData(transaction string) (string, UserStats) {
 	userID := fields[2]
 
 	stats := UserStats{
-		userId:        userID,
-		storeId:       storeId,
-		purchases_qty: 1,
+		UserId:       userID,
+		StoreId:      storeId,
+		PurchasesQty: 1,
 	}
 
-	return storeId + userID, stats
+	return storeId + "-" + userID, stats
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
@@ -44,7 +44,7 @@ func getUserAccumulatorBatches(accumulator map[string]UserStats) []string {
 	maxBatchSize := 10 * 1024 * 1024 // 10 MB
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.storeId + "," + stats.userId + "," + strconv.Itoa(stats.purchases_qty) + "\n"
+		line := key + "," + stats.StoreId + "," + stats.UserId + "," + strconv.Itoa(stats.PurchasesQty) + "\n"
 		lineSize := len(line)
 
 		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
@@ -101,10 +101,10 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 				for _, transaction := range transactions {
 					store_user_key, user_stats := parseTransactionUserData(transaction)
 					if _, ok := accumulator[store_user_key]; !ok {
-						accumulator[store_user_key] = UserStats{userId: user_stats.userId, storeId: user_stats.storeId, purchases_qty: 0}
+						accumulator[store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
 					}
 					userStats := accumulator[store_user_key]
-					userStats.purchases_qty += 1
+					userStats.PurchasesQty += 1
 					accumulator[store_user_key] = userStats
 				}
 			}

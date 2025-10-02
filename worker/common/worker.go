@@ -151,6 +151,9 @@ func (w *Worker) Start() error {
 	case "GROUPER_BY_STORE_USER":
 		log.Info("Starting GROUPER_BY_STORE_USER worker...")
 		inQueue.StartConsuming(grouper.CreateByStoreUserGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "AGGREGATOR_BY_STORE_USER":
+		log.Info("Starting AGGREGATOR_BY_STORE_USER worker...")
+		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	default:
 		log.Error("Unknown worker job")

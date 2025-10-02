@@ -90,6 +90,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 
+# TODO: transactions_2024_2025_q2 not consumed by anyone?
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_worker$i:
@@ -106,10 +107,9 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
       - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
-      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_STORE_USER
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2,transactions_2024_2025_q4
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_STORE_USER,$WORKER_COUNT_GROUPER_BY_STORE_USER
       - WORKER_ID=$i
-
 
 EOL
 done
@@ -361,7 +361,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q4
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
@@ -369,6 +369,8 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 done
+
+WORKER_COUNT_AGGREGATOR_BY_STORE_USER=1
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -407,7 +409,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=users_q4,top_3_store_users # We first listen to top_3_store_users and then to users
+      - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_USER_STORE

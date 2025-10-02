@@ -28,6 +28,7 @@ const (
 	transactionsItemsFile = 1
 	storesFile            = 2
 	menuItemsFile         = 3
+	usersFile             = 4
 )
 
 // ResultMessage contains a result and which queue it came from
@@ -399,6 +400,16 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 
 		}
 		return nil
+	case usersFile:
+		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
+			queue := middleware.NewMessageMiddlewareQueue("users"+"_"+strconv.Itoa(i), rh.Channel)
+			payload := strings.Join(message.CSVRows, "\n")
+			queue.Send([]byte(payload))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue users_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+
+		}
+		return nil
 	}
 
 	return nil
@@ -428,6 +439,8 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 		return nil
 	case menuItemsFile:
 		queuePrefix = "menu_items"
+	case usersFile:
+		queuePrefix = "users"
 	default:
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
 		return nil

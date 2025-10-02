@@ -77,10 +77,9 @@ services:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
       - WORKER_MIDDLEWARE_SENDERS=1
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2,transactions_2024_2025_q4
+      - WORKER_MIDDLEWARE_RECEIVERS=2,2,2
       - WORKER_ID=1
-
 
   filter_by_year_worker2:
     container_name: filter_by_year_worker2
@@ -96,10 +95,9 @@ services:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
       - WORKER_MIDDLEWARE_SENDERS=1
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q2,transactions_2024_2025_q4
+      - WORKER_MIDDLEWARE_RECEIVERS=2,2,2
       - WORKER_ID=2
-
 
   filter_by_hour_worker1:
     container_name: filter_by_hour_worker1
@@ -413,7 +411,7 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q4
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
@@ -431,11 +429,29 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q4
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
       - WORKER_ID=2
+
+  aggregator_by_store_user1:
+    container_name: aggregator_by_store_user1
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_BY_STORE_USER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
+      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_ID=1
 
   joiner_by_user_id1:
     container_name: joiner_by_user_id1
@@ -449,7 +465,7 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=users_q4,top_3_store_users # We first listen to top_3_store_users and then to users
+      - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=2
@@ -467,7 +483,7 @@ services:
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=users_q4,top_3_store_users # We first listen to top_3_store_users and then to users
+      - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=2

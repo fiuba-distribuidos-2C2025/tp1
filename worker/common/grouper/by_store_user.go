@@ -15,11 +15,11 @@ type UserStats struct {
 
 // sample string input
 // transaction_id,store_id,user_id,final_amount,created_at
-// 3e02f6c2-fcf5-4e79-9bef-50f2a479f18d,5,3,27.0,2023-08-01 07:00:02
+// 93da72d9-566a-45ed-b7d4-ce8c38430d94,9,1307362.0,18.0,2025-01-31 19:58:11
 func parseTransactionUserData(transaction string) (string, UserStats) {
 	// Parse CSV: transaction_id,item_id,quantity,unit_price,subtotal,created_at
 	fields := strings.Split(transaction, ",")
-	if len(fields) < 6 {
+	if len(fields) < 5 {
 		log.Errorf("Invalid transaction format: %s", transaction)
 		return "", UserStats{}
 	}

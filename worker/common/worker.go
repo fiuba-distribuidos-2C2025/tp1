@@ -22,7 +22,7 @@ const SECONDARY_QUEUE = 1
 type WorkerConfig struct {
 	MiddlewareUrl   string
 	InputQueue      []string
-	InputSenders    []int
+	InputSenders    []string
 	OutputQueue     []string
 	OutputReceivers []string
 	WorkerJob       string
@@ -91,12 +91,15 @@ func (w *Worker) Start() error {
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
 	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
-	neededEof := w.config.InputSenders[MAIN_QUEUE]
+	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
+	if err != nil {
+		return err
+	}
 
 	var secondaryQueueMessages string
 	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" {
 		secondaryQueueMessages := w.listenToSecondaryQueue()
-		if secondaryQueueMessages == nil {
+		if secondaryQueueMessages == "" {
 			return nil
 		}
 	}
@@ -201,7 +204,10 @@ func (w *Worker) Start() error {
 func (w *Worker) listenToSecondaryQueue() string {
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
-	neededEof := w.config.InputSenders[SECONDARY_QUEUE]
+	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
+	if err != nil {
+		return "" // TODO: should return error
+	}
 	inQueue.StartConsuming(joiner.CreateMenuItemsCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""

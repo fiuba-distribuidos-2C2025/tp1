@@ -137,6 +137,7 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				if body == "EOF" {
 					eofCount++
+					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
 

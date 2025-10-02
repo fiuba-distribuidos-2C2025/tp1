@@ -46,7 +46,7 @@ func (m *ResponseBuilder) Start() error {
 	for resultID := 1; resultID <= 4; resultID++ {
 		log.Infof("Listening on queue results_%d", resultID)
 		doneChan := make(chan error)
-		resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d", resultID), channel)
+		resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d_1", resultID), channel)
 		resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan, resultID))
 	}
 

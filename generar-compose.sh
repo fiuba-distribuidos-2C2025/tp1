@@ -143,7 +143,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_ID=$i
@@ -158,6 +158,8 @@ done
 
 WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
 WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$6"
+WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH # TODO: should be set as parameter
+WORKER_COUNT_JOINER_BY_ITEM_ID=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -229,7 +231,28 @@ EOL
 done
 
 # TODO ADD JOINERS BY ID with quantity = WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_ITEM_ID; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  joiner_by_item_id$i:
+    container_name: joiner_by_item_id$i
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=JOINER_BY_ITEM_ID
+      - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY,$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_ID=$i
 
+EOL
+done
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:

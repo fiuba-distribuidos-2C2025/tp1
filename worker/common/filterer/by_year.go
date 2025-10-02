@@ -75,6 +75,7 @@ func CreateByYearFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 				body := strings.TrimSpace(string(msg.Body))
 				if body == "EOF" {
 					eofCount++
+					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						outChan <- "EOF"
 					}

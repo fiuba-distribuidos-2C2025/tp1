@@ -65,6 +65,7 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) 
 
 				if body == "EOF" {
 					eofCount++
+					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						outChan <- "EOF"
 					}

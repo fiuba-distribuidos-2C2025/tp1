@@ -98,14 +98,17 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	InputQueue := strings.Split(v.GetString("middleware.inputQueue"), ",")
+	InputSenders := strings.Split(v.GetString("middleware.senders"), ",")
+
 	OutputQueue := strings.Split(v.GetString("middleware.outputQueue"), ",")
 	OutputReceivers := strings.Split(v.GetString("middleware.receivers"), ",")
 
 	workerConfig := common.WorkerConfig{
 		MiddlewareUrl:   v.GetString("middleware.url"),
-		InputQueue:      v.GetString("middleware.inputQueue"),
+		InputQueue:      InputQueue,
 		OutputQueue:     OutputQueue,
-		InputSenders:    v.GetInt("middleware.senders"),
+		InputSenders:    InputSenders,
 		OutputReceivers: OutputReceivers,
 		WorkerJob:       v.GetString("job"),
 		ID:              v.GetInt("id"),

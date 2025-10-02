@@ -286,9 +286,17 @@ func (rh *RequestHandler) sendToQueue(message *protocol.BatchMessage, receiverID
 	case protocol.FileTypeStores:
 		// Broadcast stores data to all receivers
 		for i := 1; i <= rh.Config.ReceiversCount; i++ {
-			queueName := "stores_" + strconv.Itoa(i)
-			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
-			queue.Send([]byte(payload))
+			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
+			payload_q3 := strings.Join(message.CSVRows, "\n")
+			queue_q3.Send([]byte(payload_q3))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+
+			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
+			payload_q4 := strings.Join(message.CSVRows, "\n")
+			queue_q4.Send([]byte(payload_q4))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q4_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
 		}
 		log.Infof("Broadcasted batch (chunk %d/%d) to all stores queues",
 			message.CurrentChunk, message.TotalChunks)
@@ -325,10 +333,23 @@ func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
 	}
 
 	for i := 1; i <= rh.Config.ReceiversCount; i++ {
-		queueName := queuePrefix + "_" + strconv.Itoa(i)
-		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
-		queue.Send([]byte("EOF"))
-		log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
+		if queuePrefix == "stores" {
+			queueName3 := queuePrefix + "_q3" + "_" + strconv.Itoa(i)
+			queueName4 := queuePrefix + "_q4" + "_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName3, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName3, fileType)
+
+			queue = middleware.NewMessageMiddlewareQueue(queueName4, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName4, fileType)
+
+		} else {
+			queueName := queuePrefix + "_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
+		}
 	}
 	return nil
 }

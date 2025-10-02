@@ -132,18 +132,24 @@ func (w *Worker) Start() error {
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
-		// ==============================================================================
-		// Third Query
-		// ==============================================================================
+	// ==============================================================================
+	// Third Query
+	// ==============================================================================
 	case "GROUPER_BY_SEMESTER":
 		log.Info("Starting GROUPER_BY_SEMESTER worker...")
-		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(grouper.CreateBySemesterGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_SEMESTER":
 		log.Info("Starting AGGREGATOR_SEMESTER worker...")
-		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+	// ==============================================================================
+	// Fourth Query
+	// ==============================================================================
+	case "GROUPER_BY_STORE_USER":
+		log.Info("Starting GROUPER_BY_STORE_USER worker...")
+		inQueue.StartConsuming(grouper.CreateByStoreUserGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	default:
 		log.Error("Unknown worker job")

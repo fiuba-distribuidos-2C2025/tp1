@@ -97,7 +97,7 @@ func (w *Worker) Start() error {
 	}
 
 	var secondaryQueueMessages string
-	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" || w.config.WorkerJob == "JOINER_BY_STORE_ID" {
+	if hasSecondaryQueue(w.config.WorkerJob) {
 		secondaryQueueMessages := w.listenToSecondaryQueue()
 		if secondaryQueueMessages == "" {
 			return nil
@@ -154,6 +154,12 @@ func (w *Worker) Start() error {
 	case "AGGREGATOR_BY_STORE_USER":
 		log.Info("Starting AGGREGATOR_BY_STORE_USER worker...")
 		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
+	case "JOINER_BY_USER_ID":
+		log.Info("Starting JOINER_BY_USER_ID worker...")
+		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+	case "JOINER_BY_USER_STORE":
+		log.Info("Starting JOINER_BY_USER_STORE worker...")
+		inQueue.StartConsuming(joiner.CreateByUserStoreJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
 
 	default:
 		log.Error("Unknown worker job")
@@ -176,6 +182,11 @@ func (w *Worker) Start() error {
 
 			outputQueues[i][id] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(id+1), w.channel)
 		}
+	}
+
+	if shouldBroadcast(w.config.WorkerJob) {
+		log.Infof("Worker job %s requires broadcasting", w.config.WorkerJob)
+		return w.broadcastMessages(inQueueResponseChan, outputQueues)
 	}
 
 	idx := 0
@@ -226,6 +237,21 @@ func (w *Worker) Start() error {
 	}
 }
 
+func hasSecondaryQueue(workerJob string) bool {
+	switch workerJob {
+	case "JOINER_BY_ITEM_ID":
+		return true
+	case "JOINER_BY_STORE_ID":
+		return true
+	case "JOINER_BY_USER_ID":
+		return true
+	case "JOINER_BY_USER_STORE":
+		return true
+	default:
+		return false
+	}
+}
+
 func (w *Worker) listenToSecondaryQueue() string {
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
@@ -248,6 +274,43 @@ func (w *Worker) listenToSecondaryQueue() string {
 				return messages
 			}
 			messages += msg
+		}
+	}
+}
+
+func shouldBroadcast(workerJob string) bool {
+	switch workerJob {
+	case "AGGREGATOR_BY_STORE_USER":
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]*middleware.MessageMiddlewareQueue) error {
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return nil
+
+		case msg := <-inChan:
+			if msg == "EOF" {
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte("EOF"))
+					}
+				}
+				return nil
+			}
+			for _, queues := range outputQueues {
+				for _, queue := range queues {
+					log.Infof("Forwarding message: %s to queue %d with ", msg, queue)
+					queue.Send([]byte(msg))
+				}
+			}
 		}
 	}
 }

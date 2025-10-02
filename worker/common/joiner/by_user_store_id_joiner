@@ -6,19 +6,17 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
-// Validates if a transaction final amount is greater than the target amount.
 // Sample transaction received:
-// key,year,yearHalf,storeId,tpv
-// 1-2024-H1,2024,H1,1,100.3
-func concatWithStoresData(transaction string, storesData map[string]string) (string, bool) {
+// storeId,birthdate,purchaseQty
+// 1,1990-01-01,10
+func concatBirthdatesWithStoresData(transaction string, storesData map[string]string) (string, bool) {
 	elements := strings.Split(transaction, ",")
-	if len(elements) < 4 {
+	if len(elements) < 3 {
 		return "", false
 	}
-	year := elements[1]
-	yearHalf := elements[2]
-	storeId := elements[3]
-	tpv := elements[4]
+	storeId := elements[0]
+	birthdate := elements[1]
+	purchaseQty := elements[2]
 
 	storeName, exists := storesData[storeId]
 	if !exists {
@@ -26,40 +24,18 @@ func concatWithStoresData(transaction string, storesData map[string]string) (str
 	}
 
 	var sb strings.Builder
-	sb.WriteString(year)
-	sb.WriteByte('-')
-	sb.WriteString(yearHalf)
-	sb.WriteByte(',')
 	sb.WriteString(storeName)
 	sb.WriteByte(',')
-	sb.WriteString(tpv)
+	sb.WriteString(birthdate)
+	sb.WriteByte(',')
+	sb.WriteString(purchaseQty)
 
 	return sb.String(), true
 }
 
-// example store ids data input
-// store_id,store_name,city,state:
-//
-//	1,G Coffee @ USJ 89q,USJ 89q,Kuala Lumpur
-func ProcessStoreIds(storeRows string) map[string]string {
-	// Preprocess stores data into a map for quick lookup
-	storesData := make(map[string]string)
-	storesDataLines := splitBatchInRows(storeRows)
-	for _, line := range storesDataLines {
-		fields := strings.Split(line, ",")
-		if len(fields) < 4 {
-			log.Errorf("Invalid store data format: %s", line)
-			continue
-		}
-		storeId := fields[0]
-		storesData[storeId] = fields[1]
-	}
-	return storesData
-}
-
 func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	processedStores := processStoreIds(storeIdRows)
+	processedStores := ProcessStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -89,7 +65,7 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 				outBuilder.Reset()
 
 				for _, transaction := range transactions {
-					if concatenated, ok := concatWithStoresData(transaction, processedStores); ok {
+					if concatenated, ok := concatBirthdatesWithStoresData(transaction, processedStores); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')
 					}

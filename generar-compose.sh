@@ -130,7 +130,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT,$WORKER_COUNT_GROUPER_BY_SEMESTER
       - WORKER_ID=$i
 
@@ -287,7 +287,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q2
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
@@ -361,7 +361,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q2
+      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q4
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
@@ -407,7 +407,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
-      - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
+      - WORKER_MIDDLEWARE_INPUTQUEUE=users_q4,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_USER_STORE
@@ -430,7 +430,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - rabbit
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
-      - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores
+      - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_JOINER_BY_USER_ID,$REQUEST_CONTROLLER_COUNT
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT

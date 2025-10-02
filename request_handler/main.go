@@ -91,10 +91,15 @@ func initLogger(logLevel string) error {
 // buildRequestHandlerConfig extracts configuration from Viper and builds the config struct
 func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
 	return common.RequestHandlerConfig{
-		Port:           v.GetString("request_handler.port"),
-		IP:             v.GetString("request_handler.ip"),
-		MiddlewareURL:  v.GetString("rabbit.url"),
-		ReceiversCount: v.GetInt("middleware.receivers.count"),
+		Port:                           v.GetString("request_handler.port"),
+		IP:                             v.GetString("request_handler.ip"),
+		MiddlewareURL:                  v.GetString("rabbit.url"),
+		TransactionsReceiversCount:     v.GetInt("middleware.receivers.transactionscount"),
+		TransactionItemsReceiversCount: v.GetInt("middleware.receivers.transactionitemscount"),
+		StoresQ3ReceiversCount:         v.GetInt("middleware.receivers.storesq3count"),
+		StoresQ4ReceiversCount:         v.GetInt("middleware.receivers.storesq4count"),
+		MenuItemsReceiversCount:        v.GetInt("middleware.receivers.menuitemscount"),
+		UsersReceiversCount:            v.GetInt("middleware.receivers.userscount"),
 	}
 }
 

@@ -39,10 +39,15 @@ type ResultMessage struct {
 
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
-	Port           string
-	IP             string
-	MiddlewareURL  string
-	ReceiversCount int
+	Port                           string
+	IP                             string
+	MiddlewareURL                  string
+	TransactionsReceiversCount     int
+	TransactionItemsReceiversCount int
+	StoresQ3ReceiversCount         int
+	StoresQ4ReceiversCount         int
+	MenuItemsReceiversCount        int
+	UsersReceiversCount            int
 }
 
 // RequestHandler handles incoming client connections and manages message flow
@@ -74,6 +79,8 @@ func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 
 // Start begins listening for connections
 func (rh *RequestHandler) Start() error {
+	log.Infof("Starting request handler with config", rh.Config)
+
 	addr := net.JoinHostPort(rh.Config.IP, rh.Config.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -256,10 +263,18 @@ func (rh *RequestHandler) processFile(scanner *bufio.Scanner, conn net.Conn) (bo
 
 		// Process each message through RabbitMQ
 		receiverID := rh.currentWorkerQueue
-		if receiverID > rh.Config.ReceiversCount {
-			rh.currentWorkerQueue = 1
-			receiverID = rh.currentWorkerQueue
+		fileTypeInt, _ := strconv.Atoi(message.FileType)
+		switch fileTypeInt {
+		case transactionsFile:
+			receiverID = receiverID%rh.Config.TransactionsReceiversCount + 1
+		case transactionsItemsFile:
+			receiverID = receiverID%rh.Config.TransactionItemsReceiversCount + 1
+		case menuItemsFile:
+			receiverID = receiverID%rh.Config.MenuItemsReceiversCount + 1
+		case usersFile:
+			receiverID = receiverID%rh.Config.UsersReceiversCount + 1
 		}
+		log.Infof("Calculated receiver", receiverID)
 
 		if err := rh.sendToQueue(message, receiverID, message.FileType); err != nil {
 			return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
@@ -376,13 +391,15 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
 	case storesFile:
-		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue_q3 count properly
+		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
 			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
 			payload_q3 := strings.Join(message.CSVRows, "\n")
 			queue_q3.Send([]byte(payload_q3))
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
 				message.CurrentChunk, message.TotalChunks, receiverID)
+		}
 
+		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
 			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
 			payload_q4 := strings.Join(message.CSVRows, "\n")
 			queue_q4.Send([]byte(payload_q4))
@@ -391,7 +408,7 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		}
 		return nil
 	case menuItemsFile:
-		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
+		for i := 1; i <= rh.Config.MenuItemsReceiversCount; i++ {
 			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i), rh.Channel)
 			payload := strings.Join(message.CSVRows, "\n")
 			queue.Send([]byte(payload))
@@ -417,18 +434,24 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 	fileTypeInt := fileType
 
 	var queuePrefix string
+	receiversCount := 1
 	switch fileTypeInt {
 	case transactionsFile:
 		queuePrefix = "transactions"
+		receiversCount = rh.Config.TransactionsReceiversCount
 	case transactionsItemsFile:
 		queuePrefix = "transactions_items"
+		receiversCount = rh.Config.TransactionItemsReceiversCount
 	case storesFile:
-		// Crappy fix: special case for stores
-		for i := 1; i <= rh.Config.ReceiversCount; i++ {
+		// special case for stores
+		// TODO: find better fix
+		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
 			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
 			queue_q3.Send([]byte("EOF"))
 			log.Infof("Successfully sent EOF to stores_q3_%d for fileType %d", i, fileType)
+		}
 
+		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
 			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
 			queue_q4.Send([]byte("EOF"))
 			log.Infof("Successfully sent EOF to stores_q4_%d for fileType %d", i, fileType)
@@ -436,14 +459,16 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 		return nil
 	case menuItemsFile:
 		queuePrefix = "menu_items"
+		receiversCount = rh.Config.MenuItemsReceiversCount
 	case usersFile:
 		queuePrefix = "users"
+		receiversCount = rh.Config.UsersReceiversCount
 	default:
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
 		return nil
 	}
 
-	for i := 1; i <= rh.Config.ReceiversCount; i++ {
+	for i := 1; i <= receiversCount; i++ {
 		queueName := queuePrefix + "_" + strconv.Itoa(i)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 		queue.Send([]byte("EOF"))
@@ -461,8 +486,6 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 		select {
 		case result := <-resultChan:
 			resultsReceived++
-			log.Infof("Result %d/%d received from final_results_%d - Length: %d",
-				resultsReceived, expectedResults, result.QueueID, len(result.Data))
 
 			// Sort the result
 			list := strings.Split(result.Data, "\n")
@@ -475,7 +498,7 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 				return
 			}
 
-			log.Infof("Successfully sent result %d/%d from final_results_%d",
+			log.Infof("Successfully sent result %d/%d (final_results_%d)",
 				resultsReceived, expectedResults, result.QueueID)
 
 		case err := <-doneChan:

@@ -399,7 +399,7 @@ func (c *Client) readResults() error {
 
 		if len(result) > 0 {
 			resultStr := strings.Join(result, "\n")
-			log.Infof("Result received - Length: %d bytes - Message: %s",
+			log.Infof("Result received - Length: %d bytes - Message:\n%s",
 				len(resultStr), resultStr)
 		}
 		// TODO: Eventually ack here

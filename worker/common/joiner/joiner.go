@@ -44,6 +44,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					return
 				}
 				body := strings.TrimSpace(string(msg.Body))
+				log.Infof("received", body)
 
 				if body == "EOF" {
 					eofCount++

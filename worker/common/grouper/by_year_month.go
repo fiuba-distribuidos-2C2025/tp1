@@ -52,7 +52,7 @@ func parseTransactionItemData(transaction string) (string, ItemStats) {
 		date:     yearMonth,
 	}
 
-	return yearMonth + itemId, stats
+	return yearMonth + "-" + itemId, stats
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
@@ -63,7 +63,7 @@ func get_accumulator_batches(accumulator map[string]ItemStats) []string {
 	maxBatchSize := 10 * 1024 * 1024 // 10 MB
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.date + "," + stats.id + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
 		lineSize := len(line)
 
 		if currentSize+lineSize > maxBatchSize && currentSize > 0 {

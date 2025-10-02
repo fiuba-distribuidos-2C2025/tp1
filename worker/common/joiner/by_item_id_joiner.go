@@ -32,14 +32,14 @@ func concatWithMenuItemsData(transaction string, menuItemsData map[string]string
 
 // example menu items data input
 // item_id,item_name,category,price,is_seasonal,available_from,available_to
-// 1,Espresso,coffee,6.0,False,,
+// 2,Americano,coffee,7.0,False,,
 func processMenuItems(menuItemRows string) map[string]string {
 	// Preprocess menu items data into a map for quick lookup
 	menuItemsData := make(map[string]string)
 	menuItemLines := splitBatchInRows(menuItemRows)
 	for _, line := range menuItemLines {
 		fields := strings.Split(line, ",")
-		if len(fields) < 7 {
+		if len(fields) < 6 {
 			log.Errorf("Invalid menu item format: %s", line)
 			continue
 		}
@@ -51,6 +51,7 @@ func processMenuItems(menuItemRows string) map[string]string {
 
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
+	log.Info("RECEIVED MENU ITEM", menuItemRows)
 	processedMenuItems := processMenuItems(menuItemRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -60,7 +61,6 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
 				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
@@ -77,10 +77,10 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				}
 
 				// Reset builder for reuse
-				transactions := splitBatchInRows(body)
+				items := splitBatchInRows(body)
 				outBuilder.Reset()
 
-				for _, transaction := range transactions {
+				for _, transaction := range items {
 					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')

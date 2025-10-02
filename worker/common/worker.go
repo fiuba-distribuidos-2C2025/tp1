@@ -102,6 +102,7 @@ func (w *Worker) Start() error {
 		if secondaryQueueMessages == "" {
 			return nil
 		}
+		log.Debugf("Finished reading from secondary queue")
 	}
 
 	switch w.config.WorkerJob {
@@ -128,7 +129,7 @@ func (w *Worker) Start() error {
 		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_BY_PROFIT_QUANTITY":
 		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
-		inQueue.StartConsuming(aggregator.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateByQuantityProfitAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
@@ -233,7 +234,6 @@ func (w *Worker) listenToSecondaryQueue() string {
 	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
 
 	messages := ""
-
 	for {
 		select {
 		case <-w.shutdown:

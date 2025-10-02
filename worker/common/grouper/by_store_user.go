@@ -7,63 +7,44 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
-type ItemStats struct {
-	id       string
-	quantity int
-	subtotal float64
-	date     string
+type UserStats struct {
+	userId        string
+	storeId       string
+	purchases_qty int
 }
 
 // sample string input
-// transaction_id,item_id,quantity,unit_price,subtotal,created_at
-// 3e02f6c2-fcf5-4e79-9bef-50f2a479f18d,5,3,9.0,27.0,2023-08-01 07:00:02
-func parseTransactionItemData(transaction string) (string, ItemStats) {
+// transaction_id,store_id,user_id,final_amount,created_at
+// 3e02f6c2-fcf5-4e79-9bef-50f2a479f18d,5,3,27.0,2023-08-01 07:00:02
+func parseTransactionUserData(transaction string) (string, UserStats) {
 	// Parse CSV: transaction_id,item_id,quantity,unit_price,subtotal,created_at
 	fields := strings.Split(transaction, ",")
 	if len(fields) < 6 {
 		log.Errorf("Invalid transaction format: %s", transaction)
-		return "", ItemStats{}
+		return "", UserStats{}
 	}
 
-	itemId := fields[1]
-	quantity, err := strconv.Atoi(fields[2])
-	if err != nil {
-		log.Errorf("Invalid quantity in transaction: %s", transaction)
-		return "", ItemStats{}
+	storeId := fields[1]
+	userID := fields[2]
+
+	stats := UserStats{
+		userId:        userID,
+		storeId:       storeId,
+		purchases_qty: 1,
 	}
 
-	subtotal, err := strconv.ParseFloat(fields[4], 64)
-	if err != nil {
-		log.Errorf("Invalid subtotal in transaction: %s", transaction)
-		return "", ItemStats{}
-	}
-
-	// Extract year-month from date (e.g., "2023-08-01 07:00:02" -> "2023-08")
-	dateStr := fields[5]
-	yearMonth := dateStr
-	if len(dateStr) >= 7 {
-		yearMonth = dateStr[:7] // Extract first 7 characters (YYYY-MM)
-	}
-
-	stats := ItemStats{
-		id:       itemId,
-		quantity: quantity,
-		subtotal: subtotal,
-		date:     yearMonth,
-	}
-
-	return yearMonth + itemId, stats
+	return storeId + userID, stats
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func get_accumulator_batches(accumulator map[string]ItemStats) []string {
+func getUserAccumulatorBatches(accumulator map[string]UserStats) []string {
 	var batches []string
 	var currentBatch strings.Builder
 	currentSize := 0
 	maxBatchSize := 10 * 1024 * 1024 // 10 MB
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.date + "," + stats.id + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+		line := key + "," + stats.storeId + "," + stats.userId + "," + strconv.Itoa(stats.purchases_qty) + "\n"
 		lineSize := len(line)
 
 		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
@@ -84,7 +65,7 @@ func get_accumulator_batches(accumulator map[string]ItemStats) []string {
 
 func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	accumulator := make(map[string]ItemStats)
+	accumulator := make(map[string]UserStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -107,7 +88,7 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 					eofCount++
 					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := get_accumulator_batches(accumulator)
+						batches := getUserAccumulatorBatches(accumulator)
 						for _, batch := range batches {
 							outChan <- batch
 						}
@@ -118,14 +99,13 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
-					item_id, item_tx_stat := parseTransactionItemData(transaction)
-					if _, ok := accumulator[item_id]; !ok {
-						accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0, date: item_tx_stat.date, id: item_tx_stat.id}
+					store_user_key, user_stats := parseTransactionUserData(transaction)
+					if _, ok := accumulator[store_user_key]; !ok {
+						accumulator[store_user_key] = UserStats{userId: user_stats.userId, storeId: user_stats.storeId, purchases_qty: 0}
 					}
-					txStat := accumulator[item_id]
-					txStat.quantity += item_tx_stat.quantity
-					txStat.subtotal += item_tx_stat.subtotal
-					accumulator[item_id] = txStat
+					userStats := accumulator[store_user_key]
+					userStats.purchases_qty += 1
+					accumulator[store_user_key] = userStats
 				}
 			}
 		}

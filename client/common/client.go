@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -56,15 +57,14 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	// Transfer all CSV files organized by directory/file type
 	if err := c.TransferDataDirectory("/data"); err != nil {
 		log.Errorf("Failed to transfer data: %v", err)
 		return err
 	}
 
-	// Send EOF after all files are transferred
-	if err := c.sendEOF(); err != nil {
-		log.Errorf("Failed to send EOF: %v", err)
+	// Send final EOF after all directories are transferred
+	if err := c.sendFinalEOF(); err != nil {
+		log.Errorf("Failed to send final EOF: %v", err)
 		return err
 	}
 
@@ -101,10 +101,6 @@ func (c *Client) TransferDataDirectory(dataPath string) error {
 	processedDirs := 0
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
 		dirPath := filepath.Join(dataPath, entry.Name())
 		log.Infof("Processing directory: %s (FileType: %d)", entry.Name(), fileType)
 
@@ -113,6 +109,14 @@ func (c *Client) TransferDataDirectory(dataPath string) error {
 			log.Errorf("Failed to transfer CSVs from directory %s: %v", entry.Name(), err)
 			return err
 		}
+
+		// Send EOF after completing this directory/fileType
+		if err := c.sendEOFForFileType(fileType); err != nil {
+			log.Errorf("Failed to send EOF for fileType %d: %v", fileType, err)
+			return err
+		}
+
+		log.Infof("Completed directory %s (FileType: %d)", entry.Name(), fileType)
 
 		processedDirs++
 		fileType++
@@ -134,37 +138,18 @@ func (c *Client) TransferCSVFolder(folderPath string, fileType int) error {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	csvFiles := []string{}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		// Check if file has .csv extension
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ".csv") {
-			csvFiles = append(csvFiles, filepath.Join(folderPath, entry.Name()))
-		}
-	}
-
-	if len(csvFiles) == 0 {
-		log.Warningf("No CSV files found in directory: %s", folderPath)
-		return nil
-	}
-
-	log.Infof("Found %d CSV file(s) to transfer with fileType %d", len(csvFiles), fileType)
-
-	// Transfer each CSV file
-	for i, filePath := range csvFiles {
-		log.Infof("Transferring file %d/%d: %s (FileType: %d)", i+1, len(csvFiles), filePath, fileType)
+	for i, entry := range entries {
+		filePath := filepath.Join(folderPath, entry.Name())
+		log.Infof("Transferring file %d/%d: %s (FileType: %d)", i+1, len(entries), filePath, fileType)
 
 		if err := c.TransferCSVFile(filePath, fileType); err != nil {
 			return fmt.Errorf("failed to transfer file %s: %w", filePath, err)
 		}
 
-		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(csvFiles), filePath)
+		log.Infof("Successfully transferred file %d/%d: %s", i+1, len(entries), filePath)
 	}
 
-	log.Infof("All %d CSV files transferred successfully from %s", len(csvFiles), folderPath)
+	log.Infof("All %d CSV files transferred successfully from %s", len(entries), folderPath)
 	return nil
 }
 
@@ -195,7 +180,7 @@ func (c *Client) TransferCSVFile(path string, fileType int) error {
 
 // calculateFileMetadata extracts and calculates file metadata
 func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType int) fileMetadata {
-	totalChunks := int(fileInfo.Size()) / defaultBatchSize
+	totalChunks := math.Ceil(float64(fileInfo.Size()) / float64(defaultBatchSize))
 	if totalChunks == 0 {
 		totalChunks = 1
 	}
@@ -203,7 +188,7 @@ func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType int) fileM
 	return fileMetadata{
 		fileType:    fileType,
 		fileHash:    fileInfo.Name(), // TODO: CALCULATE FILE HASH
-		totalChunks: totalChunks,
+		totalChunks: int(totalChunks),
 	}
 }
 
@@ -218,7 +203,8 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 		}
 
 		if len(rows) > 0 {
-			if err := c.sendCSVBatch(metadata, currentChunk, rows); err != nil {
+			batchMessage := SerializeCSVBatch(metadata.fileType, metadata.fileHash, metadata.totalChunks, currentChunk, rows)
+			if err := c.sendBatch(batchMessage); err != nil {
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
 			log.Infof("Sent chunk %d/%d of file %s (FileType: %d)", currentChunk, metadata.totalChunks, metadata.fileHash, metadata.fileType)
@@ -262,19 +248,6 @@ func calculateRecordSize(record []string) int {
 		size += len(field)
 	}
 	return size
-}
-
-// sendCSVBatch serializes and sends a batch of CSV rows
-func (c *Client) sendCSVBatch(metadata fileMetadata, currentChunk int, rows [][]string) error {
-	csvBatchMsg := SerializeCSVBatch(
-		metadata.fileType,
-		metadata.fileHash,
-		metadata.totalChunks,
-		currentChunk,
-		rows,
-	)
-
-	return c.sendBatch(csvBatchMsg)
 }
 
 // connectToServer establishes a connection to the server
@@ -328,31 +301,60 @@ func (c *Client) sendBatch(csvBatchMsg string) error {
 	return nil
 }
 
-// sendEOF sends an EOF message to the server and waits for ACK
-func (c *Client) sendEOF() error {
+// sendEOFForFileType sends an EOF message for a specific file type to the server and waits for ACK
+func (c *Client) sendEOFForFileType(fileType int) error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected to server")
 	}
 
 	writer := bufio.NewWriter(c.conn)
 
-	// Send EOF message
-	if _, err := writer.WriteString("EOF\n"); err != nil {
-		return fmt.Errorf("failed to write EOF: %w", err)
+	// Send EOF message with file type
+	eofMsg := fmt.Sprintf("EOF;%d\n", fileType)
+	if _, err := writer.WriteString(eofMsg); err != nil {
+		return fmt.Errorf("failed to write EOF for fileType %d: %w", fileType, err)
 	}
 
 	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush EOF: %w", err)
+		return fmt.Errorf("failed to flush EOF for fileType %d: %w", fileType, err)
 	}
 
-	log.Info("EOF sent to server, waiting for ACK...")
+	log.Infof("EOF sent to server for fileType %d, waiting for ACK...", fileType)
 
 	// Wait for ACK from server
 	if err := c.waitForACK(); err != nil {
-		return fmt.Errorf("failed to receive EOF ACK: %w", err)
+		return fmt.Errorf("failed to receive EOF ACK for fileType %d: %w", fileType, err)
 	}
 
-	log.Info("EOF ACK received")
+	log.Infof("EOF ACK received for fileType %d", fileType)
+	return nil
+}
+
+// sendFinalEOF sends a final EOF message to indicate all transfers are complete
+func (c *Client) sendFinalEOF() error {
+	if c.conn == nil {
+		return fmt.Errorf("not connected to server")
+	}
+
+	writer := bufio.NewWriter(c.conn)
+
+	// Send final EOF message
+	if _, err := writer.WriteString("FINAL_EOF\n"); err != nil {
+		return fmt.Errorf("failed to write FINAL_EOF: %w", err)
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush FINAL_EOF: %w", err)
+	}
+
+	log.Info("FINAL_EOF sent to server, waiting for ACK...")
+
+	// Wait for ACK from server
+	if err := c.waitForACK(); err != nil {
+		return fmt.Errorf("failed to receive FINAL_EOF ACK: %w", err)
+	}
+
+	log.Info("FINAL_EOF ACK received")
 	return nil
 }
 

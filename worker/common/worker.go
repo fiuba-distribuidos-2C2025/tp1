@@ -98,7 +98,7 @@ func (w *Worker) Start() error {
 
 	var secondaryQueueMessages string
 	if w.config.WorkerJob == "JOINER_BY_ITEM_ID" || w.config.WorkerJob == "JOINER_BY_STORE_ID" {
-		secondaryQueueMessages := w.listenToSecondaryQueue()
+		secondaryQueueMessages = w.listenToSecondaryQueue()
 		if secondaryQueueMessages == "" {
 			return nil
 		}

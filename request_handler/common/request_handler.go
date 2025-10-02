@@ -371,10 +371,19 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		return nil
 	case 2:
 		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
+			queue := middleware.NewMessageMiddlewareQueue("stores"+"_"+strconv.Itoa(i), rh.Channel)
+			payload := strings.Join(message.CSVRows, "\n")
+			queue.Send([]byte(payload))
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_%d",
+				message.CurrentChunk, message.TotalChunks, receiverID)
+		}
+		return nil
+	case 3:
+		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
 			queue := middleware.NewMessageMiddlewareQueue("menu_items"+"_"+strconv.Itoa(i), rh.Channel)
 			payload := strings.Join(message.CSVRows, "\n")
 			queue.Send([]byte(payload))
-			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue transactions_%d",
+			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue menu_items_%d",
 				message.CurrentChunk, message.TotalChunks, receiverID)
 
 		}
@@ -395,6 +404,8 @@ func (rh *RequestHandler) sendEOFForFileType(fileType int) error {
 	case 1:
 		queuePrefix = "transactions_items"
 	case 2:
+		queuePrefix = "stores"
+	case 3:
 		queuePrefix = "menu_items"
 	default:
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)

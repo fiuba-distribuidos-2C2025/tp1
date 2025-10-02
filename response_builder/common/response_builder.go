@@ -50,26 +50,25 @@ func (m *ResponseBuilder) Start() error {
 		resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan, resultID))
 	}
 
-	final_result := []string{}
-	totalEOFs := 0
+	final_result := make(map[int][]string)
+	totalEOFsPerQuery := make(map[int]int)
 	for {
 		select {
 		case msg := <-outChan:
 			if msg.Value == "EOF" {
 				log.Info("EOF received")
-				totalEOFs++
-				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFs, m.Config.WorkerCount)
-				if totalEOFs == m.Config.WorkerCount {
+				totalEOFsPerQuery[msg.ID]++
+				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsPerQuery[msg.ID], m.Config.WorkerCount)
+				if totalEOFsPerQuery[msg.ID] == m.Config.WorkerCount {
 					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
-					finalResultsExchange.Send([]byte(strings.Join(final_result, "\n")))
+					finalResultsExchange.Send([]byte(strings.Join(final_result[msg.ID], "\n")))
 					log.Info("Total EOFS received, sending query ", msg.ID, " result")
-					return nil
 				}
 				continue
 			}
 
 			log.Info("Result received query ", msg.ID)
-			final_result = append(final_result, msg.Value)
+			final_result[msg.ID] = append(final_result[msg.ID], msg.Value)
 		}
 	}
 }

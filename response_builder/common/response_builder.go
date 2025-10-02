@@ -91,7 +91,7 @@ func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, r
 					return
 				}
 
-				log.Infof("Message received - Length: %d, Body: %s", len(msg.Body), string(msg.Body))
+				log.Infof("Message received - Length: %d, Body:\n%s", len(msg.Body), string(msg.Body))
 
 				if err := msg.Ack(false); err != nil {
 					log.Errorf("Failed to acknowledge message: %v", err)

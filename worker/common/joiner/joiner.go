@@ -33,11 +33,11 @@ func removeNeedlessFields(row string, indices []int) string {
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
+		log.Infof("Waiting for secondary queue messages...")
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
+				log.Infof("SECONDARY QUEUE MESSAGE RECEIVED")
 				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")

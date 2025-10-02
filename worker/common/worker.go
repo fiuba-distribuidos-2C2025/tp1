@@ -136,10 +136,10 @@ func (w *Worker) Start() error {
 
 				receiver := (idx + w.config.ID) % outputWorkerCount
 				msg_truncated := msg
-				if len(msg_truncated) > 50 {
-					msg_truncated = msg_truncated[:50] + "\n..."
+				if len(msg_truncated) > 200 {
+					msg_truncated = msg_truncated[:200] + "..."
 				}
-				log.Infof("Forwarding message: %s to worker %d", msg_truncated, receiver+1)
+				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, receiver+1)
 				queues[receiver].Send([]byte(msg))
 			}
 			idx += 1
@@ -308,7 +308,7 @@ func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]*middlew
 			}
 			for _, queues := range outputQueues {
 				for _, queue := range queues {
-					log.Infof("Forwarding message: %s to queue %d with ", msg, queue)
+					log.Infof("Forwarding message:\n%s\nto queue %d with ", msg, queue)
 					queue.Send([]byte(msg))
 				}
 			}

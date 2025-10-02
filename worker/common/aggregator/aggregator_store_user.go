@@ -22,6 +22,11 @@ func parseStoreUserData(transaction string) (string, grouper.UserStats) {
 	key := fields[0]
 	storeId := fields[1]
 	userId := fields[2]
+	if userId == "" {
+		log.Errorf("Invalid userID in transaction: %s", transaction)
+		return "", grouper.UserStats{}
+	}
+
 	purchasesQty, err := strconv.Atoi(fields[3])
 	if err != nil {
 		log.Errorf("Invalid purchasesQty in transaction: %s", transaction)
@@ -130,6 +135,11 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 				for _, transaction := range transactions {
 
 					store_user_key, sub_user_stats := parseStoreUserData(transaction)
+					if store_user_key == "" {
+						// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+						continue
+					}
+
 					if _, ok := accumulator[store_user_key]; !ok {
 						accumulator[store_user_key] = grouper.UserStats{UserId: sub_user_stats.UserId, StoreId: sub_user_stats.StoreId, PurchasesQty: 0}
 					}

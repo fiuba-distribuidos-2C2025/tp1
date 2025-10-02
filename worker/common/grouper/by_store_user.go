@@ -20,12 +20,14 @@ func parseTransactionUserData(transaction string) (string, UserStats) {
 	// Parse CSV: transaction_id,item_id,quantity,unit_price,subtotal,created_at
 	fields := strings.Split(transaction, ",")
 	if len(fields) < 5 {
-		log.Errorf("Invalid transaction format: %s", transaction)
 		return "", UserStats{}
 	}
 
 	storeId := fields[1]
 	userID := fields[2]
+	if userID == "" {
+		return "", UserStats{}
+	}
 
 	stats := UserStats{
 		UserId:       userID,
@@ -100,6 +102,11 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 					store_user_key, user_stats := parseTransactionUserData(transaction)
+					if store_user_key == "" {
+						// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+						continue
+					}
+
 					if _, ok := accumulator[store_user_key]; !ok {
 						accumulator[store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
 					}

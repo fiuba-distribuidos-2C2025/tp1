@@ -20,9 +20,11 @@ func concatTop3(top3PerStoreArray []string, usersBirthdays map[string]string) st
 		userId := elements[1]
 		purchaseQty := elements[2]
 
+		// If we don't hold the data internally, we assume that
+		// other worked does
 		birthdate, exists := usersBirthdays[userId]
-		if !exists {
-			birthdate = "UNKNOWN"
+		if birthdate == "" || !exists {
+			continue
 		}
 
 		sb.WriteString(storeId)
@@ -89,12 +91,13 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				for _, user := range users {
 					// user_id,gender,birthdate,registered_at
+					// 2018392,male,1992-12-27,2025-06-01 09:56:51
 					fields := strings.Split(user, ",")
 					if len(fields) < 4 {
 						log.Errorf("Invalid user format: %s", user)
 						continue
 					}
-					userId := fields[0]
+					userId := fields[0] + ".0" // TODO: datasets show userId in different formats
 					birthdate := fields[2]
 					if _, needed := neededUsers[userId]; needed {
 						neededUsers[userId] = birthdate

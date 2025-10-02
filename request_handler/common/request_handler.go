@@ -401,14 +401,11 @@ func (rh *RequestHandler) sendToQueue(message *BatchMessage, receiverID int, fil
 		}
 		return nil
 	case usersFile:
-		for i := 1; i <= rh.Config.ReceiversCount; i++ { // TODO: Configure menu items queue count properly
-			queue := middleware.NewMessageMiddlewareQueue("users"+"_"+strconv.Itoa(i), rh.Channel)
-			payload := strings.Join(message.CSVRows, "\n")
-			queue.Send([]byte(payload))
-			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue users_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
-
-		}
+		queue := middleware.NewMessageMiddlewareQueue("users"+"_"+strconv.Itoa(receiverID), rh.Channel)
+		payload := strings.Join(message.CSVRows, "\n")
+		queue.Send([]byte(payload))
+		log.Infof("Successfully forwarded batch (chunk %d/%d) to queue users_%d",
+			message.CurrentChunk, message.TotalChunks, receiverID)
 		return nil
 	}
 

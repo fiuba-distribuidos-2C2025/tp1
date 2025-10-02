@@ -86,16 +86,6 @@ func (w *Worker) Start() error {
 		_ = w.conn.Close()
 	}()
 
-	log.Infof("Declaring queues...")
-
-	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
-	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
-	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
-	if err != nil {
-		return err
-	}
-
 	var secondaryQueueMessages string
 	if hasSecondaryQueue(w.config.WorkerJob) {
 		log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
@@ -104,6 +94,124 @@ func (w *Worker) Start() error {
 			return nil
 		}
 		log.Debugf("Finished reading from secondary queue")
+	}
+
+	inQueueResponseChan := make(chan string)
+	w.listenToPrimaryQueue(inQueueResponseChan, secondaryQueueMessages)
+
+	outputQueues, err := w.setupOutputQueues()
+	if err != nil {
+		return err
+	}
+
+	if shouldBroadcast(w.config.WorkerJob) {
+		log.Infof("Worker job %s requires broadcasting", w.config.WorkerJob)
+		return w.broadcastMessages(inQueueResponseChan, outputQueues)
+	}
+
+	idx := 0
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return nil
+
+		case msg := <-inQueueResponseChan:
+			if msg == "EOF" {
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte("EOF"))
+					}
+				}
+				return nil
+			}
+
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					return err
+				}
+
+				receiver := (idx + w.config.ID) % outputWorkerCount
+				msg_truncated := msg
+				if len(msg_truncated) > 50 {
+					msg_truncated = msg_truncated[:50] + "\n..."
+				}
+				log.Infof("Forwarding message: %s to worker %d", msg_truncated, receiver+1)
+				queues[receiver].Send([]byte(msg))
+			}
+			idx += 1
+		}
+		// TODO: know when input queue is finished!
+	}
+}
+
+func (w *Worker) setupOutputQueues() ([][]*middleware.MessageMiddlewareQueue, error) {
+	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
+	for i := 0; i < len(w.config.OutputReceivers); i++ {
+		outputQueueName := w.config.OutputQueue[i]
+		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+		if err != nil {
+			return nil, err
+		}
+
+		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
+		for j := 0; j < outputWorkerCount; j++ {
+			log.Infof("Declaring output queue %s: %s", strconv.Itoa(j+1), outputQueueName)
+			outputQueues[i][j] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(j+1), w.channel)
+		}
+	}
+	return outputQueues, nil
+}
+
+func hasSecondaryQueue(workerJob string) bool {
+	switch workerJob {
+	case "JOINER_BY_ITEM_ID":
+		return true
+	case "JOINER_BY_STORE_ID":
+		return true
+	case "JOINER_BY_USER_ID":
+		return true
+	case "JOINER_BY_USER_STORE":
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *Worker) listenToSecondaryQueue() string {
+	inQueueResponseChan := make(chan string)
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
+	if err != nil {
+		return "" // TODO: should return error
+	}
+	// All joiners use the same callback.
+	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
+
+	messages := ""
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return ""
+
+		case msg := <-inQueueResponseChan:
+			if msg == "EOF" {
+				return messages
+			}
+			messages += msg
+		}
+	}
+}
+
+func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondaryQueueMessages string) error {
+	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
+	if err != nil {
+		return err
 	}
 
 	switch w.config.WorkerJob {
@@ -167,107 +275,8 @@ func (w *Worker) Start() error {
 		return errors.New("Unknown worker job")
 	}
 
-	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
-	for i := 0; i < len(w.config.OutputReceivers); i++ {
-		outputQueueName := w.config.OutputQueue[i]
-		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
-		if err != nil {
-			log.Errorf("Error parsing output receivers: %s", err)
-			return err
-		}
-
-		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
-		for id := 0; id < outputWorkerCount; id++ {
-
-			log.Infof("Declaring output queue %s: %s", strconv.Itoa(id+1), outputQueueName)
-
-			outputQueues[i][id] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(id+1), w.channel)
-		}
-	}
-
-	if shouldBroadcast(w.config.WorkerJob) {
-		log.Infof("Worker job %s requires broadcasting", w.config.WorkerJob)
-		return w.broadcastMessages(inQueueResponseChan, outputQueues)
-	}
-
-	idx := 0
-	for {
-		select {
-		case <-w.shutdown:
-			log.Info("Shutdown signal received, stopping worker...")
-			return nil
-
-		case msg := <-inQueueResponseChan:
-			if msg == "EOF" {
-				log.Infof("Broadcasting EOF")
-				for _, queues := range outputQueues {
-					for _, queue := range queues {
-						log.Debugf("Broadcasting EOF to queue: ", queue)
-						queue.Send([]byte("EOF"))
-					}
-				}
-				return nil
-			}
-
-			for i, queues := range outputQueues {
-				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
-				if err != nil {
-					return err
-				}
-
-				receiver := (idx + w.config.ID) % outputWorkerCount
-				msg_truncated := msg
-				if len(msg_truncated) > 50 {
-					msg_truncated = msg_truncated[:50] + "\n..."
-				}
-				log.Infof("Forwarding message: %s to worker %d", msg_truncated, receiver+1)
-				queues[receiver].Send([]byte(msg))
-			}
-			idx += 1
-		}
-		// TODO: know when input queue is finished!
-	}
-}
-
-func hasSecondaryQueue(workerJob string) bool {
-	switch workerJob {
-	case "JOINER_BY_ITEM_ID":
-		return true
-	case "JOINER_BY_STORE_ID":
-		return true
-	case "JOINER_BY_USER_ID":
-		return true
-	case "JOINER_BY_USER_STORE":
-		return true
-	default:
-		return false
-	}
-}
-
-func (w *Worker) listenToSecondaryQueue() string {
-	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
-	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
-	if err != nil {
-		return "" // TODO: should return error
-	}
-	// All joiners use the same callback.
-	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
-
-	messages := ""
-	for {
-		select {
-		case <-w.shutdown:
-			log.Info("Shutdown signal received, stopping worker...")
-			return ""
-
-		case msg := <-inQueueResponseChan:
-			if msg == "EOF" {
-				return messages
-			}
-			messages += msg
-		}
-	}
+	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+	return nil
 }
 
 func shouldBroadcast(workerJob string) bool {

@@ -1,23 +1,34 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 8 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_month> <cantidad_trabajadores_grouper_by_semester> <cantidad_trabajadores_grouper_by_store_user> <cantidad_trabajadores_joiner_by_user_id> <cantidad_trabajadores_joiner_by_user_store>"
+if [ $# -lt 12 ]; then
+  echo "Uso: $0 <archivo_salida> muchos numeros"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
 REQUEST_CONTROLLER_COUNT=1
-WORKER_COUNT_FILTER_BY_YEAR="$2"
-WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
-WORKER_COUNT_FILTER_BY_HOUR="$3"
-WORKER_COUNT_FILTER_BY_AMOUNT="$4"
-WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$5"
-WORKER_COUNT_GROUPER_BY_SEMESTER="$6"
-WORKER_COUNT_GROUPER_BY_STORE_USER=$7
-WORKER_COUNT_JOINER_BY_USER_ID=$8
-WORKER_COUNT_JOINER_BY_USER_STORE=$8
 
+# First query
+WORKER_COUNT_FILTER_BY_YEAR=$2
+WORKER_COUNT_FILTER_BY_HOUR=$3
+WORKER_COUNT_FILTER_BY_AMOUNT=$4
+
+# Second query
+WORKER_COUNT_GROUPER_BY_YEAR_MONTH=$5
+WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$6
+WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=1 # Aggregators should always be one
+WORKER_COUNT_JOINER_BY_ITEM_ID=$7
+
+# Third query
+WORKER_COUNT_GROUPER_BY_SEMESTER=$8
+WORKER_COUNT_JOINER_BY_STORE_ID=$9
+
+# Fourth query
+WORKER_COUNT_GROUPER_BY_STORE_USER=${10}
+WORKER_COUNT_JOINER_BY_USER_ID=${11}
+WORKER_COUNT_JOINER_BY_USER_STORE=${12}
+WORKER_COUNT_AGGREGATOR_BY_STORE_USER=1 # Aggregators should always be one
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -166,10 +177,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 
-WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
-WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=1
-WORKER_COUNT_JOINER_BY_ITEM_ID=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
-
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_items_worker$i:
@@ -270,8 +277,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 
-ORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
-
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_semester_worker$i:
@@ -369,8 +374,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
-WORKER_COUNT_AGGREGATOR_BY_STORE_USER=1
-
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_store_user$i:
@@ -449,5 +452,4 @@ networks:
         - subnet: 172.25.125.0/24
 EOL
 
-# echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year y $WORKER_COUNT_FILTER_BY_HOUR de tipo filter by hour y $WORKER_COUNT_FILTER_BY_AMOUNT de tipo filter by amount."
 echo "Archivo '$OUTPUT_FILE' creado exitosamente."

@@ -10,10 +10,10 @@ import (
 // Combined validation and field extraction to avoid splitting twice
 // transaction_id,item_id,quantity,unit_price,subtotal,created_at
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,6,3,9.5,28.5,2023-07-01 07:00:00
-func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) bool {
+func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) (string, bool) {
 	elements := strings.Split(transaction, ",")
 	if len(elements) < 6 {
-		return false
+		return "", false
 	}
 
 	// Extract and validate year (field index 8)
@@ -21,9 +21,9 @@ func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) b
 	t, _ := time.Parse(time.DateTime, createdAt)
 	// year := extractYear(createdAt)
 	if t.Year() < minYear || t.Year() > maxYear {
-		return false
+		return "", false
 	}
-	return true
+	return transaction, true
 }
 
 // Filter responsible for filtering transactions by year.
@@ -55,28 +55,34 @@ func CreateByYearFilterItemsCallbackWithOutput(outChan chan string, neededEof in
 					return
 				}
 
-				body := strings.TrimSpace(string(msg.Body))
-				if body == "EOF" {
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 					}
 					continue
 				}
-				outBuilder.Reset()
 
-				transactions := splitBatchInRows(body)
+				outBuilder.Reset()
+				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range transactions {
-					if ok := filterAndExtractFieldsItems(transaction, minYearAllowed, maxYearAllowed); ok {
-						outBuilder.WriteString(transaction)
-						outBuilder.WriteByte('\n')
+					if filtered, ok := filterAndExtractFieldsItems(transaction, minYearAllowed, maxYearAllowed); ok {
+						outBuilder.WriteString(filtered + "\n")
 					}
 				}
 
 				if outBuilder.Len() > 0 {
-					log.Info("MESSAGE OUT")
 					outChan <- outBuilder.String()
+					log.Infof("Processed message")
 				}
 			}
 		}

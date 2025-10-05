@@ -128,9 +128,19 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 	proto := protocol.NewProtocol(conn)
 	filesProcessed := 0
 
+	// TODO: instead of "guessing" which client we are communicating with
+	// It'd be more suitable to get this information on first message
+	var clientId uint16
+
 	// Keep processing messages until FINAL_EOF is received
 	for {
-		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := rh.processMessages(proto)
+		pclientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := rh.processMessages(proto)
+
+		// Not optimal check, only batch type messages hold clientId,
+		// others return zero, so we ignore them
+		if pclientId != 0 {
+			clientId = pclientId
+		}
 
 		if err != nil {
 			if err == io.EOF {
@@ -151,7 +161,7 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 			log.Infof("Received EOF for fileType %s after %d files", fileType, filesProcessed)
 
 			// Send EOF to the appropriate RabbitMQ queues for this fileType
-			if err := rh.sendEOFForFileType(fileType); err != nil {
+			if err := rh.sendEOFForFileType(clientId, fileType); err != nil {
 				log.Errorf("Failed to send EOF for fileType %s to queues: %v", fileType, err)
 				return
 			}
@@ -197,10 +207,11 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 }
 
 // processMessages handles incoming messages until a file is complete or EOF is received
-// Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
-func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool, bool, protocol.FileType, error) {
+// Returns (clientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
+func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (uint16, bool, bool, bool, protocol.FileType, error) {
 	var totalChunks int32
 	chunksReceived := int32(0)
+	var clientId uint16
 
 	log.Debug("Starting to process new messages")
 
@@ -210,21 +221,22 @@ func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool,
 		msgType, data, err := proto.ReceiveMessage()
 		if err != nil {
 			log.Errorf("Error reading message: %v", err)
-			return false, false, false, 0, err
+			return clientId, false, false, false, 0, err
 		}
 
 		switch msgType {
 		case protocol.MessageTypeFinalEOF:
 			log.Info("FINAL_EOF marker detected")
-			return false, false, true, 0, nil
+			return clientId, false, false, true, 0, nil
 
 		case protocol.MessageTypeEOF:
 			eofMsg := data.(*protocol.EOFMessage)
 			log.Infof("FileType EOF marker detected for fileType %s", eofMsg.FileType)
-			return false, true, false, eofMsg.FileType, nil
+			return clientId, false, true, false, eofMsg.FileType, nil
 
 		case protocol.MessageTypeBatch:
 			message := data.(*protocol.BatchMessage)
+			clientId = message.ClientID
 
 			chunksReceived++
 			log.Infof("Received batch: chunk %d/%d with %d rows",
@@ -250,21 +262,21 @@ func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool,
 			log.Infof("Calculated receiver %d", receiverID)
 
 			if err := rh.sendToQueue(message, receiverID); err != nil {
-				return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
+				return clientId, false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
 			}
 
 			rh.currentWorkerQueue++
 
 			// Send ACK after successfully processing the chunk
 			if err := proto.SendACK(); err != nil {
-				return false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
+				return clientId, false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
 			}
 			log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
 
 			// Check if all chunks have been received
 			if chunksReceived >= totalChunks {
 				log.Infof("All %d chunks received", chunksReceived)
-				return true, false, false, 0, nil
+				return clientId, true, false, false, 0, nil
 			}
 		}
 	}
@@ -272,7 +284,10 @@ func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool,
 
 // sendToQueue sends the batch message to the appropriate queue based on file type
 func (rh *RequestHandler) sendToQueue(message *protocol.BatchMessage, receiverID int) error {
-	payload := strings.Join(message.CSVRows, "\n")
+	// First row of payload specifies the client ID
+	payload := strconv.FormatUint(uint64(message.ClientID), 10) + "\n"
+	// Rest of the payload is data itself
+	payload += strings.Join(message.CSVRows, "\n")
 
 	switch message.FileType {
 	case protocol.FileTypeTransactions:
@@ -331,7 +346,12 @@ func (rh *RequestHandler) sendToQueue(message *protocol.BatchMessage, receiverID
 }
 
 // sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
-func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
+func (rh *RequestHandler) sendEOFForFileType(clientId uint16, fileType protocol.FileType) error {
+	log.Infof("Sending EOF for client id", clientId)
+	// First row of payload specifies the client ID
+	payload := strconv.FormatUint(uint64(clientId), 10) + "\n"
+	payload += "EOF"
+
 	queuePrefix := fileType.QueueName()
 	if queuePrefix == "" {
 		log.Warningf("Unknown fileType %d, skipping EOF send", fileType)
@@ -353,14 +373,14 @@ func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
 		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
 			queueName := "stores_q3_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
-			queue.Send([]byte("EOF"))
+			queue.Send([]byte(payload))
 			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 		}
 
 		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
 			queueName := "stores_q4_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
-			queue.Send([]byte("EOF"))
+			queue.Send([]byte(payload))
 			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 		}
 		return nil
@@ -369,7 +389,7 @@ func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
 	for i := 1; i <= receiversCount; i++ {
 		queueName := queuePrefix + "_" + strconv.Itoa(i)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
-		queue.Send([]byte("EOF"))
+		queue.Send([]byte(payload))
 		log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 	}
 	return nil

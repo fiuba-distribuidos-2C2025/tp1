@@ -12,6 +12,8 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const EOF_MESSAGE_MAX_LENGTH = 16
+
 type ResponseBuilderConfig struct {
 	MiddlewareUrl           string
 	WorkerResultsOneCount   int
@@ -59,7 +61,7 @@ func (m *ResponseBuilder) Start() error {
 		select {
 		case msg := <-outChan:
 			log.Info("Result received from query ", msg.ID)
-			if msg.Value == "EOF" {
+			if len(msg.Value) < EOF_MESSAGE_MAX_LENGTH && strings.Contains(msg.Value, "EOF") {
 				log.Info("EOF received")
 
 				var expectedEof int

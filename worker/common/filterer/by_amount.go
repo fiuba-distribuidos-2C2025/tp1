@@ -61,25 +61,29 @@ func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) 
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
 
-				if body == "EOF" {
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 					}
 					continue
 				}
 
-				// Reset builder for reuse
-				transactions := splitBatchInRows(body)
 				outBuilder.Reset()
-
+				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range transactions {
 					if filtered, ok := transactionGreaterFinalAmount(transaction, 75, []int{0, 3}); ok {
-						outBuilder.WriteString(filtered)
-						outBuilder.WriteByte('\n')
+						outBuilder.WriteString(filtered + "\n")
 					}
 				}
 

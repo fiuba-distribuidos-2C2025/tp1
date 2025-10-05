@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -18,6 +19,7 @@ var log = logging.MustGetLogger("log")
 
 const MAIN_QUEUE = 0
 const SECONDARY_QUEUE = 1
+const EOF_MESSAGE_MAX_LENGTH = 16
 
 type WorkerConfig struct {
 	MiddlewareUrl   string
@@ -117,12 +119,15 @@ func (w *Worker) Start() error {
 			return nil
 
 		case msg := <-inQueueResponseChan:
-			if msg == "EOF" {
+			// Not that good, we are assuming that short messages are
+			// EOF, this doesn't scale with clients of id really high
+			// (probably will never happen)
+			if len(msg) < EOF_MESSAGE_MAX_LENGTH && strings.Contains(msg, "EOF") {
 				log.Infof("Broadcasting EOF")
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
 						log.Debugf("Broadcasting EOF to queue: ", queue)
-						queue.Send([]byte("EOF"))
+						queue.Send([]byte(msg))
 					}
 				}
 				return nil

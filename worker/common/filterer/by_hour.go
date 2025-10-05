@@ -71,11 +71,6 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 
 		for {
 			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
-
 			case msg, ok := <-*consumeChannel:
 				log.Infof("Received message")
 				msg.Ack(false)
@@ -83,30 +78,36 @@ func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int) fu
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
-				if body == "EOF" {
+
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 					}
 					continue
 				}
 
 				outBuilder.Reset()
-				transactions := splitBatchInRows(body)
+				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range transactions {
 					if filtered, ok := transactionInHourRange(transaction, "06:00:00", "23:00:00", []int{0, 1, 2, 3, 4}); ok {
-						outBuilder.WriteString(filtered)
-						outBuilder.WriteByte('\n')
+						outBuilder.WriteString(filtered + "\n")
 					}
 				}
 
 				if outBuilder.Len() > 0 {
-					log.Info("MESSAGE OUT")
 					outChan <- outBuilder.String()
+					log.Infof("Processed message")
 				}
-				log.Infof("Processed message")
 			}
 		}
 	}

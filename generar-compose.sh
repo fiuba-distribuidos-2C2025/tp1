@@ -296,9 +296,10 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_SEMESTER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
-  aggregator_semester_worker1:
-    container_name: aggregator_semester_worker1
+  aggregator_semester_worker$i:
+    container_name: aggregator_semester_worker$i
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -313,9 +314,10 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - WORKER_ID=1
+      - WORKER_ID=$i
 
 EOL
+done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL

@@ -1,34 +1,15 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 12 ]; then
-  echo "Uso: $0 <archivo_salida> muchos numeros"
+if [ $# -lt 2 ]; then
+  echo "Uso: $0 <archivo_salida> <archivo_configuracion>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
-REQUEST_CONTROLLER_COUNT=1
 
-# First query
-WORKER_COUNT_FILTER_BY_YEAR=$2
-WORKER_COUNT_FILTER_BY_HOUR=$3
-WORKER_COUNT_FILTER_BY_AMOUNT=$4
-
-# Second query
-WORKER_COUNT_GROUPER_BY_YEAR_MONTH=$5
-WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$6
-WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=1 # Aggregators should always be one
-WORKER_COUNT_JOINER_BY_ITEM_ID=$7
-
-# Third query
-WORKER_COUNT_GROUPER_BY_SEMESTER=$8
-WORKER_COUNT_JOINER_BY_STORE_ID=$9
-
-# Fourth query
-WORKER_COUNT_GROUPER_BY_STORE_USER=${10}
-WORKER_COUNT_JOINER_BY_USER_ID=${11}
-WORKER_COUNT_JOINER_BY_USER_STORE=${12}
-WORKER_COUNT_AGGREGATOR_BY_STORE_USER=1 # Aggregators should always be one
+CONFIG_FILE="$2"
+source "$CONFIG_FILE"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1

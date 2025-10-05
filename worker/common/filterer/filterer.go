@@ -15,7 +15,7 @@ type FilterFunc func(transaction string) (string, bool)
 // Generic filter callback that handles the common message processing pattern
 // All specific filters follow the same structure, only differing in the filter function used
 func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, filterFunc FilterFunc) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
+	clientEofCount := map[string]int{}
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -40,7 +40,13 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 
 				transactions := lines[1:]
 				if transactions[0] == "EOF" {
-					eofCount++
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						msg := clientID + "\nEOF"

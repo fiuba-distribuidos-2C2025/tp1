@@ -30,7 +30,7 @@ services:
     networks:
       - testing_net
     environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=1
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
       - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
@@ -69,6 +69,21 @@ services:
     environment:
         - CLIENT_ID=1
 
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=2
+
 # ==============================================================================
 # First Query
 # ==============================================================================
@@ -88,26 +103,8 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
       - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
+      - WORKER_MIDDLEWARE_RECEIVERS=1,2
       - WORKER_ID=1
-
-  filter_by_year_worker2:
-    container_name: filter_by_year_worker2
-    image: worker:latest
-    entrypoint: /worker
-    volumes:
-      - ./worker/config.yaml:/config.yaml
-    networks:
-      - testing_net
-    depends_on:
-      - rabbit
-    environment:
-      - WORKER_JOB=YEAR_FILTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
-      - WORKER_MIDDLEWARE_SENDERS=1
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
-      - WORKER_ID=2
 
   filter_by_hour_worker1:
     container_name: filter_by_hour_worker1
@@ -122,28 +119,10 @@ services:
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_RECEIVERS=1,2
       - WORKER_ID=1
-
-  filter_by_hour_worker2:
-    container_name: filter_by_hour_worker2
-    image: worker:latest
-    entrypoint: /worker
-    volumes:
-      - ./worker/config.yaml:/config.yaml
-    networks:
-      - testing_net
-    depends_on:
-      - rabbit
-    environment:
-      - WORKER_JOB=HOUR_FILTER
-      - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
-      - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
-      - WORKER_MIDDLEWARE_RECEIVERS=1,2
-      - WORKER_ID=2
 
   filter_by_amount_worker1:
     container_name: filter_by_amount_worker1
@@ -159,7 +138,7 @@ services:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
 
@@ -310,7 +289,7 @@ services:
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
       - WORKER_ID=1
@@ -328,7 +307,7 @@ services:
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
       - WORKER_ID=2
@@ -422,7 +401,7 @@ services:
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
       - WORKER_ID=1
@@ -440,7 +419,7 @@ services:
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
-      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
       - WORKER_ID=2

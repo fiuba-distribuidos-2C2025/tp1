@@ -14,6 +14,10 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const (
+	envPrefix = "client"
+)
+
 // InitConfig Function that uses viper library to parse configuration parameters.
 // Viper is configured to read variables from both environment variables and the
 // config file ./config.yaml. Environment variables takes precedence over parameters
@@ -22,9 +26,8 @@ var log = logging.MustGetLogger("log")
 func InitConfig() (*viper.Viper, error) {
 	v := viper.New()
 
-	// Configure viper to read env variables with the CLI_ prefix
 	v.AutomaticEnv()
-	v.SetEnvPrefix("cli")
+	v.SetEnvPrefix(envPrefix)
 	// Use a replacer to replace env variables underscores with points. This let us
 	// use nested configurations in the config file and at the same time define
 	// env variables for the nested configurations
@@ -33,7 +36,7 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("client", "port")
 	v.BindEnv("client", "ip")
-	v.BindEnv("client", "id")
+	v.BindEnv("id")
 	v.BindEnv("log", "level")
 
 	// Try to read configuration from config file. If config file
@@ -87,7 +90,7 @@ func main() {
 	clientConfig := common.ClientConfig{
 		ServerPort: v.GetString("client.port"),
 		ServerIP:   v.GetString("client.ip"),
-		ID:         v.GetString("client.id"),
+		ID:         v.GetString("id"),
 	}
 
 	client := common.NewClient(clientConfig)

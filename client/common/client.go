@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
@@ -24,6 +25,7 @@ const (
 type ClientConfig struct {
 	ServerPort string
 	ServerIP   string
+	ID         string
 }
 
 // Client manages connection to the server and file transfers
@@ -245,7 +247,10 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				csvRows[i] = joinCSVRow(row)
 			}
 
+			clientID, _ := strconv.Atoi(c.config.ID) // TODO: handle error
+			uinclientID := uint16(clientID)
 			batchMsg := &protocol.BatchMessage{
+				ClientID:     uinclientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
 				TotalChunks:  metadata.totalChunks,

@@ -83,7 +83,6 @@ func (rh *RequestHandler) Start() error {
 
 	rh.Channel = rabbit_channel
 	go rh.acceptConnections()
-
 	<-rh.shutdown
 	return nil
 }
@@ -103,6 +102,7 @@ func (rh *RequestHandler) Stop() {
 }
 
 // acceptConnections continuously accepts new connections
+// TODO: no graceful shutdown
 func (rh *RequestHandler) acceptConnections() {
 	for {
 		conn, err := rh.listener.Accept()

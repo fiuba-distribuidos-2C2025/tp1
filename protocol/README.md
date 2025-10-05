@@ -1,3 +1,5 @@
+# TODO: UPDATE PROTOCOL README
+
 # Client-Server Communication Protocol
 
 ## Overview

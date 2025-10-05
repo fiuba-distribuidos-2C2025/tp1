@@ -33,6 +33,7 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("client", "port")
 	v.BindEnv("client", "ip")
+	v.BindEnv("client", "id")
 	v.BindEnv("log", "level")
 
 	// Try to read configuration from config file. If config file
@@ -86,6 +87,7 @@ func main() {
 	clientConfig := common.ClientConfig{
 		ServerPort: v.GetString("client.port"),
 		ServerIP:   v.GetString("client.ip"),
+		ID:         v.GetString("client.id"),
 	}
 
 	client := common.NewClient(clientConfig)

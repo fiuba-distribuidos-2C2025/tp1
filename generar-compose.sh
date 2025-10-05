@@ -14,19 +14,6 @@ source "$CONFIG_FILE"
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
-  client:
-    container_name: client
-    image: client:latest
-    entrypoint: /client
-    volumes:
-      - ./client:/config
-      - ./data:/data
-    depends_on:
-      - rabbit
-      - request_handler
-    networks:
-      - testing_net
-
   rabbit:
     container_name: rabbit
     image: rabbitmq:3-management
@@ -82,6 +69,26 @@ services:
       - testing_net
 
 EOL
+
+for ((i=1; i<=CLIENT_COUNT; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  client$i:
+    container_name: client$i
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=$i
+
+EOL
+done
 
 cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================

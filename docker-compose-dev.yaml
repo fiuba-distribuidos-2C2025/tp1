@@ -1,18 +1,5 @@
 name: tp1
 services:
-  client:
-    container_name: client
-    image: client:latest
-    entrypoint: /client
-    volumes:
-      - ./client:/config
-      - ./data:/data
-    depends_on:
-      - rabbit
-      - request_handler
-    networks:
-      - testing_net
-
   rabbit:
     container_name: rabbit
     image: rabbitmq:3-management
@@ -66,6 +53,21 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+
+  client1:
+    container_name: client1
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=1
 
 # ==============================================================================
 # First Query

@@ -7,7 +7,7 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
-var transactionFieldIndices = []int{0, 1, 4, 7, 8}
+var byYearFieldIndices = []int{0, 1, 4, 7, 8}
 var minYearAllowed = 2024
 var maxYearAllowed = 2025
 
@@ -55,53 +55,8 @@ func filterAndExtractFields(transaction string, minYear int, maxYear int, indice
 // Output format of each row (batched when processed):
 // transaction_id,store_id,user_id,final_amount,created_at
 func CreateByYearFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		// Reusable buffer for building output
-		var outBuilder strings.Builder
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				log.Info("PROCESSING MESSAGE")
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
-
-				// Separate header and the rest
-				clientID := lines[0]
-
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					eofCount++
-					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						msg := clientID + "\nEOF"
-						outChan <- msg
-					}
-					continue
-				}
-
-				outBuilder.Reset()
-				outBuilder.WriteString(clientID + "\n")
-				for _, transaction := range transactions {
-					if filtered, ok := filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, transactionFieldIndices); ok {
-						outBuilder.WriteString(filtered + "\n")
-					}
-				}
-
-				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
-					log.Infof("Processed message")
-				}
-			}
-		}
+	filterFunc := func(transaction string) (string, bool) {
+		return filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, byYearFieldIndices)
 	}
+	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
 }

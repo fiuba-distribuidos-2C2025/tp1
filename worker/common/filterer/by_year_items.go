@@ -38,53 +38,8 @@ func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) (
 // transaction_id,item_id,quantity,unit_price,subtotal,created_at
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,6,3,9.5,28.5,2023-07-01 07:00:00
 func CreateByYearFilterItemsCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		// Reusable buffer for building output
-		var outBuilder strings.Builder
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				log.Info("PROCESSING MESSAGE")
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
-
-				// Separate header and the rest
-				clientID := lines[0]
-
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					eofCount++
-					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						msg := clientID + "\nEOF"
-						outChan <- msg
-					}
-					continue
-				}
-
-				outBuilder.Reset()
-				outBuilder.WriteString(clientID + "\n")
-				for _, transaction := range transactions {
-					if filtered, ok := filterAndExtractFieldsItems(transaction, minYearAllowed, maxYearAllowed); ok {
-						outBuilder.WriteString(filtered + "\n")
-					}
-				}
-
-				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
-					log.Infof("Processed message")
-				}
-			}
-		}
+	filterFunc := func(transaction string) (string, bool) {
+		return filterAndExtractFieldsItems(transaction, minYearAllowed, maxYearAllowed)
 	}
+	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
 }

@@ -109,7 +109,7 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 
 				if body == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						batches := GetSemesterAccumulatorBatches(accumulator)
 						for _, batch := range batches {

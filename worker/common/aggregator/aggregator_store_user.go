@@ -118,7 +118,7 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 
 				if body == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						top3Users := getTop3Users(accumulator)
 

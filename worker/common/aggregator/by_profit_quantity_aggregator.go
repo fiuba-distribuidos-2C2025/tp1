@@ -137,7 +137,7 @@ func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, nee
 
 				if body == "EOF" {
 					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
 						maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
 

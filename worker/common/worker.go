@@ -144,7 +144,6 @@ func (w *Worker) Start() error {
 			}
 			idx += 1
 		}
-		// TODO: know when input queue is finished!
 	}
 }
 

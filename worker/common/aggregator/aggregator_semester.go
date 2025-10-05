@@ -69,6 +69,9 @@ func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof
 							outChan <- batch
 						}
 						outChan <- "EOF"
+
+						// clear accumulator memory
+						accumulator = nil
 					}
 					continue
 				}

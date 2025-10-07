@@ -429,8 +429,31 @@ func (c *Client) readResults() error {
 	return nil
 }
 
-// processResult processes a complete result from a queue
 func (c *Client) processResult(queueID int32, data []byte) {
-	// Here you can save to file, print, or process the result
-	log.Infof("Processing result from queue %d:\n%s", queueID, string(data))
+	// Use /results directory (mounted volume)
+	resultsDir := "/results"
+
+	// Create directory if it doesn't exist (though volume should exist)
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		log.Errorf("Failed to create results directory: %v", err)
+		return
+	}
+
+	queryNum := queueID
+	filename := filepath.Join(resultsDir, fmt.Sprintf("query_%d.csv", queryNum))
+
+	file, err := os.Create(filename)
+	if err != nil {
+		log.Errorf("Failed to create file %s: %v", filename, err)
+		return
+	}
+	defer file.Close()
+
+	if _, err := file.Write(data); err != nil {
+		log.Errorf("Failed to write data to %s: %v", filename, err)
+		return
+	}
+
+	log.Infof("Successfully saved result for Query %d to %s (%d bytes)",
+		queryNum, filename, len(data))
 }

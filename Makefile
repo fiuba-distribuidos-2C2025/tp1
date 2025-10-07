@@ -58,3 +58,6 @@ default-compose:
 
 compare_reduced_results:
 	python3 scripts/compare_results.py ./results ./expected_results/reduced
+
+compare_full_results:
+	python3 scripts/compare_results.py ./results ./expected_results/full

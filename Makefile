@@ -55,3 +55,6 @@ middleware_tests:
 
 default-compose:
 	./generar-compose.sh docker-compose-dev.yaml 2 2 2 2 2 2 2
+
+compare_reduced_results:
+	python3 scripts/compare_results.py ./results ./expected_results/reduced

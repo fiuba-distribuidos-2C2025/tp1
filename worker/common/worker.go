@@ -130,7 +130,12 @@ func (w *Worker) Start() error {
 						queue.Send([]byte(msg))
 					}
 				}
-				return nil
+
+				// TODO: eventually we may know the ammount of clients
+				// before hand, in that case, we can exit the loop
+				// once all clients have finished.
+				// return nil
+				continue
 			}
 
 			for i, queues := range outputQueues {

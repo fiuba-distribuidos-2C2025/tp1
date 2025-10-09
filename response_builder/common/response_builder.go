@@ -65,8 +65,7 @@ func (m *ResponseBuilder) Start() error {
 			message := lines[1:]
 			log.Infof("Result received from query %d for client %s", msg.ID, clientId)
 			if strings.Contains(message[0], "EOF") {
-
-				log.Info("EOF received")
+				log.Infof("EOF received from client %s", clientId)
 
 				var expectedEof int
 				switch msg.ID {
@@ -94,9 +93,9 @@ func (m *ResponseBuilder) Start() error {
 				totalEOFsInQuery := clientTotalEOFsPerQuery[clientId][msg.ID]
 				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsInQuery, expectedEof)
 				if totalEOFsInQuery == expectedEof {
-					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
+					log.Infof("Total EOFs received from client %s, sending query %d result", clientId, msg.ID)
+					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%s_%d", clientId, msg.ID), channel)
 					finalResultsExchange.Send([]byte(strings.Join(clientFinalResult[clientId][msg.ID], "\n")))
-					log.Infof("Total EOFs received, sending query %d result", msg.ID)
 
 					// Clear the accumulated results and EOF count for this query
 					clientFinalResult[clientId][msg.ID] = nil

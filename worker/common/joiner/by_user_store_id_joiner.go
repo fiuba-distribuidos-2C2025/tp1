@@ -16,6 +16,7 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 	}
 	storeId := elements[0]
 	birthdate := elements[1]
+	purchaseQty := elements[2]
 
 	storeName, exists := storesData[storeId]
 	if !exists {
@@ -26,6 +27,8 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 	sb.WriteString(storeName)
 	sb.WriteByte(',')
 	sb.WriteString(birthdate)
+	sb.WriteByte(',')
+	sb.WriteString(purchaseQty)
 
 	return sb.String(), true
 }

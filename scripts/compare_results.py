@@ -55,6 +55,7 @@ def compare_files(file1, file2, query_num):
     if not int(query_num) == 4 and data_set1 == data_set2:
         print(f"QUERY {query_num}: Results are OK! ✅")
         print(f"{'-' * 60}")
+        return
 
     elif int(query_num) == 4:
         for row in data_set1:
@@ -67,6 +68,7 @@ def compare_files(file1, file2, query_num):
 
         print(f"QUERY {query_num}: Results are OK! ✅")
         print(f"{'-' * 60}")
+        return
 
     # Find differences
     print(f"QUERY {query_num}: Results are WRONG! ❌")

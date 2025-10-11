@@ -38,3 +38,5 @@ data/**
 
 # MacOS
 .DS_Store
+
+results/**

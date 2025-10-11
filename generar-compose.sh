@@ -1,23 +1,15 @@
 #!/bin/bash
 
 # Validación de argumentos de entrada
-if [ $# -lt 8 ]; then
-  echo "Uso: $0 <archivo_salida> <cantidad_trabajadores_filter_by_year> <cantidad_trabajadores_filter_by_hour> <cantidad_trabajadores_filter_by_amount> <cantidad_trabajadores_filter_by_year_month> <cantidad_trabajadores_grouper_by_semester> <cantidad_trabajadores_grouper_by_store_user> <cantidad_trabajadores_joiner_by_user_id> <cantidad_trabajadores_joiner_by_user_store>"
+if [ $# -lt 2 ]; then
+  echo "Uso: $0 <archivo_salida> <archivo_configuracion>"
   exit 1
 fi
 
 OUTPUT_FILE="$1"
-REQUEST_CONTROLLER_COUNT=1
-WORKER_COUNT_FILTER_BY_YEAR="$2"
-WORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
-WORKER_COUNT_FILTER_BY_HOUR="$3"
-WORKER_COUNT_FILTER_BY_AMOUNT="$4"
-WORKER_COUNT_GROUPER_BY_YEAR_MONTH="$5"
-WORKER_COUNT_GROUPER_BY_SEMESTER="$6"
-WORKER_COUNT_GROUPER_BY_STORE_USER=$7
-WORKER_COUNT_JOINER_BY_USER_ID=$8
-WORKER_COUNT_JOINER_BY_USER_STORE=$8
 
+CONFIG_FILE="$2"
+source "$CONFIG_FILE"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -66,7 +58,12 @@ services:
     networks:
       - testing_net
     environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_COUNT=$WORKER_COUNT_FILTER_BY_YEAR
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=$WORKER_COUNT_JOINER_BY_USER_ID
 
   response_builder:
     container_name: response_builder
@@ -75,7 +72,10 @@ services:
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
     environment:
-      - RESPONSE_MIDDLEWARE_RECEIVERS_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
+      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
+      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
+      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
     depends_on:
         rabbit:
             condition: service_healthy
@@ -167,10 +167,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 
 EOL
 
-WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$WORKER_COUNT_FILTER_BY_YEAR
-WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=1
-WORKER_COUNT_JOINER_BY_ITEM_ID=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
-
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_items_worker$i:
@@ -197,7 +193,7 @@ done
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_year_month_worker$i:
-    container_name: grouper_by_year_moth_worker$i
+    container_name: grouper_by_year_month_worker$i
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -233,7 +229,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=max_quantity_profit_items
-      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_ITEM_ID
       - WORKER_ID=$i
 
@@ -270,8 +266,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
 
 EOL
-
-ORKER_COUNT_JOINER_BY_STORE_ID=$WORKER_COUNT_FILTER_BY_YEAR
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -370,8 +364,6 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
-WORKER_COUNT_AGGREGATOR_BY_STORE_USER=1
-
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_store_user$i:
@@ -450,5 +442,4 @@ networks:
         - subnet: 172.25.125.0/24
 EOL
 
-# echo "Archivo '$OUTPUT_FILE' creado exitosamente con $WORKER_COUNT_FILTER_BY_YEAR de tipo filter by year y $WORKER_COUNT_FILTER_BY_HOUR de tipo filter by hour y $WORKER_COUNT_FILTER_BY_AMOUNT de tipo filter by amount."
 echo "Archivo '$OUTPUT_FILE' creado exitosamente."

@@ -30,10 +30,15 @@ type ResultMessage struct {
 
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
-	Port           string
-	IP             string
-	MiddlewareURL  string
-	ReceiversCount int
+	Port                           string
+	IP                             string
+	MiddlewareURL                  string
+	TransactionsReceiversCount     int
+	TransactionItemsReceiversCount int
+	StoresQ3ReceiversCount         int
+	StoresQ4ReceiversCount         int
+	MenuItemsReceiversCount        int
+	UsersReceiversCount            int
 }
 
 // RequestHandler handles incoming client connections and manages message flow
@@ -56,6 +61,8 @@ func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 
 // Start begins listening for connections
 func (rh *RequestHandler) Start() error {
+	log.Infof("Starting request handler with config %+v", rh.Config)
+
 	addr := net.JoinHostPort(rh.Config.IP, rh.Config.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -192,7 +199,6 @@ func (rh *RequestHandler) handleConnection(conn net.Conn) {
 // processMessages handles incoming messages until a file is complete or EOF is received
 // Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
 func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool, bool, protocol.FileType, error) {
-	var lastFileHash string
 	var totalChunks int32
 	chunksReceived := int32(0)
 
@@ -220,25 +226,28 @@ func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool,
 		case protocol.MessageTypeBatch:
 			message := data.(*protocol.BatchMessage)
 
-			// Track file transfer progress
-			if lastFileHash == "" {
-				lastFileHash = fmt.Sprintf("file_%s", message.FileType)
-				totalChunks = message.TotalChunks
-				log.Infof("Starting new file with %d total chunks (FileType: %s)",
-					totalChunks, message.FileType)
-			}
-
 			chunksReceived++
-			log.Infof("Received batch (chunk %d/%d) with %d rows (FileType: %s)",
-				message.CurrentChunk, message.TotalChunks,
-				len(message.CSVRows), message.FileType)
+			log.Infof("Received batch: chunk %d/%d with %d rows",
+				message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
 
-			// Process the message through RabbitMQ
-			receiverID := rh.currentWorkerQueue
-			if receiverID > rh.Config.ReceiversCount {
-				rh.currentWorkerQueue = 1
-				receiverID = rh.currentWorkerQueue
+			// Initialize tracking variables on first chunk
+			if chunksReceived == 1 {
+				totalChunks = message.TotalChunks
 			}
+
+			// Process each message through RabbitMQ
+			receiverID := rh.currentWorkerQueue
+			switch message.FileType {
+			case protocol.FileTypeTransactions:
+				receiverID = receiverID%rh.Config.TransactionsReceiversCount + 1
+			case protocol.FileTypeTransactionItems:
+				receiverID = receiverID%rh.Config.TransactionItemsReceiversCount + 1
+			case protocol.FileTypeMenuItems:
+				receiverID = receiverID%rh.Config.MenuItemsReceiversCount + 1
+			case protocol.FileTypeUsers:
+				receiverID = receiverID%rh.Config.UsersReceiversCount + 1
+			}
+			log.Infof("Calculated receiver %d", receiverID)
 
 			if err := rh.sendToQueue(message, receiverID); err != nil {
 				return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
@@ -257,9 +266,6 @@ func (rh *RequestHandler) processMessages(proto *protocol.Protocol) (bool, bool,
 				log.Infof("All %d chunks received", chunksReceived)
 				return true, false, false, 0, nil
 			}
-
-		default:
-			return false, false, false, 0, fmt.Errorf("unexpected message type: 0x%02x", msgType)
 		}
 	}
 }
@@ -285,25 +291,25 @@ func (rh *RequestHandler) sendToQueue(message *protocol.BatchMessage, receiverID
 
 	case protocol.FileTypeStores:
 		// Broadcast stores data to all receivers
-		for i := 1; i <= rh.Config.ReceiversCount; i++ {
-			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3"+"_"+strconv.Itoa(i), rh.Channel)
-			payload_q3 := strings.Join(message.CSVRows, "\n")
-			queue_q3.Send([]byte(payload_q3))
+		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
+			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3_"+strconv.Itoa(i), rh.Channel)
+			queue_q3.Send([]byte(payload))
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
+				message.CurrentChunk, message.TotalChunks, i)
+		}
 
-			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4"+"_"+strconv.Itoa(i), rh.Channel)
-			payload_q4 := strings.Join(message.CSVRows, "\n")
-			queue_q4.Send([]byte(payload_q4))
+		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
+			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4_"+strconv.Itoa(i), rh.Channel)
+			queue_q4.Send([]byte(payload))
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q4_%d",
-				message.CurrentChunk, message.TotalChunks, receiverID)
+				message.CurrentChunk, message.TotalChunks, i)
 		}
 		log.Infof("Broadcasted batch (chunk %d/%d) to all stores queues",
 			message.CurrentChunk, message.TotalChunks)
 
 	case protocol.FileTypeMenuItems:
 		// Broadcast menu items data to all receivers
-		for i := 1; i <= rh.Config.ReceiversCount; i++ {
+		for i := 1; i <= rh.Config.MenuItemsReceiversCount; i++ {
 			queueName := "menu_items_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 			queue.Send([]byte(payload))
@@ -332,24 +338,39 @@ func (rh *RequestHandler) sendEOFForFileType(fileType protocol.FileType) error {
 		return nil
 	}
 
-	for i := 1; i <= rh.Config.ReceiversCount; i++ {
-		if queuePrefix == "stores" {
-			queueName3 := queuePrefix + "_q3" + "_" + strconv.Itoa(i)
-			queueName4 := queuePrefix + "_q4" + "_" + strconv.Itoa(i)
-			queue := middleware.NewMessageMiddlewareQueue(queueName3, rh.Channel)
-			queue.Send([]byte("EOF"))
-			log.Infof("Successfully sent EOF to %s for fileType %s", queueName3, fileType)
-
-			queue = middleware.NewMessageMiddlewareQueue(queueName4, rh.Channel)
-			queue.Send([]byte("EOF"))
-			log.Infof("Successfully sent EOF to %s for fileType %s", queueName4, fileType)
-
-		} else {
-			queueName := queuePrefix + "_" + strconv.Itoa(i)
+	var receiversCount int
+	switch queuePrefix {
+	case "transactions":
+		receiversCount = rh.Config.TransactionsReceiversCount
+	case "transactions_items":
+		receiversCount = rh.Config.TransactionItemsReceiversCount
+	case "users":
+		receiversCount = rh.Config.UsersReceiversCount
+	case "menu_items":
+		receiversCount = rh.Config.MenuItemsReceiversCount
+	// Special case for stores
+	case "stores":
+		for i := 1; i <= rh.Config.StoresQ3ReceiversCount; i++ {
+			queueName := "stores_q3_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
 			queue.Send([]byte("EOF"))
 			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 		}
+
+		for i := 1; i <= rh.Config.StoresQ4ReceiversCount; i++ {
+			queueName := "stores_q4_" + strconv.Itoa(i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+			queue.Send([]byte("EOF"))
+			log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
+		}
+		return nil
+	}
+
+	for i := 1; i <= receiversCount; i++ {
+		queueName := queuePrefix + "_" + strconv.Itoa(i)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, rh.Channel)
+		queue.Send([]byte("EOF"))
+		log.Infof("Successfully sent EOF to %s for fileType %s", queueName, fileType)
 	}
 	return nil
 }
@@ -363,8 +384,6 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 		select {
 		case result := <-resultChan:
 			resultsReceived++
-			log.Infof("Result %d/%d received from final_results_%d - Length: %d",
-				resultsReceived, expectedResults, result.QueueID, len(result.Data))
 
 			// Sort the result
 			list := strings.Split(result.Data, "\n")
@@ -377,7 +396,7 @@ func (rh *RequestHandler) waitForFinalResults(resultChan chan ResultMessage, don
 				return
 			}
 
-			log.Infof("Successfully sent result %d/%d from final_results_%d",
+			log.Infof("Successfully sent result %d/%d (final_results_%d)",
 				resultsReceived, expectedResults, result.QueueID)
 
 		case err := <-doneChan:

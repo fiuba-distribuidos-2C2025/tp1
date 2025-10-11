@@ -116,6 +116,9 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 							outChan <- batch
 						}
 						outChan <- "EOF"
+
+						// clear accumulator memory
+						accumulator = nil
 					}
 					continue
 				}

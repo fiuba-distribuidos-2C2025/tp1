@@ -127,6 +127,9 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 							outChan <- batch
 						}
 						outChan <- "EOF"
+
+						// clear accumulator memory
+						accumulator = nil
 					}
 					continue
 				}

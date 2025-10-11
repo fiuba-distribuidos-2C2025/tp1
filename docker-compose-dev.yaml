@@ -23,14 +23,14 @@ services:
     networks:
       - testing_net
     environment:
-        RABBITMQ_DEFAULT_USER: guest
-        RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
-        test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
-        start_period: 5s
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   request_handler:
     container_name: request_handler
@@ -39,12 +39,17 @@ services:
     volumes:
       - ./request_handler/config.yaml:/config/config.yaml
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     networks:
       - testing_net
     environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_COUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
 
   response_builder:
     container_name: response_builder
@@ -53,16 +58,19 @@ services:
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
     environment:
-      - RESPONSE_MIDDLEWARE_RECEIVERS_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=1
+      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
+      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     networks:
       - testing_net
 
-# ==============================================================================
-# First Query
-# ==============================================================================
+  # ==============================================================================
+  # First Query
+  # ==============================================================================
 
   filter_by_year_worker1:
     container_name: filter_by_year_worker1
@@ -73,8 +81,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -92,8 +100,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -111,14 +119,14 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
+      - WORKER_MIDDLEWARE_RECEIVERS=1,2
       - WORKER_ID=1
 
   filter_by_hour_worker2:
@@ -130,14 +138,14 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
-      - WORKER_MIDDLEWARE_RECEIVERS=2,2
+      - WORKER_MIDDLEWARE_RECEIVERS=1,2
       - WORKER_ID=2
 
   filter_by_amount_worker1:
@@ -149,8 +157,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -168,8 +176,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -178,9 +186,9 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
 
-# ==============================================================================
-# Second Query
-# ==============================================================================
+  # ==============================================================================
+  # Second Query
+  # ==============================================================================
 
   filter_by_year_items_worker1:
     container_name: filter_by_year_items_worker1
@@ -191,8 +199,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -210,8 +218,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -221,7 +229,7 @@ services:
       - WORKER_ID=2
 
   grouper_by_year_month_worker1:
-    container_name: grouper_by_year_moth_worker1
+    container_name: grouper_by_year_month_worker1
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -229,8 +237,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -240,7 +248,7 @@ services:
       - WORKER_ID=1
 
   grouper_by_year_month_worker2:
-    container_name: grouper_by_year_moth_worker2
+    container_name: grouper_by_year_month_worker2
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -248,8 +256,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -267,8 +275,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -286,8 +294,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -305,8 +313,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -315,9 +323,9 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
 
-# ==============================================================================
-# Third Query
-# ==============================================================================
+  # ==============================================================================
+  # Third Query
+  # ==============================================================================
 
   grouper_by_semester_worker1:
     container_name: grouper_by_semester_worker1
@@ -328,8 +336,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -347,8 +355,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -366,14 +374,14 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
-      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=3
       - WORKER_ID=1
 
   joiner_by_store_id1:
@@ -385,8 +393,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -404,8 +412,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -414,9 +422,27 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
 
-# ==============================================================================
-# Fourth Query
-# ==============================================================================
+  joiner_by_store_id3:
+    container_name: joiner_by_store_id3
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=JOINER_BY_STORE_ID
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
+      - WORKER_MIDDLEWARE_SENDERS=1,1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
+      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_ID=3
+
+  # ==============================================================================
+  # Fourth Query
+  # ==============================================================================
 
   grouper_by_store_user_worker1:
     container_name: grouper_by_store_user_worker1
@@ -427,8 +453,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -446,8 +472,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -465,8 +491,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -484,14 +510,14 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
-      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=1
 
   joiner_by_user_id2:
@@ -503,14 +529,14 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
       - WORKER_MIDDLEWARE_SENDERS=1,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
-      - WORKER_MIDDLEWARE_RECEIVERS=2
+      - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=2
 
   joiner_by_user_store1:
@@ -522,8 +548,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -541,8 +567,8 @@ services:
     networks:
       - testing_net
     depends_on:
-        rabbit:
-            condition: service_healthy
+      rabbit:
+        condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -550,6 +576,42 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
+
+  joiner_by_user_store3:
+    container_name: joiner_by_user_store3
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=JOINER_BY_USER_STORE
+      - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
+      - WORKER_MIDDLEWARE_SENDERS=2,1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
+      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_ID=3
+
+  joiner_by_user_store4:
+    container_name: joiner_by_user_store4
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+      - rabbit
+    environment:
+      - WORKER_JOB=JOINER_BY_USER_STORE
+      - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
+      - WORKER_MIDDLEWARE_SENDERS=2,1
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
+      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_ID=4
 
 networks:
   testing_net:

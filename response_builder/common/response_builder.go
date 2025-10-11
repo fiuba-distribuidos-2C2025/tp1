@@ -13,8 +13,11 @@ import (
 var log = logging.MustGetLogger("log")
 
 type ResponseBuilderConfig struct {
-	MiddlewareUrl string
-	WorkerCount   int
+	MiddlewareUrl           string
+	WorkerResultsOneCount   int
+	WorkerResultsTwoCount   int
+	WorkerResultsThreeCount int
+	WorkerResultsFourCount  int
 }
 
 type ResponseBuilder struct {
@@ -55,11 +58,25 @@ func (m *ResponseBuilder) Start() error {
 	for {
 		select {
 		case msg := <-outChan:
+			log.Info("Result received from query ", msg.ID)
 			if msg.Value == "EOF" {
 				log.Info("EOF received")
+
+				var expectedEof int
+				switch msg.ID {
+				case 1:
+					expectedEof = m.Config.WorkerResultsOneCount
+				case 2:
+					expectedEof = m.Config.WorkerResultsTwoCount
+				case 3:
+					expectedEof = m.Config.WorkerResultsThreeCount
+				case 4:
+					expectedEof = m.Config.WorkerResultsFourCount
+				}
+
 				totalEOFsPerQuery[msg.ID]++
-				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsPerQuery[msg.ID], m.Config.WorkerCount)
-				if totalEOFsPerQuery[msg.ID] == m.Config.WorkerCount {
+				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsPerQuery[msg.ID], expectedEof)
+				if totalEOFsPerQuery[msg.ID] == expectedEof {
 					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
 					finalResultsExchange.Send([]byte(strings.Join(final_result[msg.ID], "\n")))
 					log.Infof("Total EOFs received, sending query %d result", msg.ID)
@@ -71,7 +88,6 @@ func (m *ResponseBuilder) Start() error {
 				continue
 			}
 
-			log.Info("Result received query ", msg.ID)
 			final_result[msg.ID] = append(final_result[msg.ID], msg.Value)
 		}
 	}
@@ -90,8 +106,6 @@ func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, r
 					doneChan <- fmt.Errorf("channel closed unexpectedly")
 					return
 				}
-
-				log.Infof("Message received - Length: %d, Body:\n%s", len(msg.Body), string(msg.Body))
 
 				if err := msg.Ack(false); err != nil {
 					log.Errorf("Failed to acknowledge message: %v", err)

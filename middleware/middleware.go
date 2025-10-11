@@ -135,7 +135,6 @@ func (q *MessageMiddlewareQueue) Send(message []byte) MessageMiddlewareError {
 		return MessageMiddlewareMessageError
 	}
 
-	log.Println("Message sent successfully")
 	return 0 // Success
 }
 

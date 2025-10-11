@@ -146,6 +146,9 @@ func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, nee
 							outChan <- batch
 						}
 						outChan <- "EOF"
+
+						// clear accumulator memory
+						accumulator = nil
 					}
 					continue
 				}

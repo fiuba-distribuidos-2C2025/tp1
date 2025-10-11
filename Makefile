@@ -15,6 +15,7 @@ format:
 	gofmt -s -w ./middleware/
 	gofmt -s -w ./response_builder/
 	gofmt -s -w ./worker/
+	gofmt -s -w ./protocol/
 .PHONY: format
 
 build: deps
@@ -54,7 +55,7 @@ middleware_tests:
 	go test ./middleware
 
 default-compose:
-	./generar-compose.sh docker-compose-dev.yaml 2 2 2 2 2 2 2
+	./generar-compose.sh docker-compose-dev.yaml setup.dev
 
 compare_reduced_results:
 	python3 scripts/compare_results.py ./results ./expected_results/reduced

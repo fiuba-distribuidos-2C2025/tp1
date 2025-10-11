@@ -112,6 +112,9 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 							outChan <- batch
 						}
 						outChan <- "EOF"
+
+						// clear accumulator memory
+						accumulator = nil
 					}
 					continue
 				}

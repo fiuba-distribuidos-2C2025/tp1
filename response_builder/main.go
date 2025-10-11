@@ -76,8 +76,11 @@ func main() {
 
 	// Start original request handler
 	requestBuilderConfig := common.ResponseBuilderConfig{
-		MiddlewareUrl: v.GetString("rabbit.url"),
-		WorkerCount:   v.GetInt("middleware.receivers.count"),
+		MiddlewareUrl:           v.GetString("rabbit.url"),
+		WorkerResultsOneCount:   v.GetInt("middleware.results1.count"),
+		WorkerResultsTwoCount:   v.GetInt("middleware.results2.count"),
+		WorkerResultsThreeCount: v.GetInt("middleware.results3.count"),
+		WorkerResultsFourCount:  v.GetInt("middleware.results4.count"),
 	}
 	requestBuilder := common.NewResponseBuilder(requestBuilderConfig)
 

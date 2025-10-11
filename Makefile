@@ -55,3 +55,15 @@ middleware_tests:
 
 default-compose:
 	./generar-compose.sh docker-compose-dev.yaml 2 2 2 2 2 2 2
+
+compare_reduced_results:
+	python3 scripts/compare_results.py ./results ./expected_results/reduced
+
+compare_full_results:
+	python3 scripts/compare_results.py ./results ./expected_results/full
+
+download_reduced_dataset:
+	./scripts/load_dataset.sh 1
+
+download_full_dataset:
+	./scripts/load_dataset.sh 0

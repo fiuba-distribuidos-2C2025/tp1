@@ -30,9 +30,9 @@ func concatWithMenuItemsData(transaction string, menuItemsData map[string]string
 	sb.WriteByte(',')
 	sb.WriteString(date)
 	sb.WriteByte(',')
-	sb.WriteString(meassure)
-	sb.WriteByte(',')
 	sb.WriteString(menuItemName)
+	sb.WriteByte(',')
+	sb.WriteString(meassure)
 
 	return sb.String(), true
 }

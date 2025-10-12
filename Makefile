@@ -1,6 +1,8 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
+CLIENT?=1
+
 default: build
 
 all:
@@ -54,14 +56,14 @@ middleware_tests:
 	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
 
-default-compose:
+generar-compose:
 	./generar-compose.sh docker-compose-dev.yaml setup.dev
 
 compare_reduced_results:
-	python3 scripts/compare_results.py ./results ./expected_results/reduced
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/reduced
 
 compare_full_results:
-	python3 scripts/compare_results.py ./results ./expected_results/full
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/full
 
 download_reduced_dataset:
 	./scripts/load_dataset.sh 1

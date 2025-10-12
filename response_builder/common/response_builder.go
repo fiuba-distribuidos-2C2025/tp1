@@ -106,13 +106,14 @@ func (m *ResponseBuilder) Start() error {
 
 			if _, ok := clientFinalResult[clientId]; ok {
 				if _, ok := clientFinalResult[clientId][msg.ID]; ok {
-					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], msg.Value)
+					// SPLITING AND JOINING, NOT GOOD
+					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], strings.Join(message, "\n"))
 				} else {
-					clientFinalResult[clientId][msg.ID] = []string{msg.Value}
+					clientFinalResult[clientId][msg.ID] = []string{strings.Join(message, "\n")}
 				}
 			} else {
 				clientFinalResult[clientId] = make(map[int][]string)
-				clientFinalResult[clientId][msg.ID] = []string{msg.Value}
+				clientFinalResult[clientId][msg.ID] = []string{strings.Join(message, "\n")}
 			}
 		}
 	}

@@ -212,6 +212,9 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 
 			if strings.Contains(msg, "EOF") {
 				secondaryQueueMessagesChan <- clientId + "\n" + clientMessages[clientId]
+				// Clear stored messages for client
+				delete(clientMessages, clientId)
+				continue
 			}
 
 			// TODO: SPLITTING AND THEN JOINING, NOT GOOD

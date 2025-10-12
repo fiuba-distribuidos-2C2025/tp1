@@ -86,6 +86,102 @@ services:
     environment:
         - CLIENT_ID=2
 
+  client3:
+    container_name: client3
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=3
+
+  client4:
+    container_name: client4
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=4
+
+  client5:
+    container_name: client5
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=5
+
+  client6:
+    container_name: client6
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=6
+
+  client7:
+    container_name: client7
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=7
+
+  client8:
+    container_name: client8
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=8
+
 # ==============================================================================
 # First Query
 # ==============================================================================

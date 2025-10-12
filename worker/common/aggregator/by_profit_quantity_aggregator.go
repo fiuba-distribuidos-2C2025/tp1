@@ -148,13 +148,13 @@ func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, nee
 					}
 
 					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
+					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
 						maxQuantityItems, maxProfitITems := getMaxItems(accumulator[clientID])
 
 						batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
 						for _, batch := range batches {
-							outChan <- clientID + batch
+							outChan <- clientID + "\n" + batch
 						}
 						msg := clientID + "\nEOF"
 						outChan <- msg

@@ -274,8 +274,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
-		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
-		// inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
+		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	// ==============================================================================
 	// Fourth Query
 	// ==============================================================================

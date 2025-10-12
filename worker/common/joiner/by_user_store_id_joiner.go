@@ -35,7 +35,7 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 
 func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	eofCount := 0
-	processedStores := ProcessStoreIds(storeIdRows)
+	// processedStores := ProcessStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -61,15 +61,15 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof 
 				}
 
 				// Reset builder for reuse
-				transactions := splitBatchInRows(body)
+				// transactions := splitBatchInRows(body)
 				outBuilder.Reset()
 
-				for _, transaction := range transactions {
-					if concatenated, ok := concatBirthdatesWithStoresData(transaction, processedStores); ok {
-						outBuilder.WriteString(concatenated)
-						outBuilder.WriteByte('\n')
-					}
-				}
+				// for _, transaction := range transactions {
+				// 	// if concatenated, ok := concatBirthdatesWithStoresData(transaction, processedStores); ok {
+				// 	// 	outBuilder.WriteString(concatenated)
+				// 	// 	outBuilder.WriteByte('\n')
+				// 	// }
+				// }
 
 				if outBuilder.Len() > 0 {
 					outChan <- outBuilder.String()

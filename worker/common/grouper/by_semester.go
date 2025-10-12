@@ -87,8 +87,8 @@ func GetSemesterAccumulatorBatches(accumulator map[string]SemesterStats) []strin
 }
 
 func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	accumulator := make(map[string]SemesterStats)
+	clientEofCount := map[string]int{}
+	accumulator := make(map[string]map[string]SemesterStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -105,33 +105,49 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := accumulator[clientID]; !exists {
+					accumulator[clientID] = make(map[string]SemesterStats)
+				}
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := GetSemesterAccumulatorBatches(accumulator)
+						batches := GetSemesterAccumulatorBatches(accumulator[clientID])
 						for _, batch := range batches {
-							outChan <- batch
+							outChan <- clientID + "\n" + batch
 						}
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 
 						// clear accumulator memory
-						accumulator = nil
+						accumulator[clientID] = nil
 					}
 					continue
 				}
 
-				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 					semester_key, tx_stat := parseTransactionData(transaction)
-					if _, ok := accumulator[semester_key]; !ok {
-						accumulator[semester_key] = SemesterStats{Tpv: 0, Year: tx_stat.Year, YearHalf: tx_stat.YearHalf, StoreId: tx_stat.StoreId}
+					if _, ok := accumulator[clientID][semester_key]; !ok {
+						accumulator[clientID][semester_key] = SemesterStats{Tpv: 0, Year: tx_stat.Year, YearHalf: tx_stat.YearHalf, StoreId: tx_stat.StoreId}
 					}
-					txStat := accumulator[semester_key]
+					txStat := accumulator[clientID][semester_key]
 					txStat.Tpv += tx_stat.Tpv
-					accumulator[semester_key] = txStat
+					accumulator[clientID][semester_key] = txStat
 				}
 			}
 		}

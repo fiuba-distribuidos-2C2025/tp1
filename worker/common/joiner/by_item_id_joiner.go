@@ -58,7 +58,6 @@ func processMenuItems(menuItemLines []string) map[string]string {
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRowsChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	clientEofCount := map[string]int{}
 	processedMenuItems := make(map[string]map[string]string)
-	// processedMenuItems := processMenuItems(menuItemRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 

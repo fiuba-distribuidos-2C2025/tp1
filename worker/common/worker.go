@@ -88,18 +88,17 @@ func (w *Worker) Start() error {
 		_ = w.conn.Close()
 	}()
 
-	var secondaryQueueMessages string
+	// var secondaryQueueMessages string
+	secondaryQueueMessagesChan := make(chan string)
 	if hasSecondaryQueue(w.config.WorkerJob) {
-		log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
-		secondaryQueueMessages = w.listenToSecondaryQueue()
-		if secondaryQueueMessages == "" {
-			return nil
-		}
-		log.Debugf("Finished reading from secondary queue")
+		go func() {
+			log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+			w.listenToSecondaryQueue(secondaryQueueMessagesChan)
+		}()
 	}
 
 	inQueueResponseChan := make(chan string)
-	w.listenToPrimaryQueue(inQueueResponseChan, secondaryQueueMessages)
+	w.listenToPrimaryQueue(inQueueResponseChan, secondaryQueueMessagesChan)
 
 	outputQueues, err := w.setupOutputQueues()
 	if err != nil {
@@ -190,33 +189,43 @@ func hasSecondaryQueue(workerJob string) bool {
 	}
 }
 
-func (w *Worker) listenToSecondaryQueue() string {
+func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) {
 	inQueueResponseChan := make(chan string)
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
 	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
 	if err != nil {
-		return "" // TODO: should return error
+		return // TODO: should return error
 	}
 	// All joiners use the same callback.
 	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof))
 
-	messages := ""
+	clientMessages := make(map[string]string)
 	for {
 		select {
 		case <-w.shutdown:
-			log.Info("Shutdown signal received, stopping worker...")
-			return ""
+			log.Info("Shutdown signal received, stopping secondary queue message listening...")
+			return
 
 		case msg := <-inQueueResponseChan:
-			if msg == "EOF" {
-				return messages
+			lines := strings.Split(msg, "\n")
+			clientId := lines[0]
+
+			if strings.Contains(msg, "EOF") {
+				secondaryQueueMessagesChan <- clientId + "\n" + clientMessages[clientId]
 			}
-			messages += msg
+
+			// TODO: SPLITTING AND THEN JOINING, NOT GOOD
+			items := strings.Join(lines[1:], "\n")
+			if _, ok := clientMessages[clientId]; !ok {
+				clientMessages[clientId] = items
+			} else {
+				clientMessages[clientId] += items
+			}
 		}
 	}
 }
 
-func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondaryQueueMessages string) error {
+func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondaryQueueMessagesChan chan string) error {
 	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
 	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
 	if err != nil {
@@ -250,7 +259,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateByQuantityProfitAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	// ==============================================================================
 	// Third Query
 	// ==============================================================================
@@ -262,7 +271,8 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
+		// inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	// ==============================================================================
 	// Fourth Query
 	// ==============================================================================
@@ -274,10 +284,12 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
+		// inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	case "JOINER_BY_USER_STORE":
 		log.Info("Starting JOINER_BY_USER_STORE worker...")
-		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessages))
+		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
+		// inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 
 	default:
 		log.Error("Unknown worker job")

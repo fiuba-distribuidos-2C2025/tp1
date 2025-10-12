@@ -56,9 +56,10 @@ func processMenuItems(menuItemRows string) map[string]string {
 	return menuItemsData
 }
 
-func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	processedMenuItems := processMenuItems(menuItemRows)
+func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRowsChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	clientEofCount := map[string]int{}
+	processedMenuItems := make(map[string]map[string]string)
+	// processedMenuItems := processMenuItems(menuItemRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -67,28 +68,71 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := processedMenuItems[clientID]; !exists {
+					processedMenuItems[clientID] = make(map[string]string)
+				}
+
+				// Check if we have the needed secondary queue data
+				if len(processedMenuItems[clientID]) == 0 {
+					// This means we still haven't received any menu items for this client
+					select {
+					// TODO: CONSUME IN RANGE INSTEAD OF ONLY ONCE
+					case secondaryQueueNewMessage := <-menuItemRowsChan:
+						log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
+						payload := strings.TrimSpace(secondaryQueueNewMessage)
+						lines := strings.Split(payload, "\n")
+						secondaryQueueClientID := lines[0]
+						menuItemRows := lines[1]
+						processedMenu := processMenuItems(menuItemRows)
+						processedMenuItems[secondaryQueueClientID] = processedMenu
+						if clientID != secondaryQueueClientID {
+							log.Warningf("Filled secondary queue data, but for a different client, expected %s, got %s", clientID, secondaryQueueClientID)
+							continue
+						}
+
+					default:
+						log.Debugf("Received primary queue message, but secondary queue is still blocking")
+						continue
+					}
+				}
+
+				// Ack message only if we have secondary queue data to handle it
+				msg.Ack(false)
+
+				items := lines[1:]
+				if items[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 					}
 					continue
 				}
 
 				// Reset builder for reuse
-				items := splitBatchInRows(body)
 				outBuilder.Reset()
 
+				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range items {
-					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems); ok {
+					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems[clientID]); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')
 					}

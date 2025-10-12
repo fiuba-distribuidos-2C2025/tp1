@@ -115,55 +115,66 @@ func get_accumulator_batches(maxQuantityItems map[string]ItemStats, maxProfitIte
 }
 
 func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	accumulator := make(map[string]ItemStats)
+	clientEofCount := map[string]int{}
+	accumulator := make(map[string]map[string]ItemStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
 		for {
 			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
-
 			case msg, ok := <-*consumeChannel:
 				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := accumulator[clientID]; !exists {
+					accumulator[clientID] = make(map[string]ItemStats)
+				}
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
+						maxQuantityItems, maxProfitITems := getMaxItems(accumulator[clientID])
 
 						batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
 						for _, batch := range batches {
-							outChan <- batch
+							outChan <- clientID + batch
 						}
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 
 						// clear accumulator memory
-						accumulator = nil
+						accumulator[clientID] = nil
 					}
 					continue
 				}
 
-				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 
 					item_key, sub_month_item_stats := parseTransactionData(transaction)
-					if _, ok := accumulator[item_key]; !ok {
-						accumulator[item_key] = ItemStats{quantity: 0, subtotal: 0, id: sub_month_item_stats.id, date: sub_month_item_stats.date}
+					if _, ok := accumulator[clientID][item_key]; !ok {
+						accumulator[clientID][item_key] = ItemStats{quantity: 0, subtotal: 0, id: sub_month_item_stats.id, date: sub_month_item_stats.date}
 					}
-					txStat := accumulator[item_key]
+					txStat := accumulator[clientID][item_key]
 					txStat.quantity += sub_month_item_stats.quantity
 					txStat.subtotal += sub_month_item_stats.subtotal
-					accumulator[item_key] = txStat
+					accumulator[clientID][item_key] = txStat
 				}
 			}
 		}

@@ -31,7 +31,7 @@ func removeNeedlessFields(row string, indices []int) string {
 }
 
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
+	clientEofCount := map[string]int{}
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for secondary queue messages...")
 		for {
@@ -43,18 +43,32 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
-				log.Infof("received", body)
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
+				// Separate header and the rest
+				clientID := lines[0]
+				items := lines[1:]
+
+				if items[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						outChan <- clientID + "\nEOF"
 						continue
 					}
 				}
 
-				outChan <- body
+				// TODO: SPLITTING AND THEN JOINING BY SAME SEPARATOR
+				// NOT GOOD.
+				outMsg := clientID + "\n" + strings.Join(items, "\n")
+				log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", outMsg)
+				outChan <- outMsg
 			}
 		}
 	}

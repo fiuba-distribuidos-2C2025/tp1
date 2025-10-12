@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -30,94 +29,6 @@ type ResultMessage struct {
 	Data    string
 }
 
-// ChannelPool manages a pool of AMQP channels for concurrent use
-type ChannelPool struct {
-	channels chan *amqp.Channel
-	conn     *amqp.Connection
-	mu       sync.RWMutex
-	closed   bool
-}
-
-// NewChannelPool creates a new channel pool
-func NewChannelPool(conn *amqp.Connection, size int) (*ChannelPool, error) {
-	pool := &ChannelPool{
-		channels: make(chan *amqp.Channel, size),
-		conn:     conn,
-	}
-
-	// Pre-populate the pool with channels
-	for i := 0; i < size; i++ {
-		ch, err := conn.Channel()
-		if err != nil {
-			// Close any channels we've already created
-			close(pool.channels)
-			for existingCh := range pool.channels {
-				existingCh.Close()
-			}
-			return nil, fmt.Errorf("failed to create channel %d: %w", i, err)
-		}
-		pool.channels <- ch
-	}
-
-	return pool, nil
-}
-
-// Get retrieves a channel from the pool
-func (p *ChannelPool) Get() (*amqp.Channel, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if p.closed {
-		return nil, fmt.Errorf("channel pool is closed")
-	}
-
-	select {
-	case ch := <-p.channels:
-		return ch, nil
-	default:
-		// Pool is empty, create a new channel
-		return p.conn.Channel()
-	}
-}
-
-// Put returns a channel to the pool
-func (p *ChannelPool) Put(ch *amqp.Channel) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if p.closed || ch == nil {
-		if ch != nil {
-			ch.Close()
-		}
-		return
-	}
-
-	select {
-	case p.channels <- ch:
-		// Channel returned to pool
-	default:
-		// Pool is full, close the channel
-		ch.Close()
-	}
-}
-
-// Close closes all channels in the pool
-func (p *ChannelPool) Close() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
-		return
-	}
-
-	p.closed = true
-	close(p.channels)
-
-	for ch := range p.channels {
-		ch.Close()
-	}
-}
-
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
 	Port                           string
@@ -137,7 +48,6 @@ type RequestHandler struct {
 	listener           net.Listener
 	shutdown           chan struct{}
 	Connection         *amqp.Connection
-	channelPool        *ChannelPool
 	currentWorkerQueue int
 }
 
@@ -162,18 +72,15 @@ func (rh *RequestHandler) Start() error {
 	rh.listener = listener
 	log.Infof("RequestHandler listening on %s", addr)
 
-	rabbit_conn, err := amqp.Dial(rh.Config.MiddlewareURL)
+	// Connect to RabbitMQ
+	conn, err := amqp.Dial(rh.Config.MiddlewareURL)
 	if err != nil {
-		return fmt.Errorf("failed to connect to AMQP server: %w", err)
+		rh.listener.Close()
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
+	rh.Connection = conn
+	log.Infof("Connected to RabbitMQ at %s", rh.Config.MiddlewareURL)
 
-	channelPool, err := NewChannelPool(rabbit_conn, channelPoolSize)
-	if err != nil {
-		rabbit_conn.Close()
-		return fmt.Errorf("failed to create channel pool: %w", err)
-	}
-
-	rh.channelPool = channelPool
 	go rh.acceptConnections()
 	<-rh.shutdown
 	return nil
@@ -197,11 +104,6 @@ func (rh *RequestHandler) Stop() {
 	}
 
 	log.Info("RequestHandler shutdown complete")
-	if rh.channelPool != nil {
-		rh.channelPool.Close()
-	}
-
-	log.Info("RequestHandler shutdown complete")
 }
 
 // acceptConnections continuously accepts new connections
@@ -218,24 +120,21 @@ func (rh *RequestHandler) acceptConnections() {
 				continue
 			}
 		}
+		channel, err := rh.Connection.Channel()
+		if err != nil {
+			log.Errorf("Failed to create channel for new connection: %v", err)
+			conn.Close()
+			continue
+		}
 
-		go handleConnection(conn, rh.Config, rh.channelPool)
+		go handleConnection(conn, rh.Config, channel)
 	}
 }
 
 // handleConnection processes a single client connection
-func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channelPool *ChannelPool) {
+func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Channel) {
 	defer conn.Close()
 	log.Infof("New connection from %s", conn.RemoteAddr())
-
-	// Get a channel from the pool for this connection
-	channel, err := channelPool.Get()
-	if err != nil {
-		log.Errorf("Failed to get channel for connection %s: %v", conn.RemoteAddr(), err)
-		return
-	}
-	defer channelPool.Put(channel)
-
 	proto := protocol.NewProtocol(conn)
 	filesProcessed := 0
 
@@ -245,7 +144,7 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channelPool *Chan
 
 	// Keep processing messages until FINAL_EOF is received
 	for {
-		pclientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channelPool)
+		pclientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channel)
 
 		// Not optimal check, only batch type messages hold clientId,
 		// others return zero, so we ignore them
@@ -272,7 +171,7 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channelPool *Chan
 			log.Infof("Received EOF from client %d after %d files", clientId, filesProcessed)
 
 			// Send EOF to the appropriate RabbitMQ queues for this fileType
-			if err := sendEOFForFileType(clientId, fileType, cfg, channelPool); err != nil {
+			if err := sendEOFForFileType(clientId, fileType, cfg, channel); err != nil {
 				log.Errorf("Failed to send EOF to queues: %v", fileType, err)
 				return
 			}
@@ -309,14 +208,8 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channelPool *Chan
 	// Start consuming from all final result queues
 	for i := 1; i <= 4; i++ {
 		queueName := fmt.Sprintf("final_results_%d_%d", clientId, i)
-		// Get a channel from the pool for each consumer goroutine
-		consumerChannel, err := channelPool.Get()
-		if err != nil {
-			log.Errorf("Failed to get consumer channel for %s: %v", queueName, err)
-			continue
-		}
-		queue := middleware.NewMessageMiddlewareQueue(queueName, consumerChannel)
-		go queue.StartConsuming(createResultsCallback(resultChan, doneChan, i, channelPool, consumerChannel))
+		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
+		go queue.StartConsuming(createResultsCallback(resultChan, doneChan, i))
 		log.Infof("Client %d: Started consuming from %s", clientId, queueName)
 	}
 
@@ -325,7 +218,7 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channelPool *Chan
 
 // processMessages handles incoming messages until a file is complete or EOF is received
 // Returns (clientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
-func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channelPool *ChannelPool) (uint16, bool, bool, bool, protocol.FileType, error) {
+func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel) (uint16, bool, bool, bool, protocol.FileType, error) {
 	var totalChunks int32
 	chunksReceived := int32(0)
 	var clientId uint16
@@ -379,7 +272,7 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 			}
 			log.Infof("Calculated receiver %d", receiverID)
 
-			if err := sendToQueue(message, receiverID, cfg, channelPool); err != nil {
+			if err := sendToQueue(message, receiverID, cfg, channel); err != nil {
 				return clientId, false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
 			}
 
@@ -401,13 +294,7 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 }
 
 // sendToQueue sends the batch message to the appropriate queue based on file type
-func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channelPool *ChannelPool) error {
-	// Get a channel from the pool
-	channel, err := channelPool.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get channel from pool: %w", err)
-	}
-	defer channelPool.Put(channel)
+func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	// First row of payload specifies the client ID
 	payload := strconv.FormatUint(uint64(message.ClientID), 10) + "\n"
 	// Rest of the payload is data itself
@@ -470,7 +357,7 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 }
 
 // sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
-func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg RequestHandlerConfig, channelPool *ChannelPool) error {
+func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	log.Infof("Sending EOF from client id %d", clientId)
 	// First row of payload specifies the client ID
 	payload := strconv.FormatUint(uint64(clientId), 10) + "\n"
@@ -496,25 +383,15 @@ func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg Request
 	case "stores":
 		for i := 1; i <= cfg.StoresQ3ReceiversCount; i++ {
 			queueName := "stores_q3_" + strconv.Itoa(i)
-			channel, err := channelPool.Get()
-			if err != nil {
-				return fmt.Errorf("failed to get channel for %s: %w", queueName, err)
-			}
 			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
 			queue.Send([]byte(payload))
-			channelPool.Put(channel)
 			log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 		}
 
 		for i := 1; i <= cfg.StoresQ4ReceiversCount; i++ {
 			queueName := "stores_q4_" + strconv.Itoa(i)
-			channel, err := channelPool.Get()
-			if err != nil {
-				return fmt.Errorf("failed to get channel for %s: %w", queueName, err)
-			}
 			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
 			queue.Send([]byte(payload))
-			channelPool.Put(channel)
 			log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 		}
 		return nil
@@ -522,13 +399,8 @@ func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg Request
 
 	for i := 1; i <= receiversCount; i++ {
 		queueName := queuePrefix + "_" + strconv.Itoa(i)
-		channel, err := channelPool.Get()
-		if err != nil {
-			return fmt.Errorf("failed to get channel for %s: %w", queueName, err)
-		}
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
 		queue.Send([]byte(payload))
-		channelPool.Put(channel)
 		log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 	}
 	return nil
@@ -607,9 +479,8 @@ func sendResponse(proto *protocol.Protocol, queueID int32, result []byte) error 
 }
 
 // createResultsCallback creates a callback function for consuming results from a specific queue
-func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, queueID int, channelPool *ChannelPool, channel *amqp.Channel) func(middleware.ConsumeChannel, chan error) {
+func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, queueID int) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		defer channelPool.Put(channel) // Return the consumer channel to the pool when done
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:

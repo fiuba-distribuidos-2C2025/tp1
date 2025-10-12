@@ -20,4 +20,5 @@ FROM busybox:latest
 COPY --from=builder /build/bin/client /client
 VOLUME /config
 VOLUME /data
+VOLUME /results
 ENTRYPOINT ["/bin/sh"]

@@ -129,7 +129,9 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 					if eofCount >= neededEof {
 						batches := GetSemesterAccumulatorBatches(accumulator[clientID])
 						for _, batch := range batches {
-							outChan <- clientID + "\n" + batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
 						msg := clientID + "\nEOF"
 						outChan <- msg

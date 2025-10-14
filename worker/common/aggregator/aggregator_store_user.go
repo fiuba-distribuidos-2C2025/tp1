@@ -140,7 +140,9 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 						batches := getUserAccumulatorBatches(top3Users)
 
 						for _, batch := range batches {
-							outChan <- clientID + "\n" + batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
 						msg := clientID + "\nEOF"
 						outChan <- msg

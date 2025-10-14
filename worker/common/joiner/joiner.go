@@ -66,9 +66,11 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 
 				// TODO: SPLITTING AND THEN JOINING BY SAME SEPARATOR
 				// NOT GOOD.
-				outMsg := clientID + "\n" + strings.Join(items, "\n")
-				log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", outMsg)
-				outChan <- outMsg
+				outMsg := strings.Join(items, "\n")
+				if outMsg != "" {
+					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", outMsg)
+					outChan <- clientID + "\n" + outMsg
+				}
 			}
 		}
 	}

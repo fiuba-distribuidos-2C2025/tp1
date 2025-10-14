@@ -111,8 +111,6 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof 
 
 				// Reset builder for reuse
 				outBuilder.Reset()
-				outBuilder.WriteString(clientID + "\n")
-
 				for _, transaction := range items {
 					if concatenated, ok := concatBirthdatesWithStoresData(transaction, processedStores[clientID]); ok {
 						outBuilder.WriteString(concatenated)
@@ -120,7 +118,9 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof 
 					}
 				}
 
-				outChan <- outBuilder.String()
+				if outBuilder.Len() > 0 {
+					outChan <- clientID + "\n" + outBuilder.String()
+				}
 				log.Infof("Processed message")
 			}
 		}

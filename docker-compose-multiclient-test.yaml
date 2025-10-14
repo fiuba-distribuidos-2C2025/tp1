@@ -60,7 +60,7 @@ services:
     entrypoint: /client
     volumes:
       - ./client:/config
-      - ./data2:/data
+      - ./data1:/data
       - ./results:/results
     depends_on:
       - rabbit
@@ -76,7 +76,7 @@ services:
     entrypoint: /client
     volumes:
       - ./client:/config
-      - ./data1:/data
+      - ./data2:/data
       - ./results:/results
     depends_on:
       - rabbit

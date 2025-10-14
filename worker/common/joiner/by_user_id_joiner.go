@@ -118,7 +118,10 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- clientID + "\n" + concatTop3(top3PerStoreArray[clientID], neededUsers[clientID])
+						clientTop3 := concatTop3(top3PerStoreArray[clientID], neededUsers[clientID])
+						if clientTop3 != "" {
+							outChan <- clientID + "\n" + clientTop3
+						}
 						outChan <- clientID + "\nEOF"
 						// clear accumulator memory
 						delete(clientEofCount, clientID)

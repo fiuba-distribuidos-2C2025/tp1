@@ -90,7 +90,7 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof 
 				msg.Ack(false)
 
 				items := lines[1:]
-				if items[0] == "EOF" {
+				if len(items) > 0 && items[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1
 					} else {

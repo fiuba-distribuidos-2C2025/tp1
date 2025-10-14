@@ -50,7 +50,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 				clientID := lines[0]
 				items := lines[1:]
 
-				if len(items) > 0 && items[0] == "EOF" {
+				if items[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1
 					} else {

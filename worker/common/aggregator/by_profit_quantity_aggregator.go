@@ -154,7 +154,9 @@ func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, nee
 
 						batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
 						for _, batch := range batches {
-							outChan <- clientID + "\n" + batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
 						msg := clientID + "\nEOF"
 						outChan <- msg

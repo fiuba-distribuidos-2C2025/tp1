@@ -56,7 +56,6 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 				}
 
 				outBuilder.Reset()
-				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range transactions {
 					if filtered, ok := filterFunc(transaction); ok {
 						outBuilder.WriteString(filtered + "\n")
@@ -64,7 +63,7 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
+					outChan <- clientID + "\n" + outBuilder.String()
 					log.Infof("Processed message")
 				}
 			}

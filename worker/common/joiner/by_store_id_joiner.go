@@ -133,7 +133,6 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 				// Reset builder for reuse
 				outBuilder.Reset()
 
-				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range items {
 					if concatenated, ok := concatWithStoresData(transaction, processedStores[clientID]); ok {
 						outBuilder.WriteString(concatenated)
@@ -142,7 +141,7 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
+					outChan <- clientID + "\n" + outBuilder.String()
 					log.Infof("Processed message")
 				}
 			}

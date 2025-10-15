@@ -69,10 +69,10 @@ compare_full_results:
 	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/full
 
 compare_results_multiclient_1:
-	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/multiclient_1
+	python3 scripts/compare_results.py ./results/client_1 ./expected_results/multiclient_1
 
 compare_results_multiclient_2:
-	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/multiclient_2
+	python3 scripts/compare_results.py ./results/client_2 ./expected_results/multiclient_2
 
 download_reduced_dataset:
 	./scripts/load_dataset.sh 1 0

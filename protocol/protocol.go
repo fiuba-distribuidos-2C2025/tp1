@@ -111,7 +111,7 @@ func (p *Protocol) writeFull(data []byte) error {
 		totalWritten += n
 	}
 
-	// CRITICAL: Flush to ensure data reaches the network
+	// Flush to ensure data reaches the network
 	if err := p.writer.Flush(); err != nil {
 		return fmt.Errorf("flush failed: %w", err)
 	}

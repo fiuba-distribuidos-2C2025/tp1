@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
@@ -18,9 +17,9 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	resultTimeout   = 60 * time.Second
-	resultChunkSize = 10 * 1024 * 1024 // 10MB chunks for results
-	channelPoolSize = 10               // Number of channels in the pool
+	resultChunkSize     = 10 * 1024 * 1024 // 10MB chunks for results
+	channelPoolSize     = 10               // Number of channels in the pool
+	expectedResultCount = 4                // Number of final result queues
 )
 
 // ResultMessage contains a result and which queue it came from
@@ -44,19 +43,17 @@ type RequestHandlerConfig struct {
 
 // RequestHandler handles incoming client connections and manages message flow
 type RequestHandler struct {
-	Config             RequestHandlerConfig
-	listener           net.Listener
-	shutdown           chan struct{}
-	Connection         *amqp.Connection
-	currentWorkerQueue int
+	Config     RequestHandlerConfig
+	listener   net.Listener
+	shutdown   chan struct{}
+	Connection *amqp.Connection
 }
 
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 	return &RequestHandler{
-		Config:             config,
-		shutdown:           make(chan struct{}),
-		currentWorkerQueue: 1,
+		Config:   config,
+		shutdown: make(chan struct{}),
 	}
 }
 
@@ -107,7 +104,6 @@ func (rh *RequestHandler) Stop() {
 }
 
 // acceptConnections continuously accepts new connections
-// TODO: no graceful shutdown
 func (rh *RequestHandler) acceptConnections() {
 	for {
 		conn, err := rh.listener.Accept()
@@ -134,6 +130,8 @@ func (rh *RequestHandler) acceptConnections() {
 // handleConnection processes a single client connection
 func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Channel) {
 	defer conn.Close()
+	defer channel.Close()
+
 	log.Infof("New connection from %s", conn.RemoteAddr())
 	proto := protocol.NewProtocol(conn)
 	filesProcessed := 0
@@ -172,7 +170,7 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 
 			// Send EOF to the appropriate RabbitMQ queues for this fileType
 			if err := sendEOFForFileType(clientId, fileType, cfg, channel); err != nil {
-				log.Errorf("Failed to send EOF to queues: %v", fileType, err)
+				log.Errorf("Failed to send EOF for fileType %s: %v", fileType, err)
 				return
 			}
 
@@ -201,19 +199,55 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 		}
 	}
 
-	// Listen to multiple final result queues
-	resultChan := make(chan ResultMessage, 4)
-	doneChan := make(chan error, 1)
+	// Process final results with proper cleanup
+	if err := processFinalResults(clientId, channel, proto); err != nil {
+		log.Errorf("Failed to process final results: %v", err)
+	}
+}
+
+// processFinalResults handles consuming and sending final results
+func processFinalResults(clientId uint16, channel *amqp.Channel, proto *protocol.Protocol) error {
+	resultChan := make(chan ResultMessage, expectedResultCount)
+	errChan := make(chan error, expectedResultCount)
 
 	// Start consuming from all final result queues
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= expectedResultCount; i++ {
 		queueName := fmt.Sprintf("final_results_%d_%d", clientId, i)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		go queue.StartConsuming(createResultsCallback(resultChan, doneChan, i))
+
+		go func(qID int, q *middleware.MessageMiddlewareQueue) {
+			consumeOneResult(q, qID, resultChan, errChan)
+		}(i, queue)
+
 		log.Infof("Client %d: Started consuming from %s", clientId, queueName)
 	}
 
-	waitForFinalResults(resultChan, doneChan, proto)
+	return waitForFinalResults(resultChan, errChan, proto)
+}
+
+// consumeOneResult consumes exactly one message from a queue
+func consumeOneResult(queue *middleware.MessageMiddlewareQueue, queueID int, resultChan chan ResultMessage, errChan chan error) {
+	queue.StartConsuming(func(consumeChannel middleware.ConsumeChannel, doneCh chan error) {
+		select {
+		case msg, ok := <-*consumeChannel:
+			if !ok {
+				errChan <- fmt.Errorf("channel closed unexpectedly for queue %d", queueID)
+				return
+			}
+
+			if err := msg.Ack(false); err != nil {
+				log.Errorf("Failed to ack message from queue %d: %v", queueID, err)
+			}
+
+			resultChan <- ResultMessage{
+				QueueID: queueID,
+				Data:    string(msg.Body),
+			}
+
+		case err := <-doneCh:
+			errChan <- err
+		}
+	})
 }
 
 // processMessages handles incoming messages until a file is complete or EOF is received
@@ -295,23 +329,24 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 
 // sendToQueue sends the batch message to the appropriate queue based on file type
 func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel) error {
-	// First row of payload specifies the client ID
-	payload := strconv.FormatUint(uint64(message.ClientID), 10) + "\n"
-	// Rest of the payload is data itself
-	payload += strings.Join(message.CSVRows, "\n")
+	var payload strings.Builder
+	payload.WriteString(strconv.FormatUint(uint64(message.ClientID), 10))
+	payload.WriteString("\n")
+	payload.WriteString(strings.Join(message.CSVRows, "\n"))
+	payloadBytes := []byte(payload.String())
 
 	switch message.FileType {
 	case protocol.FileTypeTransactions:
 		queueName := "transactions_" + strconv.Itoa(receiverID)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		queue.Send([]byte(payload))
+		queue.Send(payloadBytes)
 		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
 			message.CurrentChunk, message.TotalChunks, queueName)
 
 	case protocol.FileTypeTransactionItems:
 		queueName := "transactions_items_" + strconv.Itoa(receiverID)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		queue.Send([]byte(payload))
+		queue.Send(payloadBytes)
 		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
 			message.CurrentChunk, message.TotalChunks, queueName)
 
@@ -319,14 +354,14 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 		// Broadcast stores data to all receivers
 		for i := 1; i <= cfg.StoresQ3ReceiversCount; i++ {
 			queue_q3 := middleware.NewMessageMiddlewareQueue("stores_q3_"+strconv.Itoa(i), channel)
-			queue_q3.Send([]byte(payload))
+			queue_q3.Send(payloadBytes)
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q3_%d",
 				message.CurrentChunk, message.TotalChunks, i)
 		}
 
 		for i := 1; i <= cfg.StoresQ4ReceiversCount; i++ {
 			queue_q4 := middleware.NewMessageMiddlewareQueue("stores_q4_"+strconv.Itoa(i), channel)
-			queue_q4.Send([]byte(payload))
+			queue_q4.Send(payloadBytes)
 			log.Infof("Successfully forwarded batch (chunk %d/%d) to queue stores_q4_%d",
 				message.CurrentChunk, message.TotalChunks, i)
 		}
@@ -338,7 +373,7 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 		for i := 1; i <= cfg.MenuItemsReceiversCount; i++ {
 			queueName := "menu_items_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-			queue.Send([]byte(payload))
+			queue.Send(payloadBytes)
 		}
 		log.Infof("Broadcasted batch (chunk %d/%d) to all menu_items queues",
 			message.CurrentChunk, message.TotalChunks)
@@ -346,7 +381,7 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 	case protocol.FileTypeUsers:
 		queueName := "users_" + strconv.Itoa(receiverID)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		queue.Send([]byte(payload))
+		queue.Send(payloadBytes)
 		log.Infof("Forwarded batch (chunk %d/%d) to queue %s",
 			message.CurrentChunk, message.TotalChunks, queueName)
 	default:
@@ -359,9 +394,11 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 // sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
 func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	log.Infof("Sending EOF from client id %d", clientId)
-	// First row of payload specifies the client ID
-	payload := strconv.FormatUint(uint64(clientId), 10) + "\n"
-	payload += "EOF"
+
+	var payload strings.Builder
+	payload.WriteString(strconv.FormatUint(uint64(clientId), 10))
+	payload.WriteString("\nEOF")
+	payloadBytes := []byte(payload.String())
 
 	queuePrefix := fileType.QueueName()
 	if queuePrefix == "" {
@@ -379,19 +416,19 @@ func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg Request
 		receiversCount = cfg.UsersReceiversCount
 	case "menu_items":
 		receiversCount = cfg.MenuItemsReceiversCount
-	// Special case for stores
+	// Special case for stores since we use them in two different queries
 	case "stores":
 		for i := 1; i <= cfg.StoresQ3ReceiversCount; i++ {
 			queueName := "stores_q3_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-			queue.Send([]byte(payload))
+			queue.Send(payloadBytes)
 			log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 		}
 
 		for i := 1; i <= cfg.StoresQ4ReceiversCount; i++ {
 			queueName := "stores_q4_" + strconv.Itoa(i)
 			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-			queue.Send([]byte(payload))
+			queue.Send(payloadBytes)
 			log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 		}
 		return nil
@@ -400,43 +437,42 @@ func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg Request
 	for i := 1; i <= receiversCount; i++ {
 		queueName := queuePrefix + "_" + strconv.Itoa(i)
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		queue.Send([]byte(payload))
+		queue.Send(payloadBytes)
 		log.Infof("Successfully sent EOF to %s for client %d", queueName, clientId)
 	}
 	return nil
 }
 
 // waitForFinalResults waits for results from multiple queues
-func waitForFinalResults(resultChan chan ResultMessage, doneChan chan error, proto *protocol.Protocol) {
+func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol) error {
 	resultsReceived := 0
-	expectedResults := 4
 
-	for resultsReceived < expectedResults {
+	for resultsReceived < expectedResultCount {
 		select {
-		case result := <-resultChan:
+		case result, ok := <-resultChan:
+			if !ok {
+				return fmt.Errorf("result channel closed unexpectedly")
+			}
 			resultsReceived++
 
-			// Sort the result
 			list := strings.Split(result.Data, "\n")
 			slices.Sort(list)
 			finalResult := strings.Join(list, "\n")
 
-			// Send result back to client
 			if err := sendResponse(proto, int32(result.QueueID), []byte(finalResult)); err != nil {
-				log.Errorf("Failed to send response from queue %d: %v", result.QueueID, err)
-				return
+				return fmt.Errorf("failed to send response from queue %d: %w", result.QueueID, err)
 			}
 
 			log.Infof("Successfully sent result %d/%d (final_results_%d)",
-				resultsReceived, expectedResults, result.QueueID)
+				resultsReceived, expectedResultCount, result.QueueID)
 
-		case err := <-doneChan:
-			log.Errorf("Error while waiting for results: %v", err)
-			return
+		case err := <-errChan:
+			return fmt.Errorf("error while waiting for results: %w", err)
 		}
 	}
 
 	log.Infof("All %d results sent to client", resultsReceived)
+	return nil
 }
 
 // sendResponse writes the result back to the client in chunks
@@ -471,38 +507,8 @@ func sendResponse(proto *protocol.Protocol, queueID int32, result []byte) error 
 		if err := proto.SendResultChunk(chunkMsg); err != nil {
 			return fmt.Errorf("failed to send chunk %d: %w", chunkNum, err)
 		}
-
 	}
 
 	// Send EOF after all chunks for this queue
 	return proto.SendResultEOF(queueID)
-}
-
-// createResultsCallback creates a callback function for consuming results from a specific queue
-func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, queueID int) func(middleware.ConsumeChannel, chan error) {
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				if !ok {
-					doneChan <- fmt.Errorf("channel closed unexpectedly for queue %d", queueID)
-					return
-				}
-
-				if err := msg.Ack(false); err != nil {
-					log.Errorf("Failed to ack message from queue %d: %v", queueID, err)
-				}
-
-				resultChan <- ResultMessage{
-					QueueID: queueID,
-					Data:    string(msg.Body),
-				}
-				return // Only consume one message per queue
-
-			case err := <-done:
-				doneChan <- err
-				return
-			}
-		}
-	}
 }

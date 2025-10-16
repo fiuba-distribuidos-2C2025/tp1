@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
@@ -17,7 +18,8 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize = 10 * 1024 * 1024 // 10MB
+	defaultBatchSize    = 10 * 1024 * 1024 // 10MB
+	expectedResultCount = 4
 )
 
 // ClientConfig holds configuration for the client
@@ -74,7 +76,12 @@ func (c *Client) Start() error {
 	}
 
 	log.Info("All operations completed successfully")
-	c.readResults()
+
+	if err := c.readResults(); err != nil {
+		log.Errorf("Failed to read results: %v", err)
+		return err
+	}
+
 	<-c.shutdown
 	return nil
 }
@@ -246,10 +253,13 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				csvRows[i] = joinCSVRow(row)
 			}
 
-			clientID, _ := strconv.Atoi(c.config.ID) // TODO: handle error
-			uinclientID := uint16(clientID)
+			clientID, err := strconv.ParseUint(c.config.ID, 10, 16)
+			if err != nil {
+				return fmt.Errorf("invalid client ID: %w", err)
+			}
+
 			batchMsg := &protocol.BatchMessage{
-				ClientID:     uinclientID,
+				ClientID:     uint16(clientID),
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
 				TotalChunks:  metadata.totalChunks,
@@ -311,42 +321,14 @@ func calculateRecordSize(record []string) int {
 
 // joinCSVRow joins a CSV row into a single string
 func joinCSVRow(row []string) string {
-	result := ""
+	var result strings.Builder
 	for i, field := range row {
 		if i > 0 {
-			result += ","
+			result.WriteString(",")
 		}
-		// Escape fields containing commas or quotes
-		if containsSpecialChars(field) {
-			result += "\"" + escapeQuotes(field) + "\""
-		} else {
-			result += field
-		}
+		result.WriteString(field)
 	}
-	return result
-}
-
-// containsSpecialChars checks if a field needs quoting
-func containsSpecialChars(field string) bool {
-	for _, ch := range field {
-		if ch == ',' || ch == '"' || ch == '\n' || ch == '\r' {
-			return true
-		}
-	}
-	return false
-}
-
-// escapeQuotes escapes quotes in a field
-func escapeQuotes(field string) string {
-	result := ""
-	for _, ch := range field {
-		if ch == '"' {
-			result += "\"\""
-		} else {
-			result += string(ch)
-		}
-	}
-	return result
+	return result.String()
 }
 
 // connectToServer establishes a connection to the server
@@ -392,10 +374,9 @@ func (c *Client) readResults() error {
 	log.Info("Waiting for results from server...")
 
 	resultsReceived := 0
-	expectedResults := 4
 	resultBuffers := make(map[int32][]byte)
 
-	for resultsReceived < expectedResults {
+	for resultsReceived < expectedResultCount {
 		msgType, data, err := c.protocol.ReceiveMessage()
 		if err != nil {
 			return fmt.Errorf("failed to receive message: %w", err)
@@ -416,12 +397,13 @@ func (c *Client) readResults() error {
 
 			if result, ok := resultBuffers[eofMsg.QueueID]; ok {
 				log.Infof("Result %d/%d received from queue %d - Total size: %d bytes",
-					resultsReceived, expectedResults, eofMsg.QueueID, len(result))
+					resultsReceived, expectedResultCount, eofMsg.QueueID, len(result))
 
+				if err := c.processResult(eofMsg.QueueID, result); err != nil {
+					log.Errorf("Failed to process result from queue %d: %v", eofMsg.QueueID, err)
+				}
 				// Process result here (save to file, print, etc.)
 				c.processResult(eofMsg.QueueID, result)
-
-				// Clean up buffer
 				delete(resultBuffers, eofMsg.QueueID)
 			}
 
@@ -430,18 +412,17 @@ func (c *Client) readResults() error {
 		}
 	}
 
-	log.Infof("All %d results received successfully", expectedResults)
+	log.Infof("All %d results received successfully", expectedResultCount)
 	return nil
 }
 
-func (c *Client) processResult(queueID int32, data []byte) {
+func (c *Client) processResult(queueID int32, data []byte) error {
 	// Use /results directory (mounted volume)
 	resultsDir := fmt.Sprintf("/results/client_%s", c.config.ID)
 
 	// Create directory if it doesn't exist (though volume should exist)
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {
-		log.Errorf("Failed to create results directory: %v", err)
-		return
+		return fmt.Errorf("failed to create results directory: %v", err)
 	}
 
 	queryNum := queueID
@@ -449,16 +430,15 @@ func (c *Client) processResult(queueID int32, data []byte) {
 
 	file, err := os.Create(filename)
 	if err != nil {
-		log.Errorf("Failed to create file %s: %v", filename, err)
-		return
+		return fmt.Errorf("failed to create file %s: %v", filename, err)
 	}
 	defer file.Close()
 
 	if _, err := file.Write(data); err != nil {
-		log.Errorf("Failed to write data to %s: %v", filename, err)
-		return
+		return fmt.Errorf("failed to write data to %s: %v", filename, err)
 	}
 
 	log.Infof("Successfully saved result for Query %d to %s (%d bytes)",
 		queryNum, filename, len(data))
+	return nil
 }

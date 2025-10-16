@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
@@ -18,7 +17,6 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	resultTimeout   = 60 * time.Second
 	resultChunkSize = 10 * 1024 * 1024 // 10MB chunks for results
 	channelPoolSize = 10               // Number of channels in the pool
 )
@@ -44,19 +42,17 @@ type RequestHandlerConfig struct {
 
 // RequestHandler handles incoming client connections and manages message flow
 type RequestHandler struct {
-	Config             RequestHandlerConfig
-	listener           net.Listener
-	shutdown           chan struct{}
-	Connection         *amqp.Connection
-	currentWorkerQueue int
+	Config     RequestHandlerConfig
+	listener   net.Listener
+	shutdown   chan struct{}
+	Connection *amqp.Connection
 }
 
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 	return &RequestHandler{
-		Config:             config,
-		shutdown:           make(chan struct{}),
-		currentWorkerQueue: 1,
+		Config:   config,
+		shutdown: make(chan struct{}),
 	}
 }
 

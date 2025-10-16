@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
@@ -34,6 +35,11 @@ type ResultMessage struct {
 	Value string
 }
 
+type clientState struct {
+	results   map[int][]string
+	eofCounts map[int]int
+}
+
 func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 	return &ResponseBuilder{
 		Config:      config,
@@ -43,110 +49,176 @@ func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 	}
 }
 
-func (m *ResponseBuilder) Start() error {
+func (rb *ResponseBuilder) Start() error {
 	log.Info("Starting response builder")
-	rabbit_conn, _ := amqp.Dial(m.Config.MiddlewareUrl)
-	channel, _ := rabbit_conn.Channel()
-	outChan := make(chan ResultMessage)
+
+	// Establish RabbitMQ connection with error handling
+	conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
+	if err != nil {
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+	defer conn.Close()
+
+	channel, err := conn.Channel()
+	if err != nil {
+		return fmt.Errorf("failed to open channel: %w", err)
+	}
+	defer channel.Close()
+
+	// Set up client state management
+	clients := &sync.Map{} // map[string]*clientState
+	outChan := make(chan ResultMessage, 100)
+	errChan := make(chan error, 4)
+
 	for resultID := 1; resultID <= 4; resultID++ {
-		log.Infof("Listening on queue results_%d", resultID)
-		doneChan := make(chan error)
-		resultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("results_%d_1", resultID), channel)
-		resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan, resultID))
+		queueName := fmt.Sprintf("results_%d_1", resultID)
+		log.Infof("Listening on queue %s", queueName)
+
+		go func(id int, qName string) {
+			if err := rb.consumeResults(channel, qName, id, outChan, errChan); err != nil {
+				log.Errorf("Consumer for queue %s failed: %v", qName, err)
+			}
+		}(resultID, queueName)
 	}
 
-	clientFinalResult := make(map[string]map[int][]string)
-	clientTotalEOFsPerQuery := make(map[string]map[int]int)
+	// Main processing loop
 	for {
 		select {
+		case <-rb.shutdown:
+			log.Info("Shutdown signal received")
+			return nil
+
+		case err := <-errChan:
+			log.Errorf("Consumer error: %v", err)
+			// Continue processing, individual consumers handle their own errors
+
 		case msg := <-outChan:
-			lines := strings.SplitN(msg.Value, "\n", 2)
-			clientId := lines[0]
-			message := lines[1]
-			log.Infof("Result received from query %d for client %s", msg.ID, clientId)
-			if strings.Contains(message, "EOF") {
-				log.Infof("EOF received from client %s", clientId)
-
-				var expectedEof int
-				switch msg.ID {
-				case 1:
-					expectedEof = m.Config.WorkerResultsOneCount
-				case 2:
-					expectedEof = m.Config.WorkerResultsTwoCount
-				case 3:
-					expectedEof = m.Config.WorkerResultsThreeCount
-				case 4:
-					expectedEof = m.Config.WorkerResultsFourCount
-				}
-
-				if _, ok := clientTotalEOFsPerQuery[clientId]; ok {
-					if _, ok := clientTotalEOFsPerQuery[clientId][msg.ID]; ok {
-						clientTotalEOFsPerQuery[clientId][msg.ID]++
-					} else {
-						clientTotalEOFsPerQuery[clientId][msg.ID] = 1
-					}
-				} else {
-					clientTotalEOFsPerQuery[clientId] = make(map[int]int)
-					clientTotalEOFsPerQuery[clientId][msg.ID] = 1
-				}
-
-				totalEOFsInQuery := clientTotalEOFsPerQuery[clientId][msg.ID]
-				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsInQuery, expectedEof)
-				if totalEOFsInQuery == expectedEof {
-					log.Infof("Total EOFs received from client %s, sending query %d result", clientId, msg.ID)
-					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%s_%d", clientId, msg.ID), channel)
-					finalResultsExchange.Send([]byte(strings.Join(clientFinalResult[clientId][msg.ID], "\n")))
-
-					// Clear the accumulated results and EOF count for this query
-					clientFinalResult[clientId][msg.ID] = nil
-					clientTotalEOFsPerQuery[clientId][msg.ID] = 0
-				}
-				continue
-			}
-
-			if _, ok := clientFinalResult[clientId]; ok {
-				if _, ok := clientFinalResult[clientId][msg.ID]; ok {
-					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], message)
-				} else {
-					clientFinalResult[clientId][msg.ID] = []string{message}
-				}
-			} else {
-				clientFinalResult[clientId] = make(map[int][]string)
-				clientFinalResult[clientId][msg.ID] = []string{message}
+			if err := rb.processResult(msg, clients, channel); err != nil {
+				log.Errorf("Failed to process result: %v", err)
 			}
 		}
 	}
 }
 
-// createResultsCallback creates a callback function for consuming results
-func createResultsCallback(resultChan chan ResultMessage, doneChan chan error, resultID int) func(middleware.ConsumeChannel, chan error) {
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Info("Results consumer started")
+func (m *ResponseBuilder) consumeResults(
+	channel *amqp.Channel,
+	queueName string,
+	resultID int,
+	outChan chan ResultMessage,
+	errChan chan error,
+) error {
+	resultsQueue := middleware.NewMessageMiddlewareQueue(queueName, channel)
 
-		for {
+	doneChan := make(chan error, 1)
+	consumeChan := make(chan middleware.ConsumeChannel, 1)
+
+	// Start consuming in separate goroutine
+	go resultsQueue.StartConsuming(func(ch middleware.ConsumeChannel, done chan error) {
+		consumeChan <- ch
+		<-done // Block until done
+	})
+
+	// Wait for consume channel
+	var msgChan middleware.ConsumeChannel
+	select {
+	case msgChan = <-consumeChan:
+	}
+
+	log.Infof("Results consumer started for queue %s", queueName)
+
+	for {
+		select {
+		case msg, ok := <-*msgChan:
+			if !ok {
+				err := fmt.Errorf("consume channel closed for queue %s", queueName)
+				errChan <- err
+				return err
+			}
+
 			select {
-			case msg, ok := <-*consumeChannel:
-				if !ok {
-					log.Info("Consume channel closed")
-					doneChan <- fmt.Errorf("channel closed unexpectedly")
-					return
-				}
+			case outChan <- ResultMessage{
+				Value: string(msg.Body),
+				ID:    resultID,
+			}:
 
-				if err := msg.Ack(false); err != nil {
-					log.Errorf("Failed to acknowledge message: %v", err)
-					doneChan <- fmt.Errorf("failed to ack message: %w", err)
-					return
-				}
-
-				resultChan <- ResultMessage{
-					Value: string(msg.Body),
-					ID:    resultID,
-				}
-
-			case err := <-done:
-				log.Errorf("Consumer error: %v", err)
-				doneChan <- err
+			case err := <-doneChan:
+				errChan <- fmt.Errorf("consumer %s done with error: %w", queueName, err)
+				return err
 			}
 		}
 	}
+}
+
+func (rb *ResponseBuilder) processResult(msg ResultMessage, clients *sync.Map, channel *amqp.Channel) error {
+	// Parse message
+	lines := strings.SplitN(msg.Value, "\n", 2)
+	if len(lines) < 2 {
+		return fmt.Errorf("invalid message format: expected clientId\\nmessage")
+	}
+
+	clientId := lines[0]
+	message := lines[1]
+
+	// Get or create client state
+	stateInterface, _ := clients.LoadOrStore(clientId, &clientState{
+		results:   make(map[int][]string),
+		eofCounts: make(map[int]int),
+	})
+	state := stateInterface.(*clientState)
+
+	// Handle EOF messages
+	if strings.Contains(message, "EOF") {
+		log.Infof("EOF received from client %s for query %d", clientId, msg.ID)
+
+		expectedEof := rb.getExpectedEofCount(msg.ID)
+		state.eofCounts[msg.ID]++
+		totalEOFs := state.eofCounts[msg.ID]
+
+		log.Infof("Client %s query %d: %d/%d EOFs received", clientId, msg.ID, totalEOFs, expectedEof)
+
+		if totalEOFs == expectedEof {
+			log.Infof("All EOFs received for client %s query %d, sending final result", clientId, msg.ID)
+
+			// Send final results
+			finalQueueName := fmt.Sprintf("final_results_%s_%d", clientId, msg.ID)
+			finalResultsQueue := middleware.NewMessageMiddlewareQueue(finalQueueName, channel)
+
+			finalResult := strings.Join(state.results[msg.ID], "\n")
+			finalResultsQueue.Send([]byte(finalResult))
+
+			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
+		} else if totalEOFs > expectedEof {
+			log.Warningf("Received more EOFs than expected for client %s query %d: %d > %d",
+				clientId, msg.ID, totalEOFs, expectedEof)
+		}
+
+		return nil
+	}
+
+	// Accumulate regular messages
+	log.Debugf("Result received from query %d for client %s", msg.ID, clientId)
+	state.results[msg.ID] = append(state.results[msg.ID], message)
+
+	return nil
+}
+
+func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
+	switch queryID {
+	case 1:
+		return rb.Config.WorkerResultsOneCount
+	case 2:
+		return rb.Config.WorkerResultsTwoCount
+	case 3:
+		return rb.Config.WorkerResultsThreeCount
+	case 4:
+		return rb.Config.WorkerResultsFourCount
+	default:
+		log.Warningf("Unknown query ID: %d, defaulting to 1 EOF", queryID)
+		return 1
+	}
+}
+
+func (rb *ResponseBuilder) Shutdown() {
+	log.Info("Initiating shutdown")
+	close(rb.shutdown)
 }

@@ -347,7 +347,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
+      - WORKER_MIDDLEWARE_RECEIVERS=6
       - WORKER_ID=1
 
   grouper_by_semester_worker2:
@@ -365,7 +365,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
+      - WORKER_MIDDLEWARE_RECEIVERS=6
       - WORKER_ID=2
 
   aggregator_semester_worker1:
@@ -386,6 +386,96 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=3
       - WORKER_ID=1
 
+  aggregator_semester_worker2:
+    container_name: aggregator_semester_worker2
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+        - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=3
+      - WORKER_ID=2
+
+  aggregator_semester_worker3:
+    container_name: aggregator_semester_worker3
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+        - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=3
+      - WORKER_ID=3
+
+  aggregator_semester_worker4:
+    container_name: aggregator_semester_worker4
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+        - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=3
+      - WORKER_ID=4
+
+  aggregator_semester_worker5:
+    container_name: aggregator_semester_worker5
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+        - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=3
+      - WORKER_ID=5
+
+  aggregator_semester_worker6:
+    container_name: aggregator_semester_worker6
+    image: worker:latest
+    entrypoint: /worker
+    volumes:
+      - ./worker/config.yaml:/config.yaml
+    networks:
+      - testing_net
+    depends_on:
+        - rabbit
+    environment:
+      - WORKER_JOB=AGGREGATOR_SEMESTER
+      - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
+      - WORKER_MIDDLEWARE_SENDERS=2
+      - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
+      - WORKER_MIDDLEWARE_RECEIVERS=3
+      - WORKER_ID=6
+
   joiner_by_store_id1:
     container_name: joiner_by_store_id1
     image: worker:latest
@@ -399,7 +489,7 @@ services:
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
-      - WORKER_MIDDLEWARE_SENDERS=1,1
+      - WORKER_MIDDLEWARE_SENDERS=6,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
@@ -417,7 +507,7 @@ services:
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
-      - WORKER_MIDDLEWARE_SENDERS=1,1
+      - WORKER_MIDDLEWARE_SENDERS=6,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
@@ -435,7 +525,7 @@ services:
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
-      - WORKER_MIDDLEWARE_SENDERS=1,1
+      - WORKER_MIDDLEWARE_SENDERS=6,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=3

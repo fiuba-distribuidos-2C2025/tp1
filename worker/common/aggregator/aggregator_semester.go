@@ -39,6 +39,33 @@ func parseSemesterStoreData(transaction string) (string, grouper.SemesterStats) 
 	return key, stats
 }
 
+// Convert accumulator map to batches of at most 10mb strings for output
+func getSemesterAccumulatorBatches(accumulator map[string]grouper.SemesterStats) []string {
+	var batches []string
+	var currentBatch strings.Builder
+	currentSize := 0
+	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	for key, stats := range accumulator {
+		line := key + "," + stats.Year + "," + stats.YearHalf + "," + stats.StoreId + "," + strconv.FormatFloat(stats.Tpv, 'f', 2, 64) + "\n"
+		lineSize := len(line)
+
+		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
+			batches = append(batches, currentBatch.String())
+			currentBatch.Reset()
+			currentSize = 0
+		}
+
+		currentBatch.WriteString(line)
+		currentSize += lineSize
+	}
+	if currentSize > 0 {
+		batches = append(batches, currentBatch.String())
+	}
+
+	return batches
+}
+
 func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	clientEofCount := map[string]int{}
 	accumulator := make(map[string]map[string]grouper.SemesterStats)
@@ -81,7 +108,7 @@ func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						batches := grouper.GetSemesterAccumulatorBatches(accumulator[clientID])
+						batches := getSemesterAccumulatorBatches(accumulator[clientID])
 						for _, batch := range batches {
 							if batch != "" {
 								outChan <- clientID + "\n" + batch

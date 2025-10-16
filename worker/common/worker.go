@@ -112,6 +112,11 @@ func (w *Worker) Start() error {
 		return w.broadcastMessages(inQueueResponseChan, outputQueues)
 	}
 
+	if shouldDistributeBetweenAggregators(w.config.WorkerJob) {
+		log.Infof("Worker job %s requires distribution between aggregators", w.config.WorkerJob)
+		return w.distributeBetweenAggregators(inQueueResponseChan, outputQueues)
+	}
+
 	idx := 0
 	for {
 		select {
@@ -284,12 +289,12 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		log.Info("Starting JOINER_BY_USER_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	case "JOINER_BY_USER_STORE":
-		log.Info("Starting JOINER_BY_USER_STORE worker...")
+		log.Info("starting JOINER_BY_USER_STORE worker...")
 		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 
 	default:
 		log.Error("Unknown worker job")
-		return errors.New("Unknown worker job")
+		return errors.New("unknown worker job")
 	}
 
 	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
@@ -307,12 +312,12 @@ func shouldBroadcast(workerJob string) bool {
 
 func shouldDistributeBetweenAggregators(workerJob string) bool {
 	switch workerJob {
-	case "GROUPER_BY_YEAR_MONTH":
-		return true
+	// case "GROUPER_BY_YEAR_MONTH":
+	// 	return true
 	case "GROUPER_BY_SEMESTER":
 		return true
-	case "GROUPER_BY_STORE_USER":
-		return true
+	// case "GROUPER_BY_STORE_USER":
+	// 	return true
 	default:
 		return false
 	}
@@ -388,9 +393,6 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 					return fmt.Errorf("invalid OutputReceivers[%d]=%q: %w", i, w.config.OutputReceivers[i], err)
 				}
 				aggregatorIdx := chooseAggregatorIdx(key, outputWorkerCount)
-				if err != nil {
-					return err
-				}
 
 				msg_truncated := msg
 				if len(msg_truncated) > 200 {

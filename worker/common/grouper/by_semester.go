@@ -60,7 +60,7 @@ func parseTransactionData(transaction string) (string, SemesterStats) {
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func GetSemesterAccumulatorBatches(accumulator map[string]SemesterStats) ([]string, []string) {
+func getSemesterAccumulatorBatches(accumulator map[string]SemesterStats) ([]string, []string) {
 	const maxBatchSizeBytes = 10 * 1024 * 1024 // 10 MB
 
 	var semesterKeys []string
@@ -151,7 +151,7 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						semesterKeys, batches := GetSemesterAccumulatorBatches(accumulator[clientID])
+						semesterKeys, batches := getSemesterAccumulatorBatches(accumulator[clientID])
 						for i, batch := range batches {
 							if batch != "" {
 								outChan <- clientID + "\n" + semesterKeys[i] + batch

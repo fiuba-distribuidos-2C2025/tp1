@@ -59,9 +59,6 @@ middleware_tests:
 generar-compose:
 	./generar-compose.sh docker-compose-dev.yaml setup.dev
 
-generar-compose-multiclient-test:
-	./generar-compose.sh docker-compose-multiclient-test.yaml setup.test
-
 compare_reduced_results:
 	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/reduced
 
@@ -85,4 +82,9 @@ download_multiclient_dataset:
 
 run_multiclient_test: docker-image
 	docker compose -f docker-compose-multiclient-test.yaml up -d --build
+
+stop_multiclient_test:
+	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
+	docker compose -f  docker-compose-multiclient-test.yaml down -v
+
 .PHONY: run_multiclient_test

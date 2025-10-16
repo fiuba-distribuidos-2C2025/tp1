@@ -44,13 +44,13 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					return
 				}
 				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
+				lines := strings.SplitN(payload, "\n", 2)
 
 				// Separate header and the rest
 				clientID := lines[0]
-				items := lines[1:]
+				items := lines[1]
 
-				if items[0] == "EOF" {
+				if items == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1
 					} else {
@@ -64,11 +64,10 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					}
 				}
 
-				// TODO: SPLITTING AND THEN JOINING BY SAME SEPARATOR
-				// NOT GOOD.
-				outMsg := clientID + "\n" + strings.Join(items, "\n")
-				log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", outMsg)
-				outChan <- outMsg
+				if items != "" {
+					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
+					outChan <- clientID + "\n" + items
+				}
 			}
 		}
 	}

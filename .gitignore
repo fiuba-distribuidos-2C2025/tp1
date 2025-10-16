@@ -34,7 +34,7 @@ go.work.sum
 bin/**
 
 # CSV files
-data/**
+**.csv
 
 # MacOS
 .DS_Store

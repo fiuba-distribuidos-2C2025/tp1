@@ -207,15 +207,17 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 			return
 
 		case msg := <-inQueueResponseChan:
-			lines := strings.Split(msg, "\n")
+			lines := strings.SplitN(msg, "\n", 2)
 			clientId := lines[0]
 
 			if strings.Contains(msg, "EOF") {
 				secondaryQueueMessagesChan <- clientId + "\n" + clientMessages[clientId]
+				// Clear stored messages for client
+				delete(clientMessages, clientId)
+				continue
 			}
 
-			// TODO: SPLITTING AND THEN JOINING, NOT GOOD
-			items := strings.Join(lines[1:], "\n")
+			items := lines[1]
 			if _, ok := clientMessages[clientId]; !ok {
 				clientMessages[clientId] = items
 			} else {
@@ -271,8 +273,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
-		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
-		// inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
+		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	// ==============================================================================
 	// Fourth Query
 	// ==============================================================================
@@ -284,12 +285,10 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
-		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
-		// inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
+		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	case "JOINER_BY_USER_STORE":
 		log.Info("Starting JOINER_BY_USER_STORE worker...")
-		log.Errorf("DISABLED! FIX SECONDARY CHANNEL CONSUMPTION!")
-		// inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
+		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 
 	default:
 		log.Error("Unknown worker job")

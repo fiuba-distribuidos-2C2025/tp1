@@ -66,8 +66,8 @@ func getUserAccumulatorBatches(accumulator map[string]UserStats) []string {
 }
 
 func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	accumulator := make(map[string]UserStats)
+	clientEofCount := map[string]int{}
+	accumulator := make(map[string]map[string]UserStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -84,38 +84,56 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
 
-				if body == "EOF" {
-					eofCount++
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := accumulator[clientID]; !exists {
+					accumulator[clientID] = make(map[string]UserStats)
+				}
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := getUserAccumulatorBatches(accumulator)
+						batches := getUserAccumulatorBatches(accumulator[clientID])
 						for _, batch := range batches {
-							outChan <- batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 
 						// clear accumulator memory
-						accumulator = nil
+						accumulator[clientID] = nil
 					}
 					continue
 				}
 
-				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 					store_user_key, user_stats := parseTransactionUserData(transaction)
 					if store_user_key == "" {
 						// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
 						continue
 					}
-
-					if _, ok := accumulator[store_user_key]; !ok {
-						accumulator[store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
+					if _, ok := accumulator[clientID][store_user_key]; !ok {
+						accumulator[clientID][store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
 					}
-					userStats := accumulator[store_user_key]
+					userStats := accumulator[clientID][store_user_key]
 					userStats.PurchasesQty += 1
-					accumulator[store_user_key] = userStats
+					accumulator[clientID][store_user_key] = userStats
 				}
 			}
 		}

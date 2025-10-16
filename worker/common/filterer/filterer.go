@@ -56,7 +56,6 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 				}
 
 				outBuilder.Reset()
-				outBuilder.WriteString(clientID + "\n")
 				for _, transaction := range transactions {
 					if filtered, ok := filterFunc(transaction); ok {
 						outBuilder.WriteString(filtered + "\n")
@@ -64,31 +63,10 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
+					outChan <- clientID + "\n" + outBuilder.String()
 					log.Infof("Processed message")
 				}
 			}
 		}
 	}
-}
-
-// Splits a message into an array of strings
-// using the newline separator.
-func splitBatchInRows(body string) []string {
-	return strings.Split(body, "\n")
-}
-
-// Removes unnecessary fields from a csv string
-// keeping only the specified indices.
-func removeNeedlessFields(row string, indices []int) string {
-	elements := strings.Split(row, ",")
-	needed := make([]string, 0, len(indices))
-
-	for _, idx := range indices {
-		if idx >= 0 && idx < len(elements) {
-			needed = append(needed, elements[idx])
-		}
-	}
-
-	return strings.Join(needed, ",")
 }

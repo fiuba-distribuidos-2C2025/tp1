@@ -120,7 +120,9 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 					if eofCount >= neededEof {
 						batches := get_accumulator_batches(accumulator[clientID])
 						for _, batch := range batches {
-							outChan <- clientID + batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
 						msg := clientID + "\nEOF"
 						outChan <- msg
@@ -134,7 +136,6 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 				for _, transaction := range transactions {
 					item_id, item_tx_stat := parseTransactionItemData(transaction)
 					if _, ok := accumulator[clientID][item_id]; !ok {
-						// TODO: ACCUMULATOR MUST BE CLIENT SPECIFIC
 						accumulator[clientID][item_id] = ItemStats{quantity: 0, subtotal: 0, date: item_tx_stat.date, id: item_tx_stat.id}
 					}
 					txStat := accumulator[clientID][item_id]

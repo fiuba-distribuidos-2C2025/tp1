@@ -436,7 +436,7 @@ func (c *Client) readResults() error {
 
 func (c *Client) processResult(queueID int32, data []byte) {
 	// Use /results directory (mounted volume)
-	resultsDir := "/results"
+	resultsDir := fmt.Sprintf("/results/client_%s", c.config.ID)
 
 	// Create directory if it doesn't exist (though volume should exist)
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {

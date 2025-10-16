@@ -1,6 +1,8 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
+CLIENT?=1
+
 default: build
 
 all:
@@ -54,17 +56,35 @@ middleware_tests:
 	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
 
-default-compose:
+generar-compose:
 	./generar-compose.sh docker-compose-dev.yaml setup.dev
 
 compare_reduced_results:
-	python3 scripts/compare_results.py ./results ./expected_results/reduced
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/reduced
 
 compare_full_results:
-	python3 scripts/compare_results.py ./results ./expected_results/full
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/full
+
+compare_results_multiclient_1:
+	python3 scripts/compare_results.py ./results/client_1 ./expected_results/multiclient_1
+
+compare_results_multiclient_2:
+	python3 scripts/compare_results.py ./results/client_2 ./expected_results/multiclient_2
 
 download_reduced_dataset:
-	./scripts/load_dataset.sh 1
+	./scripts/load_dataset.sh 1 0
 
 download_full_dataset:
-	./scripts/load_dataset.sh 0
+	./scripts/load_dataset.sh 0 0
+
+download_multiclient_dataset:
+	./scripts/load_dataset.sh 0 1
+
+run_multiclient_test: docker-image
+	docker compose -f docker-compose-multiclient-test.yaml up -d --build
+
+stop_multiclient_test:
+	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
+	docker compose -f  docker-compose-multiclient-test.yaml down -v
+
+.PHONY: run_multiclient_test

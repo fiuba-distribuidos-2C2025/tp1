@@ -60,30 +60,54 @@ func parseTransactionData(transaction string) (string, SemesterStats) {
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func GetSemesterAccumulatorBatches(accumulator map[string]SemesterStats) []string {
+func GetSemesterAccumulatorBatches(accumulator map[string]SemesterStats) ([]string, []string) {
+	const maxBatchSizeBytes = 10 * 1024 * 1024 // 10 MB
+
+	var semesterKeys []string
 	var batches []string
-	var currentBatch strings.Builder
-	currentSize := 0
-	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	// Track partial batches and sizes per semester
+	semesterBuilders := make(map[string]*strings.Builder)
+	semesterSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.Year + "," + stats.YearHalf + "," + stats.StoreId + "," + strconv.FormatFloat(stats.Tpv, 'f', 2, 64) + "\n"
-		lineSize := len(line)
+		semesterKey := stats.Year + "-" + stats.YearHalf // grouping key ONLY
 
-		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
-			batches = append(batches, currentBatch.String())
-			currentBatch.Reset()
+		// Prepare line to write
+		line := key + "," + stats.Year + "," + stats.YearHalf + "," +
+			stats.StoreId + "," + strconv.FormatFloat(stats.Tpv, 'f', 2, 64) + "\n"
+		lineSizeBytes := len(line)
+
+		// Initialize structures if this semester hasn't been seen yet
+		if _, exists := semesterBuilders[semesterKey]; !exists {
+			semesterBuilders[semesterKey] = &strings.Builder{}
+			semesterSizes[semesterKey] = 0
+		}
+
+		builder := semesterBuilders[semesterKey]
+		currentSize := semesterSizes[semesterKey]
+
+		// Flush this semester's batch if adding this line would exceed max size
+		if currentSize+lineSizeBytes > maxBatchSizeBytes && currentSize > 0 {
+			semesterKeys = append(semesterKeys, semesterKey)
+			batches = append(batches, builder.String())
+			builder.Reset()
 			currentSize = 0
 		}
 
-		currentBatch.WriteString(line)
-		currentSize += lineSize
-	}
-	if currentSize > 0 {
-		batches = append(batches, currentBatch.String())
+		builder.WriteString(line)
+		semesterSizes[semesterKey] = currentSize + lineSizeBytes
 	}
 
-	return batches
+	// Flush remaining non-empty semester batches
+	for semesterKey, builder := range semesterBuilders {
+		if semesterSizes[semesterKey] > 0 {
+			semesterKeys = append(semesterKeys, semesterKey)
+			batches = append(batches, builder.String())
+		}
+	}
+
+	return semesterKeys, batches
 }
 
 func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -127,10 +151,10 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := GetSemesterAccumulatorBatches(accumulator[clientID])
-						for _, batch := range batches {
+						semesterKeys, batches := GetSemesterAccumulatorBatches(accumulator[clientID])
+						for i, batch := range batches {
 							if batch != "" {
-								outChan <- clientID + "\n" + batch
+								outChan <- clientID + "\n" + semesterKeys[i] + batch
 							}
 						}
 						msg := clientID + "\nEOF"

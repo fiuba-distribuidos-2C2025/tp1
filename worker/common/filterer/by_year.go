@@ -7,7 +7,7 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
-var transactionFieldIndices = []int{0, 1, 4, 7, 8}
+var byYearFieldIndices = []int{0, 1, 4, 7, 8}
 var minYearAllowed = 2024
 var maxYearAllowed = 2025
 
@@ -55,47 +55,8 @@ func filterAndExtractFields(transaction string, minYear int, maxYear int, indice
 // Output format of each row (batched when processed):
 // transaction_id,store_id,user_id,final_amount,created_at
 func CreateByYearFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		// Reusable buffer for building output
-		var outBuilder strings.Builder
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				log.Info("PROCESSING MESSAGE")
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-
-				body := strings.TrimSpace(string(msg.Body))
-				if body == "EOF" {
-					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						outChan <- "EOF"
-					}
-					continue
-				}
-				outBuilder.Reset()
-
-				transactions := splitBatchInRows(body)
-				for _, transaction := range transactions {
-					if filtered, ok := filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, transactionFieldIndices); ok {
-						outBuilder.WriteString(filtered)
-						outBuilder.WriteByte('\n')
-					}
-				}
-
-				if outBuilder.Len() > 0 {
-					log.Info("MESSAGE OUT")
-					outChan <- outBuilder.String()
-				}
-			}
-		}
+	filterFunc := func(transaction string) (string, bool) {
+		return filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, byYearFieldIndices)
 	}
+	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
 }

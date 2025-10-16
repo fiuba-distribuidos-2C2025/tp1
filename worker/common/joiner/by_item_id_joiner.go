@@ -40,10 +40,9 @@ func concatWithMenuItemsData(transaction string, menuItemsData map[string]string
 // example menu items data input
 // item_id,item_name,category,price,is_seasonal,available_from,available_to
 // 2,Americano,coffee,7.0,False,,
-func processMenuItems(menuItemRows string) map[string]string {
+func processMenuItems(menuItemLines []string) map[string]string {
 	// Preprocess menu items data into a map for quick lookup
 	menuItemsData := make(map[string]string)
-	menuItemLines := splitBatchInRows(menuItemRows)
 	for _, line := range menuItemLines {
 		fields := strings.Split(line, ",")
 		if len(fields) < 6 {
@@ -56,9 +55,9 @@ func processMenuItems(menuItemRows string) map[string]string {
 	return menuItemsData
 }
 
-func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRows string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	processedMenuItems := processMenuItems(menuItemRows)
+func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRowsChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	clientEofCount := map[string]int{}
+	processedMenuItems := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -67,35 +66,81 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := processedMenuItems[clientID]; !exists {
+					processedMenuItems[clientID] = make(map[string]string)
+				}
+
+				// Ensure we have menu items for this client.
+				// This will block until the expected clientID arrives.
+				for len(processedMenuItems[clientID]) == 0 {
+					secondaryQueueNewMessage, ok := <-menuItemRowsChan
+					if !ok {
+						log.Errorf("menuItemRowsChan closed while waiting for client %s", clientID)
+						return
+					}
+
+					log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
+					payload := strings.TrimSpace(secondaryQueueNewMessage)
+					rows := strings.Split(payload, "\n")
+					if len(rows) < 2 {
+						log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
+						continue
+					}
+
+					secondaryQueueClientID := rows[0]
+					menuItemRows := rows[1:]
+					processedMenu := processMenuItems(menuItemRows)
+					processedMenuItems[secondaryQueueClientID] = processedMenu
+
+					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
+				}
+
+				// Ack message only if we have secondary queue data to handle it
+				msg.Ack(false)
+
+				items := lines[1:]
+				if items[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
+					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
+						// clear accumulator memory
+						delete(clientEofCount, clientID)
+						delete(processedMenuItems, clientID)
 					}
 					continue
 				}
 
 				// Reset builder for reuse
-				items := splitBatchInRows(body)
 				outBuilder.Reset()
 
 				for _, transaction := range items {
-					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems); ok {
+					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems[clientID]); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')
 					}
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
+					outChan <- clientID + "\n" + outBuilder.String()
 					log.Infof("Processed message")
 				}
 			}

@@ -14,20 +14,6 @@ source "$CONFIG_FILE"
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
-  client:
-    container_name: client
-    image: client:latest
-    entrypoint: /client
-    volumes:
-      - ./client:/config
-      - ./data:/data
-      - ./results:/results
-    depends_on:
-      - rabbit
-      - request_handler
-    networks:
-      - testing_net
-
   rabbit:
     container_name: rabbit
     image: rabbitmq:3-management
@@ -41,10 +27,10 @@ services:
         RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
         test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
-        start_period: 5s
+        interval: 1s
+        timeout: 1s
+        retries: 25
+        start_period: 500ms
 
   request_handler:
     container_name: request_handler
@@ -83,6 +69,27 @@ services:
       - testing_net
 
 EOL
+
+for ((i=1; i<=CLIENT_COUNT; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  client$i:
+    container_name: client$i
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
+    depends_on:
+        - rabbit
+        - request_handler
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=$i
+
+EOL
+done
 
 cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
@@ -290,9 +297,10 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_SEMESTER; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
-  aggregator_semester_worker1:
-    container_name: aggregator_semester_worker1
+  aggregator_semester_worker$i:
+    container_name: aggregator_semester_worker$i
     image: worker:latest
     entrypoint: /worker
     volumes:
@@ -307,9 +315,10 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - WORKER_ID=1
+      - WORKER_ID=$i
 
 EOL
+done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL

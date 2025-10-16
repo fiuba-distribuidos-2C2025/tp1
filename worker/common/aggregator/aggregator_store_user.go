@@ -96,8 +96,8 @@ func getUserAccumulatorBatches(maxQuantityItems map[string][]grouper.UserStats) 
 }
 
 func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	accumulator := make(map[string]grouper.UserStats)
+	clientEofCount := map[string]int{}
+	accumulator := make(map[string]map[string]grouper.UserStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -114,27 +114,45 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
 
-				if body == "EOF" {
-					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := accumulator[clientID]; !exists {
+					accumulator[clientID] = make(map[string]grouper.UserStats)
+				}
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
+					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						top3Users := getTop3Users(accumulator)
-
+						top3Users := getTop3Users(accumulator[clientID])
 						batches := getUserAccumulatorBatches(top3Users)
+
 						for _, batch := range batches {
-							outChan <- batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 
 						// clear accumulator memory
-						accumulator = nil
+						accumulator[clientID] = nil
 					}
 					continue
 				}
 
-				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 
 					store_user_key, sub_user_stats := parseStoreUserData(transaction)
@@ -143,12 +161,12 @@ func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEo
 						continue
 					}
 
-					if _, ok := accumulator[store_user_key]; !ok {
-						accumulator[store_user_key] = grouper.UserStats{UserId: sub_user_stats.UserId, StoreId: sub_user_stats.StoreId, PurchasesQty: 0}
+					if _, ok := accumulator[clientID][store_user_key]; !ok {
+						accumulator[clientID][store_user_key] = grouper.UserStats{UserId: sub_user_stats.UserId, StoreId: sub_user_stats.StoreId, PurchasesQty: 0}
 					}
-					userStats := accumulator[store_user_key]
+					userStats := accumulator[clientID][store_user_key]
 					userStats.PurchasesQty += sub_user_stats.PurchasesQty
-					accumulator[store_user_key] = userStats
+					accumulator[clientID][store_user_key] = userStats
 				}
 			}
 		}

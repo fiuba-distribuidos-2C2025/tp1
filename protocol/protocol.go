@@ -57,6 +57,7 @@ const (
 
 // BatchMessage represents a data batch being transferred
 type BatchMessage struct {
+	ClientID     uint16
 	FileType     FileType
 	CurrentChunk int32
 	TotalChunks  int32
@@ -136,16 +137,17 @@ func (p *Protocol) SendBatch(msg *BatchMessage) error {
 	// Write message type
 	buf.WriteByte(byte(MessageTypeBatch))
 
-	// Calculate frame size: fileType(1) + currentChunk(4) + totalChunks(4) + rowCount(4) + payload
-	frameSize := 1 + 4 + 4 + 4 + len(payloadBytes)
+	// Calculate frame size: clientID(2) + fileType(1) + currentChunk(4) + totalChunks(4) + rowCount(4) + payload
+	frameSize := 2 + 1 + 4 + 4 + 4 + len(payloadBytes)
 
-	// Write frame header (17 bytes)
-	header := make([]byte, 17)
-	binary.BigEndian.PutUint32(header[0:4], uint32(frameSize))
-	header[4] = byte(msg.FileType)
-	binary.BigEndian.PutUint32(header[5:9], uint32(msg.CurrentChunk))
-	binary.BigEndian.PutUint32(header[9:13], uint32(msg.TotalChunks))
-	binary.BigEndian.PutUint32(header[13:17], uint32(len(msg.CSVRows)))
+	// Write frame header (19 bytes)
+	header := make([]byte, 19)
+	binary.BigEndian.PutUint16(header[0:2], uint16(msg.ClientID))
+	binary.BigEndian.PutUint32(header[2:6], uint32(frameSize))
+	header[6] = byte(msg.FileType)
+	binary.BigEndian.PutUint32(header[7:11], uint32(msg.CurrentChunk))
+	binary.BigEndian.PutUint32(header[11:15], uint32(msg.TotalChunks))
+	binary.BigEndian.PutUint32(header[15:19], uint32(len(msg.CSVRows)))
 	buf.Write(header)
 
 	// Write payload
@@ -157,30 +159,31 @@ func (p *Protocol) SendBatch(msg *BatchMessage) error {
 
 // ReceiveBatch receives a batch message with short-read protection
 func (p *Protocol) ReceiveBatch() (*BatchMessage, error) {
-	// Read frame header (17 bytes) - io.ReadFull handles short reads from bufio.Reader
-	header := make([]byte, 17)
+	// Read frame header (19 bytes) - io.ReadFull handles short reads from bufio.Reader
+	header := make([]byte, 19)
 	if _, err := io.ReadFull(p.reader, header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
-	frameSize := binary.BigEndian.Uint32(header[0:4])
-	fileType := FileType(header[4])
-	currentChunk := int32(binary.BigEndian.Uint32(header[5:9]))
-	totalChunks := int32(binary.BigEndian.Uint32(header[9:13]))
-	rowCount := binary.BigEndian.Uint32(header[13:17])
+	clientID := uint16(binary.BigEndian.Uint16(header[0:2]))
+	frameSize := binary.BigEndian.Uint32(header[2:6])
+	fileType := FileType(header[6])
+	currentChunk := int32(binary.BigEndian.Uint32(header[7:11]))
+	totalChunks := int32(binary.BigEndian.Uint32(header[11:15]))
+	rowCount := binary.BigEndian.Uint32(header[15:19])
 
 	if !fileType.IsValid() {
 		return nil, fmt.Errorf("invalid file type: %d", fileType)
 	}
 
 	// Validate frame size
-	expectedMinSize := 1 + 4 + 4 + 4
+	expectedMinSize := 2 + 1 + 4 + 4 + 4
 	if frameSize < uint32(expectedMinSize) {
 		return nil, fmt.Errorf("invalid frame size: %d (expected at least %d)", frameSize, expectedMinSize)
 	}
 
 	// Calculate and read payload - io.ReadFull handles short reads
-	payloadSize := frameSize - (1 + 4 + 4 + 4)
+	payloadSize := frameSize - (2 + 1 + 4 + 4 + 4)
 	payload := make([]byte, payloadSize)
 	if payloadSize > 0 {
 		if _, err := io.ReadFull(p.reader, payload); err != nil {
@@ -202,6 +205,7 @@ func (p *Protocol) ReceiveBatch() (*BatchMessage, error) {
 	}
 
 	return &BatchMessage{
+		ClientID:     clientID,
 		FileType:     fileType,
 		CurrentChunk: currentChunk,
 		TotalChunks:  totalChunks,

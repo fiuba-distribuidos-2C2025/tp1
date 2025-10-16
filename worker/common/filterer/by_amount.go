@@ -7,6 +7,9 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
+var byAmountFieldIndices = []int{0, 3}
+var targetAmount = float64(75)
+
 // Validates if a transaction final amount is greater than the target amount.
 // Sample transaction received:
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,4,5,100,2023-07-01 07:00:00
@@ -46,48 +49,8 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64, ind
 // Output format of each row (batched when processed):
 // transaction_id,final_amount
 func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		var outBuilder strings.Builder
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				body := strings.TrimSpace(string(msg.Body))
-
-				if body == "EOF" {
-					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						outChan <- "EOF"
-					}
-					continue
-				}
-
-				// Reset builder for reuse
-				transactions := splitBatchInRows(body)
-				outBuilder.Reset()
-
-				for _, transaction := range transactions {
-					if filtered, ok := transactionGreaterFinalAmount(transaction, 75, []int{0, 3}); ok {
-						outBuilder.WriteString(filtered)
-						outBuilder.WriteByte('\n')
-					}
-				}
-
-				if outBuilder.Len() > 0 {
-					outChan <- outBuilder.String()
-					log.Infof("Processed message")
-				}
-			}
-		}
+	filterFunc := func(transaction string) (string, bool) {
+		return transactionGreaterFinalAmount(transaction, targetAmount, byAmountFieldIndices)
 	}
+	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
 }

@@ -12,6 +12,8 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const EOF_MESSAGE_MAX_LENGTH = 16
+
 type ResponseBuilderConfig struct {
 	MiddlewareUrl           string
 	WorkerResultsOneCount   int
@@ -53,14 +55,17 @@ func (m *ResponseBuilder) Start() error {
 		resultsExchange.StartConsuming(createResultsCallback(outChan, doneChan, resultID))
 	}
 
-	final_result := make(map[int][]string)
-	totalEOFsPerQuery := make(map[int]int)
+	clientFinalResult := make(map[string]map[int][]string)
+	clientTotalEOFsPerQuery := make(map[string]map[int]int)
 	for {
 		select {
 		case msg := <-outChan:
-			log.Info("Result received from query ", msg.ID)
-			if msg.Value == "EOF" {
-				log.Info("EOF received")
+			lines := strings.SplitN(msg.Value, "\n", 2)
+			clientId := lines[0]
+			message := lines[1]
+			log.Infof("Result received from query %d for client %s", msg.ID, clientId)
+			if strings.Contains(message, "EOF") {
+				log.Infof("EOF received from client %s", clientId)
 
 				var expectedEof int
 				switch msg.ID {
@@ -74,21 +79,41 @@ func (m *ResponseBuilder) Start() error {
 					expectedEof = m.Config.WorkerResultsFourCount
 				}
 
-				totalEOFsPerQuery[msg.ID]++
-				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsPerQuery[msg.ID], expectedEof)
-				if totalEOFsPerQuery[msg.ID] == expectedEof {
-					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%d", msg.ID), channel)
-					finalResultsExchange.Send([]byte(strings.Join(final_result[msg.ID], "\n")))
-					log.Infof("Total EOFs received, sending query %d result", msg.ID)
+				if _, ok := clientTotalEOFsPerQuery[clientId]; ok {
+					if _, ok := clientTotalEOFsPerQuery[clientId][msg.ID]; ok {
+						clientTotalEOFsPerQuery[clientId][msg.ID]++
+					} else {
+						clientTotalEOFsPerQuery[clientId][msg.ID] = 1
+					}
+				} else {
+					clientTotalEOFsPerQuery[clientId] = make(map[int]int)
+					clientTotalEOFsPerQuery[clientId][msg.ID] = 1
+				}
+
+				totalEOFsInQuery := clientTotalEOFsPerQuery[clientId][msg.ID]
+				log.Infof("TOTAL EOFS: %d, EXPECTED: %d", totalEOFsInQuery, expectedEof)
+				if totalEOFsInQuery == expectedEof {
+					log.Infof("Total EOFs received from client %s, sending query %d result", clientId, msg.ID)
+					finalResultsExchange := middleware.NewMessageMiddlewareQueue(fmt.Sprintf("final_results_%s_%d", clientId, msg.ID), channel)
+					finalResultsExchange.Send([]byte(strings.Join(clientFinalResult[clientId][msg.ID], "\n")))
 
 					// Clear the accumulated results and EOF count for this query
-					final_result[msg.ID] = nil
-					totalEOFsPerQuery[msg.ID] = 0
+					clientFinalResult[clientId][msg.ID] = nil
+					clientTotalEOFsPerQuery[clientId][msg.ID] = 0
 				}
 				continue
 			}
 
-			final_result[msg.ID] = append(final_result[msg.ID], msg.Value)
+			if _, ok := clientFinalResult[clientId]; ok {
+				if _, ok := clientFinalResult[clientId][msg.ID]; ok {
+					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], message)
+				} else {
+					clientFinalResult[clientId][msg.ID] = []string{message}
+				}
+			} else {
+				clientFinalResult[clientId] = make(map[int][]string)
+				clientFinalResult[clientId][msg.ID] = []string{message}
+			}
 		}
 	}
 }

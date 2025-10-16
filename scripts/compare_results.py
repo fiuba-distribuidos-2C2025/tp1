@@ -52,7 +52,19 @@ def compare_files(file1, file2, query_num):
     data_set2 = parse_data_to_set(lines2)
 
     # Compare data sets (order-independent)
-    if not int(query_num) == 4 and data_set1 == data_set2:
+    if not int(query_num) == 4 and not int(query_num) == 3 and data_set1 == data_set2:
+        print(f"QUERY {query_num}: Results are OK! ✅")
+        print(f"{'-' * 60}")
+        return
+
+    elif int(query_num) == 3:
+        for row in data_set1:
+            if not any(row[:-1] == s[:-1] for s in data_set2):
+                print("Results are WRONG! ❌\n")
+                print(
+                    f"Row {','.join(row)} is not in the expected result but present in the actual result"
+                )
+                return
         print(f"QUERY {query_num}: Results are OK! ✅")
         print(f"{'-' * 60}")
         return

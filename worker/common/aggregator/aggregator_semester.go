@@ -40,8 +40,8 @@ func parseSemesterStoreData(transaction string) (string, grouper.SemesterStats) 
 }
 
 func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	eofCount := 0
-	accumulator := make(map[string]grouper.SemesterStats)
+	clientEofCount := map[string]int{}
+	accumulator := make(map[string]map[string]grouper.SemesterStats)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -58,34 +58,53 @@ func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof
 					log.Infof("Deliveries channel closed; shutting down")
 					return
 				}
-				body := strings.TrimSpace(string(msg.Body))
 
-				if body == "EOF" {
-					eofCount++
-					log.Debug("Received eof (%d/%d)", eofCount, neededEof)
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+
+				// Create accumulator for client
+				if _, exists := accumulator[clientID]; !exists {
+					accumulator[clientID] = make(map[string]grouper.SemesterStats)
+				}
+
+				transactions := lines[1:]
+				if transactions[0] == "EOF" {
+					if _, exists := clientEofCount[clientID]; !exists {
+						clientEofCount[clientID] = 1
+					} else {
+						clientEofCount[clientID]++
+					}
+
+					eofCount := clientEofCount[clientID]
+					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						batches := grouper.GetSemesterAccumulatorBatches(accumulator)
+						batches := grouper.GetSemesterAccumulatorBatches(accumulator[clientID])
 						for _, batch := range batches {
-							outChan <- batch
+							if batch != "" {
+								outChan <- clientID + "\n" + batch
+							}
 						}
-						outChan <- "EOF"
+						msg := clientID + "\nEOF"
+						outChan <- msg
 
 						// clear accumulator memory
-						accumulator = nil
+						accumulator[clientID] = nil
 					}
 					continue
 				}
 
-				transactions := splitBatchInRows(body)
 				for _, transaction := range transactions {
 
 					semester_key, sub_month_item_stats := parseSemesterStoreData(transaction)
-					if _, ok := accumulator[semester_key]; !ok {
-						accumulator[semester_key] = grouper.SemesterStats{Tpv: 0, Year: sub_month_item_stats.Year, YearHalf: sub_month_item_stats.YearHalf, StoreId: sub_month_item_stats.StoreId}
+					if _, ok := accumulator[clientID][semester_key]; !ok {
+						accumulator[clientID][semester_key] = grouper.SemesterStats{Tpv: 0, Year: sub_month_item_stats.Year, YearHalf: sub_month_item_stats.YearHalf, StoreId: sub_month_item_stats.StoreId}
 					}
-					semesterStat := accumulator[semester_key]
+					semesterStat := accumulator[clientID][semester_key]
 					semesterStat.Tpv += sub_month_item_stats.Tpv
-					accumulator[semester_key] = semesterStat
+					accumulator[clientID][semester_key] = semesterStat
 				}
 			}
 		}

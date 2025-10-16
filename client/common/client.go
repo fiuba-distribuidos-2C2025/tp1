@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
@@ -23,6 +24,7 @@ const (
 type ClientConfig struct {
 	ServerPort string
 	ServerIP   string
+	ID         string
 }
 
 // Client manages connection to the server and file transfers
@@ -244,7 +246,10 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				csvRows[i] = joinCSVRow(row)
 			}
 
+			clientID, _ := strconv.Atoi(c.config.ID) // TODO: handle error
+			uinclientID := uint16(clientID)
 			batchMsg := &protocol.BatchMessage{
+				ClientID:     uinclientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
 				TotalChunks:  metadata.totalChunks,
@@ -431,7 +436,7 @@ func (c *Client) readResults() error {
 
 func (c *Client) processResult(queueID int32, data []byte) {
 	// Use /results directory (mounted volume)
-	resultsDir := "/results"
+	resultsDir := fmt.Sprintf("/results/client_%s", c.config.ID)
 
 	// Create directory if it doesn't exist (though volume should exist)
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {

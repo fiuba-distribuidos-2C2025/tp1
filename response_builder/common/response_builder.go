@@ -60,11 +60,11 @@ func (m *ResponseBuilder) Start() error {
 	for {
 		select {
 		case msg := <-outChan:
-			lines := strings.Split(msg.Value, "\n")
+			lines := strings.SplitN(msg.Value, "\n", 2)
 			clientId := lines[0]
-			message := lines[1:]
+			message := lines[1]
 			log.Infof("Result received from query %d for client %s", msg.ID, clientId)
-			if strings.Contains(message[0], "EOF") {
+			if strings.Contains(message, "EOF") {
 				log.Infof("EOF received from client %s", clientId)
 
 				var expectedEof int
@@ -106,14 +106,13 @@ func (m *ResponseBuilder) Start() error {
 
 			if _, ok := clientFinalResult[clientId]; ok {
 				if _, ok := clientFinalResult[clientId][msg.ID]; ok {
-					// SPLITING AND JOINING, NOT GOOD
-					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], strings.Join(message, "\n"))
+					clientFinalResult[clientId][msg.ID] = append(clientFinalResult[clientId][msg.ID], message)
 				} else {
-					clientFinalResult[clientId][msg.ID] = []string{strings.Join(message, "\n")}
+					clientFinalResult[clientId][msg.ID] = []string{message}
 				}
 			} else {
 				clientFinalResult[clientId] = make(map[int][]string)
-				clientFinalResult[clientId][msg.ID] = []string{strings.Join(message, "\n")}
+				clientFinalResult[clientId][msg.ID] = []string{message}
 			}
 		}
 	}

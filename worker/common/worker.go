@@ -207,7 +207,7 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 			return
 
 		case msg := <-inQueueResponseChan:
-			lines := strings.Split(msg, "\n")
+			lines := strings.SplitN(msg, "\n", 2)
 			clientId := lines[0]
 
 			if strings.Contains(msg, "EOF") {
@@ -217,8 +217,7 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 				continue
 			}
 
-			// TODO: SPLITTING AND THEN JOINING, NOT GOOD
-			items := strings.Join(lines[1:], "\n")
+			items := lines[1]
 			if _, ok := clientMessages[clientId]; !ok {
 				clientMessages[clientId] = items
 			} else {

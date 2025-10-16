@@ -3,8 +3,8 @@ package common
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
-	"sync"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
@@ -27,7 +27,7 @@ type ResponseBuilder struct {
 	Config      ResponseBuilderConfig
 	listener    net.Listener
 	workerAddrs []string
-	shutdown    chan struct{}
+	shutdown    chan os.Signal
 }
 
 type ResultMessage struct {
@@ -45,14 +45,13 @@ func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
 		Config:      config,
 		listener:    nil,
 		workerAddrs: nil,
-		shutdown:    make(chan struct{}),
+		shutdown:    make(chan os.Signal, 1),
 	}
 }
 
 func (rb *ResponseBuilder) Start() error {
 	log.Info("Starting response builder")
 
-	// Establish RabbitMQ connection with error handling
 	conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
@@ -65,20 +64,17 @@ func (rb *ResponseBuilder) Start() error {
 	}
 	defer channel.Close()
 
-	// Set up client state management
-	clients := &sync.Map{} // map[string]*clientState
+	clients := make(map[string]*clientState)
 	outChan := make(chan ResultMessage, 100)
 	errChan := make(chan error, 4)
 
+	// Start all consumers - StartConsuming already launches goroutines
 	for resultID := 1; resultID <= 4; resultID++ {
 		queueName := fmt.Sprintf("results_%d_1", resultID)
 		log.Infof("Listening on queue %s", queueName)
 
-		go func(id int, qName string) {
-			if err := rb.consumeResults(channel, qName, id, outChan, errChan); err != nil {
-				log.Errorf("Consumer for queue %s failed: %v", qName, err)
-			}
-		}(resultID, queueName)
+		resultsQueue := middleware.NewMessageMiddlewareQueue(queueName, channel)
+		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID))
 	}
 
 	// Main processing loop
@@ -100,56 +96,7 @@ func (rb *ResponseBuilder) Start() error {
 	}
 }
 
-func (m *ResponseBuilder) consumeResults(
-	channel *amqp.Channel,
-	queueName string,
-	resultID int,
-	outChan chan ResultMessage,
-	errChan chan error,
-) error {
-	resultsQueue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-
-	doneChan := make(chan error, 1)
-	consumeChan := make(chan middleware.ConsumeChannel, 1)
-
-	// Start consuming in separate goroutine
-	go resultsQueue.StartConsuming(func(ch middleware.ConsumeChannel, done chan error) {
-		consumeChan <- ch
-		<-done // Block until done
-	})
-
-	// Wait for consume channel
-	var msgChan middleware.ConsumeChannel
-	select {
-	case msgChan = <-consumeChan:
-	}
-
-	log.Infof("Results consumer started for queue %s", queueName)
-
-	for {
-		select {
-		case msg, ok := <-*msgChan:
-			if !ok {
-				err := fmt.Errorf("consume channel closed for queue %s", queueName)
-				errChan <- err
-				return err
-			}
-
-			select {
-			case outChan <- ResultMessage{
-				Value: string(msg.Body),
-				ID:    resultID,
-			}:
-
-			case err := <-doneChan:
-				errChan <- fmt.Errorf("consumer %s done with error: %w", queueName, err)
-				return err
-			}
-		}
-	}
-}
-
-func (rb *ResponseBuilder) processResult(msg ResultMessage, clients *sync.Map, channel *amqp.Channel) error {
+func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState, channel *amqp.Channel) error {
 	// Parse message
 	lines := strings.SplitN(msg.Value, "\n", 2)
 	if len(lines) < 2 {
@@ -160,11 +107,14 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients *sync.Map, c
 	message := lines[1]
 
 	// Get or create client state
-	stateInterface, _ := clients.LoadOrStore(clientId, &clientState{
-		results:   make(map[int][]string),
-		eofCounts: make(map[int]int),
-	})
-	state := stateInterface.(*clientState)
+	state, ok := clients[clientId]
+	if !ok {
+		state = &clientState{
+			results:   make(map[int][]string),
+			eofCounts: make(map[int]int),
+		}
+		clients[clientId] = state
+	}
 
 	// Handle EOF messages
 	if strings.Contains(message, "EOF") {
@@ -218,7 +168,31 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 	}
 }
 
+func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int) func(middleware.ConsumeChannel, chan error) {
+	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		log.Infof("Results consumer started for query %d", resultID)
+
+		for msg := range *consumeChannel {
+			if err := msg.Ack(false); err != nil {
+				log.Errorf("Failed to acknowledge message: %v", err)
+				errChan <- fmt.Errorf("failed to ack message: %w", err)
+				continue
+			}
+
+			resultChan <- ResultMessage{
+				Value: string(msg.Body),
+				ID:    resultID,
+			}
+		}
+
+		// Channel closed
+		log.Warningf("Consume channel closed for query %d", resultID)
+		errChan <- fmt.Errorf("consume channel closed for query %d", resultID)
+	}
+}
+
 func (rb *ResponseBuilder) Shutdown() {
 	log.Info("Initiating shutdown")
+	rb.shutdown <- os.Interrupt
 	close(rb.shutdown)
 }

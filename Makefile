@@ -87,4 +87,15 @@ stop_multiclient_test:
 	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
 	docker compose -f  docker-compose-multiclient-test.yaml down -v
 
+run_client:
+	docker run -d \
+      --name client${CLIENT} \
+      --network tp1_testing_net \
+      --entrypoint /client \
+      -v ./client:/config \
+      -v ./data:/data \
+      -v ./results:/results \
+      -e CLIENT_ID=${CLIENT} \
+      client:latest
+
 .PHONY: run_multiclient_test

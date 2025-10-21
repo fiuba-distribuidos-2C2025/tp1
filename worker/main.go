@@ -112,9 +112,10 @@ func main() {
 		OutputReceivers: OutputReceivers,
 		WorkerJob:       v.GetString("job"),
 		ID:              v.GetInt("id"),
+		IsTest: false,
 	}
 
-	worker, err := common.NewWorker(workerConfig)
+	worker, err := common.NewWorker(workerConfig, middleware.NewRealQueueFactory(nil))
 	if err != nil {
 		log.Criticalf("Failed to create worker: %v", err)
 	}

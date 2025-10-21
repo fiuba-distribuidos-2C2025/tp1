@@ -29,6 +29,7 @@ type WorkerConfig struct {
 	OutputReceivers []string
 	WorkerJob       string
 	ID              int
+	IsTest 		bool
 }
 
 type Worker struct {
@@ -36,32 +37,42 @@ type Worker struct {
 	shutdown chan struct{}
 	conn     *amqp.Connection
 	channel  *amqp.Channel
+	queueFactory middleware.QueueFactory
 }
 
-func NewWorker(config WorkerConfig) (*Worker, error) {
-	log.Infof("Connecting to RabbitMQ at %s ...", config.MiddlewareUrl)
+func NewWorker(config WorkerConfig, factory middleware.QueueFactory) (*Worker, error) {
+	if !config.IsTest {
+		log.Infof("Connecting to RabbitMQ at %s ...", config.MiddlewareUrl)
 
-	conn, err := dialWithRetry(config.MiddlewareUrl, 10, time.Second)
-	if err != nil {
-		log.Errorf("Failed to connect to RabbitMQ: %v", err)
-		return nil, err
+		conn, err := dialWithRetry(config.MiddlewareUrl, 10, time.Second)
+		if err != nil {
+			log.Errorf("Failed to connect to RabbitMQ: %v", err)
+			return nil, err
+		}
+		log.Infof("Connected to RabbitMQ")
+
+		ch, err := conn.Channel()
+		if err != nil {
+			_ = conn.Close()
+			log.Errorf("Failed to open a rabbitmq channel: %v", err)
+			return nil, err
+		}
+		log.Infof("RabbitMQ channel opened")
+		factory.SetChannel(ch)
+		return &Worker{
+			config:   config,
+			shutdown: make(chan struct{}, 1),
+			conn:     conn,
+			channel:  ch,
+			queueFactory: factory,
+		}, nil
+	} else {
+		return &Worker{
+			config:   config,
+			shutdown: make(chan struct{}, 1),
+			queueFactory: factory,
+		}, nil
 	}
-	log.Infof("Connected to RabbitMQ")
-
-	ch, err := conn.Channel()
-	if err != nil {
-		_ = conn.Close()
-		log.Errorf("Failed to open a rabbitmq channel: %v", err)
-		return nil, err
-	}
-	log.Infof("RabbitMQ channel opened")
-
-	return &Worker{
-		config:   config,
-		shutdown: make(chan struct{}, 1),
-		conn:     conn,
-		channel:  ch,
-	}, nil
 }
 
 // small retry helper
@@ -83,10 +94,12 @@ func (w *Worker) Start() error {
 
 	// Start cleanup
 	// TODO: We should use the middleware interface.
-	defer func() {
-		_ = w.channel.Close()
-		_ = w.conn.Close()
-	}()
+	if !w.config.IsTest {
+		defer func() {
+			_ = w.channel.Close()
+			_ = w.conn.Close()
+		}()
+	}
 
 	// var secondaryQueueMessages string
 	secondaryQueueMessagesChan := make(chan string)
@@ -156,21 +169,26 @@ func (w *Worker) Start() error {
 	}
 }
 
-func (w *Worker) setupOutputQueues() ([][]*middleware.MessageMiddlewareQueue, error) {
-	outputQueues := make([][]*middleware.MessageMiddlewareQueue, len(w.config.OutputReceivers))
+func (w *Worker) setupOutputQueues() ([][]middleware.MessageMiddleware, error) {
+	outputQueues := make([][]middleware.MessageMiddleware, len(w.config.OutputReceivers))
+	
 	for i := 0; i < len(w.config.OutputReceivers); i++ {
 		outputQueueName := w.config.OutputQueue[i]
 		outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
 		if err != nil {
 			return nil, err
 		}
-
-		outputQueues[i] = make([]*middleware.MessageMiddlewareQueue, outputWorkerCount)
+		
+		outputQueues[i] = make([]middleware.MessageMiddleware, outputWorkerCount)
 		for j := 0; j < outputWorkerCount; j++ {
-			log.Infof("Declaring output queue %s: %s", strconv.Itoa(j+1), outputQueueName)
-			outputQueues[i][j] = middleware.NewMessageMiddlewareQueue(outputQueueName+"_"+strconv.Itoa(j+1), w.channel)
+			queueName := outputQueueName + "_" + strconv.Itoa(j+1)
+			log.Infof("Declaring output queue %d: %s", j+1, queueName)
+			
+			// Factory returns the interface - works for both real and mock!
+			outputQueues[i][j] = w.queueFactory.CreateQueue(queueName)
 		}
 	}
+	
 	return outputQueues, nil
 }
 
@@ -191,7 +209,7 @@ func hasSecondaryQueue(workerJob string) bool {
 
 func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) {
 	inQueueResponseChan := make(chan string)
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	inQueue := w.queueFactory.CreateQueue(w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
 	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
 	if err != nil {
 		return // TODO: should return error
@@ -228,12 +246,15 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 }
 
 func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondaryQueueMessagesChan chan string) error {
-	inQueue := middleware.NewMessageMiddlewareQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID), w.channel)
+	log.Infof("Declaring input queue: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+	inQueue := w.queueFactory.CreateQueue(w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
 	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
 	if err != nil {
+		log.Errorf("Failed to parse needed EOF count: %v", err)
 		return err
 	}
 
+	log.Infof("Setting up worker job: %s", w.config.WorkerJob)
 	switch w.config.WorkerJob {
 	// ==============================================================================
 	// First Query
@@ -308,7 +329,7 @@ func shouldBroadcast(workerJob string) bool {
 	}
 }
 
-func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]*middleware.MessageMiddlewareQueue) error {
+func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]middleware.MessageMiddleware) error {
 	for {
 		select {
 		case <-w.shutdown:

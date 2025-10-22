@@ -2,19 +2,19 @@ package middleware
 
 import (
 	"fmt"
-	"sync"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"sync"
 )
 
 // MockMessageMiddleware implements the MessageMiddleware interface
 type MockMessageMiddleware struct {
-	queueName      string
-	messages       [][]byte
-	mu             sync.RWMutex
-	consuming      bool
-	consumeChan    chan amqp.Delivery
-	stopChan       chan struct{}
-	callbackDone   chan error
+	queueName    string
+	messages     [][]byte
+	mu           sync.RWMutex
+	consuming    bool
+	consumeChan  chan amqp.Delivery
+	stopChan     chan struct{}
+	callbackDone chan error
 }
 
 // NewMockMessageMiddleware creates a mock queue
@@ -31,7 +31,7 @@ func NewMockMessageMiddleware(queueName string) *MockMessageMiddleware {
 func (m *MockMessageMiddleware) StartConsuming(callback onMessageCallback) MessageMiddlewareError {
 	deliveryChan := (<-chan amqp.Delivery)(m.consumeChan)
 	consumePtr := ConsumeChannel(&deliveryChan)
-	
+
 	go callback(consumePtr, m.callbackDone)
 
 	existingMessages := make([][]byte, len(m.messages))
@@ -61,7 +61,7 @@ func (m *MockMessageMiddleware) StopConsuming() MessageMiddlewareError {
 	m.consuming = false
 	close(m.stopChan)
 	m.stopChan = make(chan struct{})
-	
+
 	return 0
 }
 
@@ -82,7 +82,7 @@ func (m *MockMessageMiddleware) Close() MessageMiddlewareError {
 		m.consuming = false
 		close(m.consumeChan)
 	}
-	
+
 	return 0
 }
 

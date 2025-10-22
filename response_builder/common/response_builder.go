@@ -21,13 +21,15 @@ type ResponseBuilderConfig struct {
 	WorkerResultsTwoCount   int
 	WorkerResultsThreeCount int
 	WorkerResultsFourCount  int
+	IsTest                  bool
 }
 
 type ResponseBuilder struct {
-	Config      ResponseBuilderConfig
-	listener    net.Listener
-	workerAddrs []string
-	shutdown    chan os.Signal
+	Config       ResponseBuilderConfig
+	listener     net.Listener
+	workerAddrs  []string
+	shutdown     chan os.Signal
+	queueFactory middleware.QueueFactory
 }
 
 type ResultMessage struct {
@@ -40,29 +42,43 @@ type clientState struct {
 	eofCounts map[int]int
 }
 
-func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
-	return &ResponseBuilder{
-		Config:      config,
-		listener:    nil,
-		workerAddrs: nil,
-		shutdown:    make(chan os.Signal, 1),
+func NewResponseBuilder(config ResponseBuilderConfig, factory middleware.QueueFactory) *ResponseBuilder {
+	if !config.IsTest {
+		return &ResponseBuilder{
+			Config:       config,
+			listener:     nil,
+			workerAddrs:  nil,
+			shutdown:     make(chan os.Signal, 1),
+			queueFactory: factory,
+		}
+	} else {
+		return &ResponseBuilder{
+			Config:       config,
+			listener:     nil,
+			workerAddrs:  nil,
+			shutdown:     make(chan os.Signal, 1),
+			queueFactory: factory,
+		}
 	}
 }
 
 func (rb *ResponseBuilder) Start() error {
 	log.Info("Starting response builder")
 
-	conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
-	if err != nil {
-		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-	defer conn.Close()
+	if !rb.Config.IsTest {
+		conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
+		if err != nil {
+			return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+		}
+		defer conn.Close()
 
-	channel, err := conn.Channel()
-	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
+		channel, err := conn.Channel()
+		if err != nil {
+			return fmt.Errorf("failed to open channel: %w", err)
+		}
+		defer channel.Close()
+		rb.queueFactory.SetChannel(channel)
 	}
-	defer channel.Close()
 
 	clients := make(map[string]*clientState)
 	outChan := make(chan ResultMessage, 100)
@@ -73,7 +89,7 @@ func (rb *ResponseBuilder) Start() error {
 		queueName := fmt.Sprintf("results_%d_1", resultID)
 		log.Infof("Listening on queue %s", queueName)
 
-		resultsQueue := middleware.NewMessageMiddlewareQueue(queueName, channel)
+		resultsQueue := rb.queueFactory.CreateQueue(queueName).(*middleware.MockMessageMiddleware)
 		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID))
 	}
 
@@ -89,14 +105,14 @@ func (rb *ResponseBuilder) Start() error {
 			// Continue processing, individual consumers handle their own errors
 
 		case msg := <-outChan:
-			if err := rb.processResult(msg, clients, channel); err != nil {
+			if err := rb.processResult(msg, clients); err != nil {
 				log.Errorf("Failed to process result: %v", err)
 			}
 		}
 	}
 }
 
-func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState, channel *amqp.Channel) error {
+func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState) error {
 	// Parse message
 	lines := strings.SplitN(msg.Value, "\n", 2)
 	if len(lines) < 2 {
@@ -131,7 +147,7 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 
 			// Send final results
 			finalQueueName := fmt.Sprintf("final_results_%s_%d", clientId, msg.ID)
-			finalResultsQueue := middleware.NewMessageMiddlewareQueue(finalQueueName, channel)
+			finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName).(*middleware.MockMessageMiddleware)
 
 			finalResult := strings.Join(state.results[msg.ID], "\n")
 			finalResultsQueue.Send([]byte(finalResult))
@@ -173,12 +189,8 @@ func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
-			if err := msg.Ack(false); err != nil {
-				log.Errorf("Failed to acknowledge message: %v", err)
-				errChan <- fmt.Errorf("failed to ack message: %w", err)
-				continue
-			}
 
+			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),
 				ID:    resultID,

@@ -7,12 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	worker "github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
 	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	response_builder "github.com/fiuba-distribuidos-2C2025/tp1/response_builder/common"
 )
 
 
 
-// TestAmountFilterWithMockMiddleware tests the filter using mock middleware
-func TestAmountFilterWithMockMiddleware(t *testing.T) {
+// TestFirstQuery tests the filter using mock middleware
+func TestFirstQuery(t *testing.T) {
 	factory := middleware.NewMockQueueFactory()
 	firstInputQueue := factory.CreateQueue("transactions_1_1").(*middleware.MockMessageMiddleware)
 	_ = factory.CreateQueue("transactions_2024_2025_q1_1").(*middleware.MockMessageMiddleware)
@@ -21,7 +22,10 @@ func TestAmountFilterWithMockMiddleware(t *testing.T) {
 	_ = factory.CreateQueue("transactions_filtered_by_hour_q1_1").(*middleware.MockMessageMiddleware)
 
 	_ = factory.CreateQueue("transactions_filtered_by_hour_q1_1").(*middleware.MockMessageMiddleware)
-	thirdOutputQueue := factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+	_ = factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+
+	_ = factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+	finalOutput := factory.CreateQueue("final_results_1_1").(*middleware.MockMessageMiddleware)
 
 	// Send test data
 	testData := []struct {
@@ -73,6 +77,15 @@ func TestAmountFilterWithMockMiddleware(t *testing.T) {
 		IsTest:       true,
 	}
 
+	responseBuilderConfig := response_builder.ResponseBuilderConfig{
+		MiddlewareUrl:           "test",
+		WorkerResultsOneCount:   1,
+		WorkerResultsTwoCount:   1,
+		WorkerResultsThreeCount: 1,
+		WorkerResultsFourCount:  1,
+		IsTest:				  true,
+	}
+
 	yearWorker, err := worker.NewWorker(yearFilterTestWorkerConfig, factory)
 	if err != nil {
 		t.Fatalf("Failed to create worker: %v", err)
@@ -99,9 +112,125 @@ func TestAmountFilterWithMockMiddleware(t *testing.T) {
 	defer amountWorker.Stop()
 
 	time.Sleep(5 * time.Second) // Wait for processing
+
+	responseBuilder := response_builder.NewResponseBuilder(responseBuilderConfig, factory)
+	if err != nil {
+		t.Fatalf("Failed to create response builder: %v", err)
+	}
+	go responseBuilder.Start()
+
+	time.Sleep(5 * time.Second) // Wait for processing
+	
+	// Verify messages in output queue
+	outputMessages := finalOutput.GetMessages()
+	fmt.Printf("Output Messages: %s\n", outputMessages)
+	assert.Equal(t, 1, len(outputMessages), "Output queue should have exactly 1 message")
+}
+
+// TestEOF tests the filter using mock middleware
+func TestEOF(t *testing.T) {
+	factory := middleware.NewMockQueueFactory()
+	firstInputQueue := factory.CreateQueue("transactions_1_1").(*middleware.MockMessageMiddleware)
+	_ = factory.CreateQueue("transactions_2024_2025_q1_1").(*middleware.MockMessageMiddleware)
+
+	_ = factory.CreateQueue("transactions_2024_2025_q1_1").(*middleware.MockMessageMiddleware)
+	_ = factory.CreateQueue("transactions_filtered_by_hour_q1_1").(*middleware.MockMessageMiddleware)
+
+	_ = factory.CreateQueue("transactions_filtered_by_hour_q1_1").(*middleware.MockMessageMiddleware)
+	thirdOutputQueue := factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+
+	// Send test data
+	testData := []struct {
+		input       string
+		shouldPass  bool
+		description string
+	}{
+		{"1\nEOF", false, "EOF marker"},
+	}
+
+	for _, td := range testData {
+		firstInputQueue.Send([]byte(td.input))
+	}
+
+	yearFilterTestWorkerConfig := worker.WorkerConfig{
+		MiddlewareUrl: "test",
+		InputQueue:   []string{"transactions_1"},
+		OutputQueue:  []string{"transactions_2024_2025_q1"},
+		InputSenders:    []string{"1"},
+		OutputReceivers: []string{"1"},
+		WorkerJob:    "YEAR_FILTER",
+		ID:           1,
+		IsTest:       true,
+	}
+
+	hourFilterTestWorkerConfig := worker.WorkerConfig{
+		MiddlewareUrl: "test",
+		InputQueue:   []string{"transactions_2024_2025_q1"},
+		OutputQueue:  []string{"transactions_filtered_by_hour_q1"},
+		InputSenders:    []string{"1"},
+		OutputReceivers: []string{"1"},
+		WorkerJob:    "HOUR_FILTER",
+		ID:           1,
+		IsTest:       true,
+	}
+
+	amountFilterTestWorkerConfig := worker.WorkerConfig{
+		MiddlewareUrl: "test",
+		InputQueue:   []string{"transactions_filtered_by_hour_q1"},
+		OutputQueue:  []string{"results_1"},
+		InputSenders:    []string{"1"},
+		OutputReceivers: []string{"1"},
+		WorkerJob:    "AMOUNT_FILTER",
+		ID:           1,
+		IsTest:       true,
+	}
+
+	responseBuilderConfig := response_builder.ResponseBuilderConfig{
+		MiddlewareUrl:           "test",
+		WorkerResultsOneCount:   1,
+		WorkerResultsTwoCount:   1,
+		WorkerResultsThreeCount: 1,
+		WorkerResultsFourCount:  1,
+		IsTest:				  true,
+	}
+
+	yearWorker, err := worker.NewWorker(yearFilterTestWorkerConfig, factory)
+	if err != nil {
+		t.Fatalf("Failed to create worker: %v", err)
+	}
+	go yearWorker.Start()
+	defer yearWorker.Stop()
+
+	time.Sleep(5 * time.Second) // Wait for processing
+
+	hourWorker, err := worker.NewWorker(hourFilterTestWorkerConfig, factory)
+	if err != nil {
+		t.Fatalf("Failed to create worker: %v", err)
+	}
+	go hourWorker.Start()
+	defer hourWorker.Stop()
+
+	time.Sleep(5 * time.Second) // Wait for processing
+
+	amountWorker, err := worker.NewWorker(amountFilterTestWorkerConfig, factory)
+	if err != nil {
+		t.Fatalf("Failed to create worker: %v", err)
+	}
+	go amountWorker.Start()
+	defer amountWorker.Stop()
+
+	time.Sleep(5 * time.Second) // Wait for processing
+
+	responseBuilder := response_builder.NewResponseBuilder(responseBuilderConfig, factory)
+	if err != nil {
+		t.Fatalf("Failed to create response builder: %v", err)
+	}
+	go responseBuilder.Start()
+
+	time.Sleep(5 * time.Second) // Wait for processing
 	
 	// Verify messages in output queue
 	outputMessages := thirdOutputQueue.GetMessages()
 	fmt.Printf("Output Messages: %s\n", outputMessages)
-	assert.Equal(t, 5, len(outputMessages), "Output queue should have exactly 5 messages")
+	assert.Equal(t, 1, len(outputMessages), "Output queue should have exactly 1 message")
 }

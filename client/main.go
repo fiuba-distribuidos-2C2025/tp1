@@ -38,6 +38,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("client", "ip")
 	v.BindEnv("id")
 	v.BindEnv("log", "level")
+	v.BindEnv("client", "buffer_size_mb")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -91,6 +92,7 @@ func main() {
 		ServerPort: v.GetString("client.port"),
 		ServerIP:   v.GetString("client.ip"),
 		ID:         v.GetString("id"),
+		BufferSize: v.GetInt("client.buffer_size_mb") * 1024 * 1024,
 	}
 
 	client := common.NewClient(clientConfig)

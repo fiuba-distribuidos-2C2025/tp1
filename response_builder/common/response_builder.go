@@ -89,7 +89,7 @@ func (rb *ResponseBuilder) Start() error {
 		queueName := fmt.Sprintf("results_%d_1", resultID)
 		log.Infof("Listening on queue %s", queueName)
 
-		resultsQueue := rb.queueFactory.CreateQueue(queueName).(*middleware.MockMessageMiddleware)
+		resultsQueue := rb.queueFactory.CreateQueue(queueName)
 		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID))
 	}
 
@@ -147,7 +147,7 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 
 			// Send final results
 			finalQueueName := fmt.Sprintf("final_results_%s_%d", clientId, msg.ID)
-			finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName).(*middleware.MockMessageMiddleware)
+			finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
 
 			finalResult := strings.Join(state.results[msg.ID], "\n")
 			finalResultsQueue.Send([]byte(finalResult))

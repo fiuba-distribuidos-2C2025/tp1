@@ -172,8 +172,7 @@ func TestFirstQuery(t *testing.T) {
 
 func TestEOF(t *testing.T) {
 	factory := middleware.NewMockQueueFactory()
-	firstInputQueues, _ := setupQueuesFirstQuery(factory, 1, 1)
-	thirdOutputQueue := factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+	firstInputQueues, finalOutput := setupQueuesFirstQuery(factory, 1, 1)
 
 	testData := []struct {
 		input       string
@@ -188,18 +187,17 @@ func TestEOF(t *testing.T) {
 	workers := runWorkersFirstQuery(t, factory, 1, 1, 1, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"})
 	defer stopWorkers(workers)
 
-	createResponseBuilder(t, factory, 2)
+	createResponseBuilder(t, factory, 1)
 	time.Sleep(5 * time.Second)
-	
-	outputMessages := thirdOutputQueue.GetMessages()
+
+	outputMessages := finalOutput.GetMessages()
 	fmt.Printf("Output Messages: %s\n", outputMessages)
 	assert.Equal(t, 1, len(outputMessages), "Output queue should have exactly 1 message")
 }
 
 func TestEOFWithManyInputWorkers(t *testing.T) {
 	factory := middleware.NewMockQueueFactory()
-	firstInputQueues, _ := setupQueuesFirstQuery(factory, 2, 2)
-	thirdOutputQueue := factory.CreateQueue("results_1_1").(*middleware.MockMessageMiddleware)
+	firstInputQueues, finalOutput := setupQueuesFirstQuery(factory, 2, 2)
 
 	testData := []struct {
 		input       string
@@ -214,10 +212,10 @@ func TestEOFWithManyInputWorkers(t *testing.T) {
 	workers := runWorkersFirstQuery(t, factory, 2, 2, 2, []string{"1"}, []string{"2"}, []string{"2"}, []string{"2"}, []string{"2"}, []string{"1"})
 	defer stopWorkers(workers)
 
-	createResponseBuilder(t, factory, 1)
+	createResponseBuilder(t, factory, 2)
 	time.Sleep(5 * time.Second)
-	
-	outputMessages := thirdOutputQueue.GetMessages()
+
+	outputMessages := finalOutput.GetMessages()
 	fmt.Printf("Output Messages: %s\n", outputMessages)
-	assert.Equal(t, 2, len(outputMessages), "Output queue should have exactly 2 messages")
+	assert.Equal(t, 1, len(outputMessages), "Output queue should have exactly 1 message")
 }

@@ -3,14 +3,12 @@ package middleware
 import (
 	"fmt"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"sync"
 )
 
 // MockMessageMiddleware implements the MessageMiddleware interface
 type MockMessageMiddleware struct {
 	queueName    string
 	messages     [][]byte
-	mu           sync.RWMutex
 	consuming    bool
 	consumeChan  chan amqp.Delivery
 	stopChan     chan struct{}
@@ -51,9 +49,6 @@ func (m *MockMessageMiddleware) StartConsuming(callback onMessageCallback) Messa
 }
 
 func (m *MockMessageMiddleware) StopConsuming() MessageMiddlewareError {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.consuming {
 		return 0
 	}
@@ -75,9 +70,6 @@ func (m *MockMessageMiddleware) Send(message []byte) MessageMiddlewareError {
 }
 
 func (m *MockMessageMiddleware) Close() MessageMiddlewareError {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.consuming {
 		m.consuming = false
 		close(m.consumeChan)
@@ -87,18 +79,12 @@ func (m *MockMessageMiddleware) Close() MessageMiddlewareError {
 }
 
 func (m *MockMessageMiddleware) Delete() MessageMiddlewareError {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.messages = make([][]byte, 0)
 	return 0
 }
 
 // Helper method for testing
 func (m *MockMessageMiddleware) GetMessages() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	messages := make([]string, len(m.messages))
 	for i, msg := range m.messages {
 		messages[i] = string(msg)

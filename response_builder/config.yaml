@@ -1,4 +1,5 @@
 rabbit:
   url: "amqp://guest:guest@rabbit:5672/"
+  buffer_size_mb: 10
 log:
   level: "DEBUG"

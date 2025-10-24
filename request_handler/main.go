@@ -35,6 +35,7 @@ func initConfig() (*viper.Viper, error) {
 		"request_handler.ip",
 		"request_handler.url",
 		"log.level",
+		"request_handler.buffer_size_mb",
 	}
 
 	for _, key := range configKeys {
@@ -100,6 +101,7 @@ func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
 		StoresQ4ReceiversCount:         v.GetInt("middleware.receivers.storesq4count"),
 		MenuItemsReceiversCount:        v.GetInt("middleware.receivers.menuitemscount"),
 		UsersReceiversCount:            v.GetInt("middleware.receivers.userscount"),
+		BufferSize:                     v.GetInt("request_handler.buffer_size_mb") * 1024 * 1024,
 	}
 }
 

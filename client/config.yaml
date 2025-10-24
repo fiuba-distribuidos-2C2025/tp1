@@ -1,6 +1,7 @@
 client:
   port: 12345
   ip: "request_handler"
+  buffer_size_mb: 10
 log:
   level: "DEBUG"
 middleware:

@@ -71,8 +71,7 @@ func getSemesterAccumulatorBatches(accumulator map[string]SemesterStats) ([]stri
 	semesterSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		semesterKey := stats.Year + "-" + stats.YearHalf // grouping key ONLY
-
+		semesterKey := stats.Year + "-" + stats.YearHalf // This is the key used to distribute between aggregators later
 		// Prepare line to write
 		line := key + "," + stats.Year + "," + stats.YearHalf + "," +
 			stats.StoreId + "," + strconv.FormatFloat(stats.Tpv, 'f', 2, 64) + "\n"
@@ -154,7 +153,7 @@ func CreateBySemesterGrouperCallbackWithOutput(outChan chan string, neededEof in
 						semesterKeys, batches := getSemesterAccumulatorBatches(accumulator[clientID])
 						for i, batch := range batches {
 							if batch != "" {
-								outChan <- clientID + "\n" + semesterKeys[i] + batch
+								outChan <- clientID + "\n" + semesterKeys[i] + "\n" + batch
 							}
 						}
 						msg := clientID + "\nEOF"

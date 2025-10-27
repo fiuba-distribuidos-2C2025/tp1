@@ -50,7 +50,7 @@ func getUserAccumulatorBatches(accumulator map[string]UserStats) ([]string, []st
 	userSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		userKey := stats.StoreId // grouping key ONLY
+		userKey := stats.StoreId // This is the key used to distribute between aggregators later
 
 		// Prepare line to write
 		line := key + "," + stats.StoreId + "," + stats.UserId + "," + strconv.Itoa(stats.PurchasesQty) + "\n"
@@ -133,7 +133,7 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 						userKeys, batches := getUserAccumulatorBatches(accumulator[clientID])
 						for i, batch := range batches {
 							if batch != "" {
-								outChan <- clientID + "\n" + userKeys[i] + batch
+								outChan <- clientID + "\n" + userKeys[i] + "\n" + batch
 							}
 						}
 						msg := clientID + "\nEOF"

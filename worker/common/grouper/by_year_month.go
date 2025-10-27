@@ -67,7 +67,7 @@ func getAccumulatorBatches(accumulator map[string]ItemStats) ([]string, []string
 	itemSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		itemKey := stats.date // grouping key ONLY
+		itemKey := stats.date // This is the key used to distribute between aggregators later
 
 		// Prepare line to write
 		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
@@ -144,10 +144,7 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 						itemKeys, batches := getAccumulatorBatches(accumulator[clientID])
 						for i, batch := range batches {
 							if batch != "" {
-								if i == 0 {
-									log.Infof("Sending batch %v with itemKey %v", batch, itemKeys[i])
-								}
-								outChan <- clientID + "\n" + itemKeys[i] + batch
+								outChan <- clientID + "\n" + itemKeys[i] + "\n" + batch
 							}
 						}
 						msg := clientID + "\nEOF"

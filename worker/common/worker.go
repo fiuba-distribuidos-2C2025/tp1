@@ -312,12 +312,12 @@ func shouldBroadcast(workerJob string) bool {
 
 func shouldDistributeBetweenAggregators(workerJob string) bool {
 	switch workerJob {
-	// case "GROUPER_BY_YEAR_MONTH":
-	// 	return true
+	case "GROUPER_BY_YEAR_MONTH":
+		return true
 	case "GROUPER_BY_SEMESTER":
 		return true
-	// case "GROUPER_BY_STORE_USER":
-	// 	return true
+	case "GROUPER_BY_STORE_USER":
+		return true
 	default:
 		return false
 	}

@@ -43,22 +43,12 @@ type clientState struct {
 }
 
 func NewResponseBuilder(config ResponseBuilderConfig, factory middleware.QueueFactory) *ResponseBuilder {
-	if !config.IsTest {
-		return &ResponseBuilder{
-			Config:       config,
-			listener:     nil,
-			workerAddrs:  nil,
-			shutdown:     make(chan os.Signal, 1),
-			queueFactory: factory,
-		}
-	} else {
-		return &ResponseBuilder{
-			Config:       config,
-			listener:     nil,
-			workerAddrs:  nil,
-			shutdown:     make(chan os.Signal, 1),
-			queueFactory: factory,
-		}
+	return &ResponseBuilder{
+		Config:       config,
+		listener:     nil,
+		workerAddrs:  nil,
+		shutdown:     make(chan os.Signal, 1),
+		queueFactory: factory,
 	}
 }
 
@@ -189,7 +179,11 @@ func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
-
+			if err := msg.Ack(false); err != nil {
+				log.Errorf("Failed to acknowledge message: %v", err)
+				errChan <- fmt.Errorf("failed to ack message: %w", err)
+				continue
+			}
 			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),

@@ -18,7 +18,6 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	defaultBatchSize    = 10 * 1024 * 1024 // 10MB
 	expectedResultCount = 4
 )
 
@@ -27,6 +26,7 @@ type ClientConfig struct {
 	ServerPort string
 	ServerIP   string
 	ID         string
+	BufferSize int
 }
 
 // Client manages connection to the server and file transfers
@@ -225,7 +225,7 @@ func (c *Client) TransferCSVFile(path string, fileType protocol.FileType) error 
 
 // calculateFileMetadata extracts and calculates file metadata
 func (c *Client) calculateFileMetadata(fileInfo os.FileInfo, fileType protocol.FileType) fileMetadata {
-	totalChunks := math.Ceil(float64(fileInfo.Size()) / float64(defaultBatchSize))
+	totalChunks := math.Ceil(float64(fileInfo.Size()) / float64(c.config.BufferSize))
 	if totalChunks == 0 {
 		totalChunks = 1
 	}
@@ -241,7 +241,7 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 	currentChunk := int32(1)
 
 	for {
-		rows, isEOF, err := c.readBatch(reader, defaultBatchSize)
+		rows, isEOF, err := c.readBatch(reader, c.config.BufferSize)
 		if err != nil {
 			return fmt.Errorf("failed to read batch: %w", err)
 		}

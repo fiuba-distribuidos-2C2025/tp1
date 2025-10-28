@@ -17,8 +17,7 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	channelPoolSize     = 10 // Number of channels in the pool
-	expectedResultCount = 4  // Number of final result queues
+	expectedResultCount = 4 // Number of final result queues
 )
 
 // ResultMessage contains a result and which queue it came from

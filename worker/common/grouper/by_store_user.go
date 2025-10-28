@@ -39,30 +39,53 @@ func parseTransactionUserData(transaction string) (string, UserStats) {
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func getUserAccumulatorBatches(accumulator map[string]UserStats) []string {
+func getUserAccumulatorBatches(accumulator map[string]UserStats) ([]string, []string) {
+	const maxBatchSizeBytes = 10 * 1024 * 1024 // 10 MB
+
+	var userKeys []string
 	var batches []string
-	var currentBatch strings.Builder
-	currentSize := 0
-	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	// Track partial batches and sizes per user
+	userBuilders := make(map[string]*strings.Builder)
+	userSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.StoreId + "," + stats.UserId + "," + strconv.Itoa(stats.PurchasesQty) + "\n"
-		lineSize := len(line)
+		userKey := stats.StoreId // This is the key used to distribute between aggregators later
 
-		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
-			batches = append(batches, currentBatch.String())
-			currentBatch.Reset()
+		// Prepare line to write
+		line := key + "," + stats.StoreId + "," + stats.UserId + "," + strconv.Itoa(stats.PurchasesQty) + "\n"
+		lineSizeBytes := len(line)
+
+		// Initialize structures if this user hasn't been seen yet
+		if _, exists := userBuilders[userKey]; !exists {
+			userBuilders[userKey] = &strings.Builder{}
+			userSizes[userKey] = 0
+		}
+
+		builder := userBuilders[userKey]
+		currentSize := userSizes[userKey]
+
+		// Flush this user's batch if adding this line would exceed max size
+		if currentSize+lineSizeBytes > maxBatchSizeBytes && currentSize > 0 {
+			userKeys = append(userKeys, userKey)
+			batches = append(batches, builder.String())
+			builder.Reset()
 			currentSize = 0
 		}
 
-		currentBatch.WriteString(line)
-		currentSize += lineSize
-	}
-	if currentSize > 0 {
-		batches = append(batches, currentBatch.String())
+		builder.WriteString(line)
+		userSizes[userKey] = currentSize + lineSizeBytes
 	}
 
-	return batches
+	// Flush remaining non-empty user batches
+	for userKey, builder := range userBuilders {
+		if userSizes[userKey] > 0 {
+			userKeys = append(userKeys, userKey)
+			batches = append(batches, builder.String())
+		}
+	}
+
+	return userKeys, batches
 }
 
 func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -107,10 +130,10 @@ func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof i
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := getUserAccumulatorBatches(accumulator[clientID])
-						for _, batch := range batches {
+						userKeys, batches := getUserAccumulatorBatches(accumulator[clientID])
+						for i, batch := range batches {
 							if batch != "" {
-								outChan <- clientID + "\n" + batch
+								outChan <- clientID + "\n" + userKeys[i] + "\n" + batch
 							}
 						}
 						msg := clientID + "\nEOF"

@@ -80,7 +80,7 @@ func (rb *ResponseBuilder) Start() error {
 		log.Infof("Listening on queue %s", queueName)
 
 		resultsQueue := rb.queueFactory.CreateQueue(queueName)
-		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID))
+		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest))
 	}
 
 	// Main processing loop
@@ -174,15 +174,17 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 	}
 }
 
-func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int) func(middleware.ConsumeChannel, chan error) {
+func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
-			if err := msg.Ack(false); err != nil {
-				log.Errorf("Failed to acknowledge message: %v", err)
-				errChan <- fmt.Errorf("failed to ack message: %w", err)
-				continue
+			if !isTest {
+				if err := msg.Ack(false); err != nil {
+					log.Errorf("Failed to acknowledge message: %v", err)
+					errChan <- fmt.Errorf("failed to ack message: %w", err)
+					continue
+				}
 			}
 			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
 			resultChan <- ResultMessage{

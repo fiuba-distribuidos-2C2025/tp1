@@ -99,3 +99,8 @@ run_client:
       client:latest
 
 .PHONY: run_multiclient_test
+
+integration_test:
+	cd tests && go test
+
+.PHONY: integration_test

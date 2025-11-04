@@ -1,12 +1,15 @@
 package common
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
@@ -135,19 +138,18 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 	proto := protocol.NewProtocol(conn)
 	filesProcessed := 0
 
-	// TODO: instead of "guessing" which client we are communicating with
-	// It'd be more suitable to get this information on first message
-	var clientId string
+	src := rand.New(rand.NewSource(time.Now().UnixNano()))
+	bytes := make([]byte, 4)
+	for i := range bytes {
+		bytes[i] = byte(src.Intn(256))
+	}
+	clientId := hex.EncodeToString(bytes)
+	// TODO: return this UUID to the client so it knows how to request
+	// results from the request handler
 
 	// Keep processing messages until FINAL_EOF is received
 	for {
-		pclientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channel)
-
-		// Not optimal check, only batch type messages hold clientId,
-		// others return empty string, so we ignore them
-		if pclientId != "" {
-			clientId = pclientId
-		}
+		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channel, clientId)
 
 		if err != nil {
 			if err == io.EOF {
@@ -251,10 +253,9 @@ func consumeOneResult(queue *middleware.MessageMiddlewareQueue, queueID int, res
 
 // processMessages handles incoming messages until a file is complete or EOF is received
 // Returns (clientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
-func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel) (string, bool, bool, bool, protocol.FileType, error) {
+func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) (bool, bool, bool, protocol.FileType, error) {
 	var totalChunks int32
 	chunksReceived := int32(0)
-	var clientId string
 
 	log.Debug("Starting to process new messages")
 
@@ -265,23 +266,21 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 		msgType, data, err := proto.ReceiveMessage()
 		if err != nil {
 			log.Errorf("Error reading message: %v", err)
-			return clientId, false, false, false, 0, err
+			return false, false, false, 0, err
 		}
 
 		switch msgType {
 		case protocol.MessageTypeFinalEOF:
 			log.Info("FINAL_EOF marker detected")
-			return clientId, false, false, true, 0, nil
+			return false, false, true, 0, nil
 
 		case protocol.MessageTypeEOF:
 			eofMsg := data.(*protocol.EOFMessage)
 			log.Infof("FileType EOF marker detected for fileType %s", eofMsg.FileType)
-			return clientId, false, true, false, eofMsg.FileType, nil
+			return false, true, false, eofMsg.FileType, nil
 
 		case protocol.MessageTypeBatch:
 			message := data.(*protocol.BatchMessage)
-			// Convert [8]byte client ID to string
-			clientId = protocol.ClientIDToString(message.ClientID)
 
 			chunksReceived++
 			log.Infof("Received batch: chunk %d/%d with %d rows",
@@ -306,32 +305,36 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 			}
 			log.Infof("Calculated receiver %d", receiverID)
 
-			if err := sendToQueue(message, receiverID, cfg, channel); err != nil {
-				return clientId, false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
+			if err := sendToQueue(message, receiverID, cfg, channel, clientId); err != nil {
+				return false, false, false, 0, fmt.Errorf("failed to send to queue: %w", err)
 			}
 
 			currentWorkerQueue++
 
 			// Send ACK after successfully processing the chunk
 			if err := proto.SendACK(); err != nil {
-				return clientId, false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
+				return false, false, false, 0, fmt.Errorf("failed to send ACK: %w", err)
 			}
 			log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
 
 			// Check if all chunks have been received
 			if chunksReceived >= totalChunks {
 				log.Infof("All %d chunks received", chunksReceived)
-				return clientId, true, false, false, 0, nil
+				return true, false, false, 0, nil
 			}
 		}
 	}
 }
 
 // sendToQueue sends the batch message to the appropriate queue based on file type
-func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel) error {
+func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) error {
+	internalUUID, err := protocol.ClientIDFromString(clientId)
+	if err != nil {
+		return fmt.Errorf("failed to parse client ID: %w", err)
+	}
+
 	var payload strings.Builder
-	// Convert [8]byte client ID to string
-	clientIdStr := protocol.ClientIDToString(message.ClientID)
+	clientIdStr := protocol.ClientIDToString(internalUUID)
 	payload.WriteString(clientIdStr)
 	payload.WriteString("\n")
 	payload.WriteString(strings.Join(message.CSVRows, "\n"))

@@ -81,8 +81,10 @@ cat >> "$OUTPUT_FILE" <<EOL
         - ./data:/data
         - ./results:/results
     depends_on:
-        - rabbit
-        - request_handler
+        rabbit:
+            condition: service_healthy
+        request_handler:
+            condition: service_started
     networks:
         - testing_net
     environment:
@@ -109,7 +111,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -132,7 +135,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -155,7 +159,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -185,7 +190,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -208,7 +214,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -231,7 +238,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -255,7 +263,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -285,7 +294,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -308,7 +318,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -331,7 +342,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -361,7 +373,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -384,7 +397,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -407,7 +421,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
@@ -430,7 +445,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4

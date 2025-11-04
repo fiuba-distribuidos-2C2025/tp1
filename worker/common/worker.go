@@ -2,6 +2,8 @@ package common
 
 import (
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
@@ -110,6 +112,11 @@ func (w *Worker) Start() error {
 		return w.broadcastMessages(inQueueResponseChan, outputQueues)
 	}
 
+	if shouldDistributeBetweenAggregators(w.config.WorkerJob) {
+		log.Infof("Worker job %s requires distribution between aggregators", w.config.WorkerJob)
+		return w.distributeBetweenAggregators(inQueueResponseChan, outputQueues)
+	}
+
 	idx := 0
 	for {
 		select {
@@ -129,11 +136,6 @@ func (w *Worker) Start() error {
 						queue.Send([]byte(msg))
 					}
 				}
-
-				// TODO: eventually we may know the ammount of clients
-				// before hand, in that case, we can exit the loop
-				// once all clients have finished.
-				// return nil
 				continue
 			}
 
@@ -287,12 +289,12 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		log.Info("Starting JOINER_BY_USER_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 	case "JOINER_BY_USER_STORE":
-		log.Info("Starting JOINER_BY_USER_STORE worker...")
+		log.Info("starting JOINER_BY_USER_STORE worker...")
 		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
 
 	default:
 		log.Error("Unknown worker job")
-		return errors.New("Unknown worker job")
+		return errors.New("unknown worker job")
 	}
 
 	log.Infof("Input queue declared: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
@@ -302,6 +304,19 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 func shouldBroadcast(workerJob string) bool {
 	switch workerJob {
 	case "AGGREGATOR_BY_STORE_USER":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldDistributeBetweenAggregators(workerJob string) bool {
+	switch workerJob {
+	case "GROUPER_BY_YEAR_MONTH":
+		return true
+	case "GROUPER_BY_SEMESTER":
+		return true
+	case "GROUPER_BY_STORE_USER":
 		return true
 	default:
 		return false
@@ -332,6 +347,64 @@ func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]*middlew
 					queue.Send([]byte(msg))
 				}
 			}
+		}
+	}
+}
+
+func hashKey64(s string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum64()
+}
+
+func chooseAggregatorIdx(key string, workerCount int) int {
+	return int(hashKey64(key) % uint64(workerCount))
+}
+
+func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [][]*middleware.MessageMiddlewareQueue) error {
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return nil
+
+		case msg := <-inChan:
+			// Not that good, we are assuming that short messages are
+			// EOF, this doesn't scale with clients of id really high
+			// (probably will never happen)
+			if len(msg) < EOF_MESSAGE_MAX_LENGTH && strings.Contains(msg, "EOF") {
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte(msg))
+					}
+				}
+				continue
+			}
+			lines := strings.SplitN(msg, "\n", 3)
+
+			clientId := lines[0]
+			key := lines[1]
+			message := lines[2]
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					return fmt.Errorf("invalid OutputReceivers[%d]=%q: %w", i, w.config.OutputReceivers[i], err)
+				}
+				aggregatorIdx := chooseAggregatorIdx(key, outputWorkerCount)
+
+				msg_truncated := msg
+				if len(msg_truncated) > 200 {
+					msg_truncated = msg_truncated[:200] + "..."
+				}
+				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, aggregatorIdx+1)
+
+				message = clientId + "\n" + message
+
+				queues[aggregatorIdx].Send([]byte(message))
+			}
+
 		}
 	}
 }

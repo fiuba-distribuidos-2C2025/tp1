@@ -92,8 +92,8 @@ type Protocol struct {
 // NewProtocol creates a new Protocol instance with buffered I/O
 func NewProtocol(rw io.ReadWriter) *Protocol {
 	return &Protocol{
-		writer: bufio.NewWriterSize(rw, 64*1024), // 64KB write buffer
-		reader: bufio.NewReaderSize(rw, 64*1024), // 64KB read buffer
+		writer: bufio.NewWriterSize(rw, 16*1024*1024), // 16MB write buffer
+		reader: bufio.NewReaderSize(rw, 16*1024*1024), // 16MB read buffer
 	}
 }
 

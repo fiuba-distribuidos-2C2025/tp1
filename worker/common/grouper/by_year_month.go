@@ -56,30 +56,53 @@ func parseTransactionItemData(transaction string) (string, ItemStats) {
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func get_accumulator_batches(accumulator map[string]ItemStats) []string {
+func getAccumulatorBatches(accumulator map[string]ItemStats) ([]string, []string) {
+	const maxBatchSizeBytes = 10 * 1024 * 1024 // 10 MB
+
+	var itemKeys []string
 	var batches []string
-	var currentBatch strings.Builder
-	currentSize := 0
-	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	// Track partial batches and sizes per item
+	itemBuilders := make(map[string]*strings.Builder)
+	itemSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
-		lineSize := len(line)
+		itemKey := stats.date // This is the key used to distribute between aggregators later
 
-		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
-			batches = append(batches, currentBatch.String())
-			currentBatch.Reset()
+		// Prepare line to write
+		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+		lineSizeBytes := len(line)
+
+		// Initialize structures if this item hasn't been seen yet
+		if _, exists := itemBuilders[itemKey]; !exists {
+			itemBuilders[itemKey] = &strings.Builder{}
+			itemSizes[itemKey] = 0
+		}
+
+		builder := itemBuilders[itemKey]
+		currentSize := itemSizes[itemKey]
+
+		// Flush this item's batch if adding this line would exceed max size
+		if currentSize+lineSizeBytes > maxBatchSizeBytes && currentSize > 0 {
+			itemKeys = append(itemKeys, itemKey)
+			batches = append(batches, builder.String())
+			builder.Reset()
 			currentSize = 0
 		}
 
-		currentBatch.WriteString(line)
-		currentSize += lineSize
-	}
-	if currentSize > 0 {
-		batches = append(batches, currentBatch.String())
+		builder.WriteString(line)
+		itemSizes[itemKey] = currentSize + lineSizeBytes
 	}
 
-	return batches
+	// Flush remaining non-empty item batches
+	for itemKey, builder := range itemBuilders {
+		if itemSizes[itemKey] > 0 {
+			itemKeys = append(itemKeys, itemKey)
+			batches = append(batches, builder.String())
+		}
+	}
+
+	return itemKeys, batches
 }
 
 func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -118,10 +141,10 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 					eofCount := clientEofCount[clientID]
 					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
 					if eofCount >= neededEof {
-						batches := get_accumulator_batches(accumulator[clientID])
-						for _, batch := range batches {
+						itemKeys, batches := getAccumulatorBatches(accumulator[clientID])
+						for i, batch := range batches {
 							if batch != "" {
-								outChan <- clientID + "\n" + batch
+								outChan <- clientID + "\n" + itemKeys[i] + "\n" + batch
 							}
 						}
 						msg := clientID + "\nEOF"

@@ -17,9 +17,7 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	resultChunkSize     = 10 * 1024 * 1024 // 10MB chunks for results
-	channelPoolSize     = 10               // Number of channels in the pool
-	expectedResultCount = 4                // Number of final result queues
+	expectedResultCount = 4 // Number of final result queues
 )
 
 // ResultMessage contains a result and which queue it came from
@@ -39,6 +37,7 @@ type RequestHandlerConfig struct {
 	StoresQ4ReceiversCount         int
 	MenuItemsReceiversCount        int
 	UsersReceiversCount            int
+	BufferSize                     int
 }
 
 // RequestHandler handles incoming client connections and manages message flow
@@ -200,13 +199,13 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 	}
 
 	// Process final results with proper cleanup
-	if err := processFinalResults(clientId, channel, proto); err != nil {
+	if err := processFinalResults(clientId, channel, proto, cfg.BufferSize); err != nil {
 		log.Errorf("Failed to process final results: %v", err)
 	}
 }
 
 // processFinalResults handles consuming and sending final results
-func processFinalResults(clientId uint16, channel *amqp.Channel, proto *protocol.Protocol) error {
+func processFinalResults(clientId uint16, channel *amqp.Channel, proto *protocol.Protocol, bufferSize int) error {
 	resultChan := make(chan ResultMessage, expectedResultCount)
 	errChan := make(chan error, expectedResultCount)
 
@@ -222,7 +221,7 @@ func processFinalResults(clientId uint16, channel *amqp.Channel, proto *protocol
 		log.Infof("Client %d: Started consuming from %s", clientId, queueName)
 	}
 
-	return waitForFinalResults(resultChan, errChan, proto)
+	return waitForFinalResults(resultChan, errChan, proto, bufferSize)
 }
 
 // consumeOneResult consumes exactly one message from a queue
@@ -444,7 +443,7 @@ func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg Request
 }
 
 // waitForFinalResults waits for results from multiple queues
-func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol) error {
+func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, bufferSize int) error {
 	resultsReceived := 0
 
 	for resultsReceived < expectedResultCount {
@@ -459,7 +458,7 @@ func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, prot
 			slices.Sort(list)
 			finalResult := strings.Join(list, "\n")
 
-			if err := sendResponse(proto, int32(result.QueueID), []byte(finalResult)); err != nil {
+			if err := sendResponse(proto, int32(result.QueueID), []byte(finalResult), bufferSize); err != nil {
 				return fmt.Errorf("failed to send response from queue %d: %w", result.QueueID, err)
 			}
 
@@ -476,7 +475,7 @@ func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, prot
 }
 
 // sendResponse writes the result back to the client in chunks
-func sendResponse(proto *protocol.Protocol, queueID int32, result []byte) error {
+func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, bufferSize int) error {
 	totalSize := len(result)
 
 	if totalSize == 0 {
@@ -485,12 +484,12 @@ func sendResponse(proto *protocol.Protocol, queueID int32, result []byte) error 
 	}
 
 	// Calculate number of chunks
-	totalChunks := int32((totalSize + resultChunkSize - 1) / resultChunkSize)
+	totalChunks := int32((totalSize + bufferSize - 1) / bufferSize)
 
 	// Send each chunk
 	for chunkNum := int32(1); chunkNum <= totalChunks; chunkNum++ {
-		start := int((chunkNum - 1) * int32(resultChunkSize))
-		end := start + resultChunkSize
+		start := int((chunkNum - 1) * int32(bufferSize))
+		end := start + bufferSize
 		if end > totalSize {
 			end = totalSize
 		}

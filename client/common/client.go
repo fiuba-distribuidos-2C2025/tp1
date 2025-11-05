@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
@@ -253,13 +252,14 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				csvRows[i] = joinCSVRow(row)
 			}
 
-			clientID, err := strconv.ParseUint(c.config.ID, 10, 16)
+			// Convert client ID string to [8]byte
+			clientID, err := protocol.ClientIDFromString(c.config.ID)
 			if err != nil {
 				return fmt.Errorf("invalid client ID: %w", err)
 			}
 
 			batchMsg := &protocol.BatchMessage{
-				ClientID:     uint16(clientID),
+				ClientID:     clientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
 				TotalChunks:  metadata.totalChunks,

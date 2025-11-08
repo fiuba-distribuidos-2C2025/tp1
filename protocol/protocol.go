@@ -47,12 +47,16 @@ func (ft FileType) IsValid() bool {
 type MessageType byte
 
 const (
-	MessageTypeBatch       MessageType = 0x01
-	MessageTypeEOF         MessageType = 0x02
-	MessageTypeFinalEOF    MessageType = 0x03
-	MessageTypeACK         MessageType = 0x04
-	MessageTypeResultChunk MessageType = 0x05
-	MessageTypeResultEOF   MessageType = 0x06
+	MessageTypeBatch          MessageType = 0x01
+	MessageTypeEOF            MessageType = 0x02
+	MessageTypeFinalEOF       MessageType = 0x03
+	MessageTypeACK            MessageType = 0x04
+	MessageTypeResultChunk    MessageType = 0x05
+	MessageTypeResultEOF      MessageType = 0x06
+	MessageTypeQueryId        MessageType = 0x07
+	MessageTypeResultsRequest MessageType = 0x08
+	MessageTypeResultsPending MessageType = 0x09
+	MessageTypeResultsReady   MessageType = 0x0A
 )
 
 // BatchMessage represents a data batch being transferred
@@ -101,6 +105,11 @@ type ResultChunkMessage struct {
 // ResultEOFMessage represents the end of results from a specific queue
 type ResultEOFMessage struct {
 	QueueID int32
+}
+
+// QueryIdMessage represents the identifier generated for an specific request
+type QueryIdMessage struct {
+	QueryID string
 }
 
 // Protocol handles message serialization and deserialization with proper framing
@@ -331,6 +340,40 @@ func (p *Protocol) SendResultEOF(queueID int32) error {
 	return p.writeFull(buf.Bytes())
 }
 
+// SendQueryId sends the query ID generated for the request
+func (p *Protocol) SendQueryId(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeQueryId))
+	buf.WriteString(queryID)
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendResultsRequest sends the query ID for the needed response
+func (p *Protocol) SendResultsRequest(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsRequest))
+	buf.WriteString(queryID)
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendResultsPending notifies that results are not ready yet
+func (p *Protocol) SendResultsPending(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsPending))
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendResultsReady notifies that results are ready to be sent
+func (p *Protocol) SendResultsReady(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsReady))
+
+	return p.writeFull(buf.Bytes())
+}
+
 // ReceiveResultEOF receives the result EOF marker
 func (p *Protocol) ReceiveResultEOF() (*ResultEOFMessage, error) {
 	buf := make([]byte, 4)
@@ -341,6 +384,18 @@ func (p *Protocol) ReceiveResultEOF() (*ResultEOFMessage, error) {
 	queueID := int32(binary.BigEndian.Uint32(buf))
 
 	return &ResultEOFMessage{QueueID: queueID}, nil
+}
+
+// ReceiveQueryId receives the query ID generated for the request
+func (p *Protocol) ReceiveQueryId() (*QueryIdMessage, error) {
+	buf := make([]byte, 8)
+	if _, err := io.ReadFull(p.reader, buf); err != nil {
+		return nil, fmt.Errorf("failed to read query ID: %w", err)
+	}
+
+	queryID := string(buf)
+
+	return &QueryIdMessage{QueryID: queryID}, nil
 }
 
 // ReceiveMessage receives any message type and returns the type and appropriate data
@@ -373,6 +428,10 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 
 	case MessageTypeResultEOF:
 		msg, err := p.ReceiveResultEOF()
+		return msgType, msg, err
+
+	case MessageTypeQueryId:
+		msg, err := p.ReceiveQueryId()
 		return msgType, msg, err
 
 	default:

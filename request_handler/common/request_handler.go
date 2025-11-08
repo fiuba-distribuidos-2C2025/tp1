@@ -189,9 +189,9 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 		if isFinalEOF {
 			log.Infof("Received FINAL_EOF from client %d after %d files", clientId, filesProcessed)
 
-			// Send ACK for FINAL_EOF
-			if err := proto.SendACK(); err != nil {
-				log.Errorf("Failed to send FINAL_EOF ACK: %v", err)
+			// Send Query ID after FINAL_EOF
+			if err := proto.SendQueryId(clientId); err != nil {
+				log.Errorf("Failed to send Queue Id: %v", err)
 				return
 			}
 

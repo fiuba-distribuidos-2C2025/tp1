@@ -1,0 +1,96 @@
+package utils
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// Store normal message (overwrites on same msgID).
+func StoreMessage(baseDir string, clientID, msgID, body string) error {
+	clientDir := filepath.Join(baseDir, clientID, "messages")
+	if err := os.MkdirAll(clientDir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(clientDir, msgID+".txt")
+	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+// Store EOF (overwrites on same msgID).
+func StoreEOF(baseDir string, clientID, msgID string) error {
+	eofDir := filepath.Join(baseDir, clientID, "eof")
+	if err := os.MkdirAll(eofDir, 0o755); err != nil {
+		return err
+	}
+
+	// One file per EOF message, keyed by msgID (idempotent on redelivery).
+	path := filepath.Join(eofDir, msgID+".eof")
+	if err := os.WriteFile(path, []byte("EOF\n"), 0o644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetEOFCount returns the number of stored EOF messages for a client.
+func GetEOFCount(baseDir, clientID string) (int, error) {
+	eofDir := filepath.Join(baseDir, clientID, "eof")
+	entries, err := os.ReadDir(eofDir)
+	if err != nil {
+		return 0, err
+	}
+	return len(entries), nil
+}
+
+func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, thresholdReachedHandle func(outChan chan string, baseDir string, clientID string) error) error {
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return nil
+		}
+		return err
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		clientID := e.Name()
+		{
+			err := thresholdReachedHandle(outChan, baseDir, clientID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ThresholdReached(baseDir, clientID string, neededEof int) (bool, error) {
+	eofDir := filepath.Join(baseDir, clientID, "eof")
+
+	eofEntries, err := os.ReadDir(eofDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil // no EOFs for this client
+		}
+		return false, err
+	}
+
+	count := len(eofEntries)
+
+	return count >= neededEof, nil
+}
+
+// RemoveClientDir deletes the entire directory for a given clientID.
+func RemoveClientDir(baseDir string, clientID string) error {
+	clientDir := filepath.Join(baseDir, clientID)
+
+	if err := os.RemoveAll(clientDir); err != nil {
+		return fmt.Errorf("failed to remove %s: %w", clientDir, err)
+	}
+
+	return nil
+}

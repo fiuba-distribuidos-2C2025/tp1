@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -150,7 +151,7 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 	case protocol.MessageTypeResultsRequest:
 		queryId := data.(*protocol.QueryIdMessage).QueryID
 		// TODO: handle errors here?
-		handleResultsRequest(proto, cfg, channel, queryId)
+		handleResultsRequest(proto, cfg, channel, queryId, cfg.BufferSize)
 	default:
 		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
 		return
@@ -220,13 +221,13 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 	}
 
 	// Process final results with proper cleanup
-	if err := processFinalResults(clientId, channel, proto, cfg.BufferSize); err != nil {
+	if err := processFinalResults(clientId, channel, proto); err != nil {
 		log.Errorf("Failed to process final results: %v", err)
 	}
 }
 
 // processFinalResults handles consuming and sending final results
-func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol.Protocol, bufferSize int) error {
+func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol.Protocol) error {
 	resultChan := make(chan ResultMessage, expectedResultCount)
 	errChan := make(chan error, expectedResultCount)
 
@@ -242,7 +243,7 @@ func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol
 		log.Infof("Client %s: Started consuming from %s", clientId, queueName)
 	}
 
-	return waitForFinalResults(resultChan, errChan, proto, bufferSize, clientId)
+	return waitForFinalResults(resultChan, errChan, proto, clientId)
 }
 
 // consumeOneResult consumes exactly one message from a queue
@@ -468,7 +469,7 @@ func sendEOFForFileType(clientId string, fileType protocol.FileType, cfg Request
 }
 
 // waitForFinalResults waits for results from multiple queues
-func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, bufferSize int, clientId string) error {
+func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, clientId string) error {
 	resultsReceived := 0
 
 	for resultsReceived < expectedResultCount {
@@ -501,14 +502,65 @@ func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, prot
 }
 
 // saveResponse saves the query result in a file
-func saveResponse(clientId string, queueID int32, data []byte) error {
-	log.Debugf("Saving results of queue %d for client %s", queueID, clientId)
-	fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, clientId)
+func saveResponse(queryId string, queueID int32, data []byte) error {
+	log.Debugf("Saving results of queue %d for client %s", queueID, queryId)
+	fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
 	return os.WriteFile(fileName, data, 0644)
 }
 
-// TODO: remove if unused
-// sendResponse writes the result back to the client in chunks
+// TODO: if we are to optimize this function, we could also receive which specific
+// queries we want the results of
+func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string, bufferSize int) error {
+	log.Infof("Handling results request for query %s", queryId)
+
+	// Check if all needed files are present
+	if !checkFilesPresent(queryId) {
+		log.Infof("All results for query %s are not present", queryId)
+		return proto.SendResultsPending()
+	}
+
+	err := proto.SendResultsReady()
+	if err != nil {
+		return err
+	}
+
+	for queueID := 1; queueID <= 4; queueID++ {
+		fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
+		result, err := os.ReadFile(fileName)
+		if err != nil {
+			return fmt.Errorf("error reading file %s: %w", fileName, err)
+		}
+		err = sendResponse(proto, int32(queueID), result, bufferSize)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Check if all files are present for a given query ID
+// TODO: looks really unefficient
+func checkFilesPresent(queryId string) bool {
+	_, err := os.Stat(fmt.Sprintf("final_results_1_%s.txt", queryId))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	_, err = os.Stat(fmt.Sprintf("final_results_2_%s.txt", queryId))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	_, err = os.Stat(fmt.Sprintf("final_results_3_%s.txt", queryId))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	_, err = os.Stat(fmt.Sprintf("final_results_4_%s.txt", queryId))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return true
+}
+
 func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, bufferSize int) error {
 	totalSize := len(result)
 
@@ -544,11 +596,4 @@ func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, buffer
 
 	// Send EOF after all chunks for this queue
 	return proto.SendResultEOF(queueID)
-}
-
-// TODO: if we are to optimize this function, we could also receive which specific
-// queries we want the results of
-func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string) error {
-	log.Infof("Handling results request for query %s", queryId)
-	return proto.SendResultsPending()
 }

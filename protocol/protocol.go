@@ -373,7 +373,7 @@ func (p *Protocol) SendResultsPending() error {
 }
 
 // SendResultsReady notifies that results are ready to be sent
-func (p *Protocol) SendResultsReady(queryID string) error {
+func (p *Protocol) SendResultsReady() error {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(MessageTypeResultsReady))
 
@@ -448,6 +448,9 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 		return msgType, msg, err
 
 	case MessageTypeResultsPending:
+		return msgType, nil, nil
+
+	case MessageTypeResultsReady:
 		return msgType, nil, nil
 
 	default:

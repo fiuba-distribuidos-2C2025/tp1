@@ -204,14 +204,17 @@ func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Cha
 	}
 }
 
-// processFinalResults handles consuming and sending final results
 func processFinalResults(clientId uint16, channel *amqp.Channel, proto *protocol.Protocol, bufferSize int) error {
-	resultChan := make(chan ResultMessage, expectedResultCount)
-	errChan := make(chan error, expectedResultCount)
+    log.Infof("Starting to process final results for client %d", clientId)
 
-	// Start consuming from all final result queues
-	for i := 1; i <= expectedResultCount; i++ {
-		queueName := fmt.Sprintf("final_results_%d_%d", clientId, i)
+    resultChan := make(chan ResultMessage, expectedResultCount)
+    errChan := make(chan error, expectedResultCount)
+
+    // Start consuming from all final result queues
+    for i := 1; i <= expectedResultCount; i++ {
+        queueName := fmt.Sprintf("final_results_%d_%d", clientId, i)
+        log.Infof("Client %d: Attempting to consume from queue %s", clientId, queueName)
+        // ... rest of code
 		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
 
 		go func(qID int, q *middleware.MessageMiddlewareQueue) {

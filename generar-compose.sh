@@ -11,6 +11,16 @@ OUTPUT_FILE="$1"
 CONFIG_FILE="$2"
 source "$CONFIG_FILE"
 
+# Build the PROXY_REQUESTHANDLERS_ADDRESSES string
+PROXY_REQUESTHANDLERS_ADDRESSES=""
+for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
+    if [ $i -eq 1 ]; then
+        PROXY_REQUESTHANDLERS_ADDRESSES="request_handler$i:890$i"
+    else
+        PROXY_REQUESTHANDLERS_ADDRESSES="$PROXY_REQUESTHANDLERS_ADDRESSES,request_handler$i:890$i"
+    fi
+done
+
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
@@ -32,25 +42,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler/config.yaml:/config/config.yaml
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-    environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
-      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
-      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=$WORKER_COUNT_JOINER_BY_USER_ID
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest
@@ -68,7 +59,50 @@ services:
     networks:
       - testing_net
 
+  proxy:
+    container_name: proxy
+    image: proxy:latest
+    entrypoint: /proxy
+    volumes:
+      - ./proxy/config.yaml:/config/config.yaml
+    environment:
+      - PROXY_REQUESTHANDLERS_ADDRESSES=$PROXY_REQUESTHANDLERS_ADDRESSES
+    depends_on:
+        rabbit:
+            condition: service_healthy
+        request_handler1:
+            condition: service_started
+    networks:
+      - testing_net
+
 EOL
+
+for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
+cat >> "$OUTPUT_FILE" <<EOL
+  request_handler$i:
+    container_name: request_handler$i
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    networks:
+      - testing_net
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=$WORKER_COUNT_JOINER_BY_USER_ID
+      - REQUEST_IP=request_handler$i
+      - REQUEST_PORT=890$i
+      - ID=$i
+
+EOL
+done
 
 for ((i=1; i<=CLIENT_COUNT; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
@@ -83,7 +117,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-        request_handler:
+        proxy:
             condition: service_started
     networks:
         - testing_net
@@ -116,7 +150,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
-      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_STORE_USER
       - WORKER_ID=$i
@@ -166,7 +200,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=$i
 
 EOL
@@ -196,7 +230,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_items_2024_2025
-      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH
       - WORKER_ID=$i
 
@@ -269,8 +303,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
-      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY,$REQUEST_CONTROLLER_COUNT
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY,1
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=$i
 
 EOL
@@ -347,9 +381,9 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
-      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_SEMESTER,$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_SEMESTER,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=$i
 
 EOL
@@ -426,7 +460,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
-      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT,$WORKER_COUNT_AGGREGATOR_BY_STORE_USER
+      - WORKER_MIDDLEWARE_SENDERS=1,$WORKER_COUNT_AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_USER_STORE
       - WORKER_ID=$i
@@ -450,9 +484,9 @@ cat >> "$OUTPUT_FILE" <<EOL
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
-      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_JOINER_BY_USER_ID,$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_JOINER_BY_USER_ID,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=$i
 
 EOL

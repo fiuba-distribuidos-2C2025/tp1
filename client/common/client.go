@@ -60,6 +60,12 @@ func (c *Client) Start() error {
 		return err
 	}
 
+	// Send message to server signaling the start of a query request
+	if err := c.protocol.SendQueryRequest(); err != nil {
+		log.Errorf("Failed to send query request: %v", err)
+		return err
+	}
+
 	if err := c.TransferDataDirectory("/data"); err != nil {
 		log.Errorf("Failed to transfer data: %v", err)
 		return err
@@ -432,12 +438,12 @@ func (c *Client) tryReadResults() error {
 
 		switch msgType {
 		case protocol.MessageTypeResultsPending:
-			log.Debugf("Request handler is still processing results")
+			log.Info("Request handler is still processing results")
 			c.stopServerConn()
 			time.Sleep(resultsWaitTime)
 			continue
 		case protocol.MessageTypeResultsReady:
-			log.Infof("Request handler ready to send results")
+			log.Info("Request handler ready to send results")
 		default:
 			// Something went wrong with the client, abort conenction
 			c.stopServerConn()

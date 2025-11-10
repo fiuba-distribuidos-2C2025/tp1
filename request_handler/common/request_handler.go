@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -125,27 +126,45 @@ func (rh *RequestHandler) acceptConnections() {
 			continue
 		}
 
-		go handleConnection(conn, rh.Config, channel)
+		go handleNewConnection(conn, rh.Config, channel)
 	}
 }
 
-// handleConnection processes a single client connection
-func handleConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Channel) {
+// handleNewConnection processes a single client connection
+func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Channel) {
 	defer conn.Close()
 	defer channel.Close()
-
 	log.Infof("New connection from %s", conn.RemoteAddr())
-	proto := protocol.NewProtocol(conn)
-	filesProcessed := 0
 
+	proto := protocol.NewProtocol(conn)
+	msgType, data, err := proto.ReceiveMessage()
+	if err != nil {
+		log.Errorf("Failed to receive initial message from %s: %v", conn.RemoteAddr(), err)
+		return
+	}
+
+	switch msgType {
+	case protocol.MessageTypeQueryRequest:
+		// TODO: handle errors here?
+		handleQueryRequest(proto, cfg, channel)
+	case protocol.MessageTypeResultsRequest:
+		queryId := data.(*protocol.QueryIdMessage).QueryID
+		// TODO: handle errors here?
+		handleResultsRequest(proto, cfg, channel, queryId)
+	default:
+		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
+		return
+	}
+}
+
+func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel) {
+	filesProcessed := 0
 	src := rand.New(rand.NewSource(time.Now().UnixNano()))
 	bytes := make([]byte, 4)
 	for i := range bytes {
 		bytes[i] = byte(src.Intn(256))
 	}
 	clientId := hex.EncodeToString(bytes)
-	// TODO: return this UUID to the client so it knows how to request
-	// results from the request handler
 
 	// Keep processing messages until FINAL_EOF is received
 	for {
@@ -223,7 +242,7 @@ func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol
 		log.Infof("Client %s: Started consuming from %s", clientId, queueName)
 	}
 
-	return waitForFinalResults(resultChan, errChan, proto, bufferSize)
+	return waitForFinalResults(resultChan, errChan, proto, bufferSize, clientId)
 }
 
 // consumeOneResult consumes exactly one message from a queue
@@ -449,7 +468,7 @@ func sendEOFForFileType(clientId string, fileType protocol.FileType, cfg Request
 }
 
 // waitForFinalResults waits for results from multiple queues
-func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, bufferSize int) error {
+func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, bufferSize int, clientId string) error {
 	resultsReceived := 0
 
 	for resultsReceived < expectedResultCount {
@@ -464,11 +483,12 @@ func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, prot
 			slices.Sort(list)
 			finalResult := strings.Join(list, "\n")
 
-			if err := sendResponse(proto, int32(result.QueueID), []byte(finalResult), bufferSize); err != nil {
-				return fmt.Errorf("failed to send response from queue %d: %w", result.QueueID, err)
+			// Persist result to disk
+			if err := saveResponse(clientId, int32(result.QueueID), []byte(finalResult)); err != nil {
+				return fmt.Errorf("failed to save response from queue %d: %w", result.QueueID, err)
 			}
 
-			log.Infof("Successfully sent result %d/%d (final_results_%d)",
+			log.Infof("Successfully saved result %d/%d (final_results_%d)",
 				resultsReceived, expectedResultCount, result.QueueID)
 
 		case err := <-errChan:
@@ -476,10 +496,18 @@ func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, prot
 		}
 	}
 
-	log.Infof("All %d results sent to client", resultsReceived)
+	log.Infof("All %d results persisted", resultsReceived)
 	return nil
 }
 
+// saveResponse saves the query result in a file
+func saveResponse(clientId string, queueID int32, data []byte) error {
+	log.Debugf("Saving results of queue %d for client %s", queueID, clientId)
+	fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, clientId)
+	return os.WriteFile(fileName, data, 0644)
+}
+
+// TODO: remove if unused
 // sendResponse writes the result back to the client in chunks
 func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, bufferSize int) error {
 	totalSize := len(result)
@@ -516,4 +544,11 @@ func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, buffer
 
 	// Send EOF after all chunks for this queue
 	return proto.SendResultEOF(queueID)
+}
+
+// TODO: if we are to optimize this function, we could also receive which specific
+// queries we want the results of
+func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string) error {
+	log.Infof("Handling results request for query %s", queryId)
+	return proto.SendResultsPending()
 }

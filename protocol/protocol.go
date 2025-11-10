@@ -54,9 +54,10 @@ const (
 	MessageTypeResultChunk    MessageType = 0x05
 	MessageTypeResultEOF      MessageType = 0x06
 	MessageTypeQueryId        MessageType = 0x07
-	MessageTypeResultsRequest MessageType = 0x08
-	MessageTypeResultsPending MessageType = 0x09
-	MessageTypeResultsReady   MessageType = 0x0A
+	MessageTypeQueryRequest   MessageType = 0x08
+	MessageTypeResultsRequest MessageType = 0x09
+	MessageTypeResultsPending MessageType = 0x0A
+	MessageTypeResultsReady   MessageType = 0x0B
 )
 
 // BatchMessage represents a data batch being transferred
@@ -349,6 +350,11 @@ func (p *Protocol) SendQueryId(queryID string) error {
 	return p.writeFull(buf.Bytes())
 }
 
+// SendQueryRequest sends the query request marker
+func (p *Protocol) SendQueryRequest() error {
+	return p.writeFull([]byte{byte(MessageTypeQueryRequest)})
+}
+
 // SendResultsRequest sends the query ID for the needed response
 func (p *Protocol) SendResultsRequest(queryID string) error {
 	var buf bytes.Buffer
@@ -359,7 +365,7 @@ func (p *Protocol) SendResultsRequest(queryID string) error {
 }
 
 // SendResultsPending notifies that results are not ready yet
-func (p *Protocol) SendResultsPending(queryID string) error {
+func (p *Protocol) SendResultsPending() error {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(MessageTypeResultsPending))
 
@@ -433,6 +439,16 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 	case MessageTypeQueryId:
 		msg, err := p.ReceiveQueryId()
 		return msgType, msg, err
+
+	case MessageTypeQueryRequest:
+		return msgType, nil, nil
+
+	case MessageTypeResultsRequest:
+		msg, err := p.ReceiveQueryId()
+		return msgType, msg, err
+
+	case MessageTypeResultsPending:
+		return msgType, nil, nil
 
 	default:
 		return 0, nil, fmt.Errorf("unknown message type: 0x%02x", msgType)

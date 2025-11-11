@@ -69,6 +69,7 @@ func getSemesterAccumulatorBatches(accumulator map[string]grouper.SemesterStats)
 	return batches
 }
 
+// Function called when EOF threshold is reached for a client
 func thresholdReachedHandle(outChan chan string, baseDir string, clientID string) error {
 	accumulator := make(map[string]grouper.SemesterStats)
 
@@ -126,8 +127,9 @@ func thresholdReachedHandle(outChan chan string, baseDir string, clientID string
 	return utils.RemoveClientDir(baseDir, clientID)
 }
 func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-
-	// 	TODO: move this to Worker instead.
+	// Check existing EOF thresholds before starting to consume messages.
+	// This ensures that if the worker restarts, it can pick up where it left off.
+	// TODO: move this to Worker once all workers implement it
 	err := utils.CheckAllClientsEOFThresholds(outChan, baseDir, neededEof, thresholdReachedHandle)
 	if err != nil {
 		log.Errorf("Error checking existing EOF thresholds: %v", err)
@@ -166,6 +168,7 @@ func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof
 				// Acknowledge message
 				msg.Ack(false)
 
+				// Check if threshold reached for this client
 				if lines[2] == "EOF" {
 					thresholdReached, err := utils.ThresholdReached(baseDir, clientID, neededEof)
 					if err != nil {

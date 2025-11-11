@@ -1,13 +1,14 @@
-package integration_test
+package tests
 
 import (
+	"fmt"
 	"testing"
 	"time"
-	"fmt"
-	"github.com/stretchr/testify/assert"
-	worker "github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
+
 	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	response_builder "github.com/fiuba-distribuidos-2C2025/tp1/response_builder/common"
+	worker "github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
+	"github.com/stretchr/testify/assert"
 )
 
 // Creates all necessary queues for the test
@@ -16,7 +17,7 @@ func setupQueuesFirstQuery(factory *middleware.MockQueueFactory, numYearWorkers,
 	finalOutput *middleware.MockMessageMiddleware,
 ) {
 	firstInputQueues = make([]*middleware.MockMessageMiddleware, numYearWorkers)
-	
+
 	// Create input queues for year filter workers
 	for i := 1; i <= numYearWorkers; i++ {
 		firstInputQueues[i-1] = factory.CreateQueue(fmt.Sprintf("transactions_1_%d", i)).(*middleware.MockMessageMiddleware)
@@ -33,44 +34,17 @@ func setupQueuesFirstQuery(factory *middleware.MockQueueFactory, numYearWorkers,
 	for i := 1; i <= numHourWorkers; i++ {
 		factory.CreateQueue(fmt.Sprintf("transactions_filtered_by_hour_q1_%d", i))
 	}
-	
+
 	factory.CreateQueue("results_1_1")
 	finalOutput = factory.CreateQueue("final_results_1_1").(*middleware.MockMessageMiddleware)
-	
+
 	return firstInputQueues, finalOutput
-}
-
-// Sends test data to the input queues
-func sendTestData(queues []*middleware.MockMessageMiddleware, testData []struct {
-	input       string
-	shouldPass  bool
-	description string
-}) {
-	for _, td := range testData {
-		for _, queue := range queues {
-			queue.Send([]byte(td.input))
-		}
-	}
-}
-
-// Creates the worker configuration
-func createWorkerConfig(inputQueue, outputQueue string, inputSenders, outputReceivers []string, workerJob string, id int) worker.WorkerConfig {
-	return worker.WorkerConfig{
-		MiddlewareUrl:   "test",
-		InputQueue:      []string{inputQueue},
-		OutputQueue:     []string{outputQueue},
-		InputSenders:    inputSenders,
-		OutputReceivers: outputReceivers,
-		WorkerJob:       workerJob,
-		ID:              id,
-		IsTest:          true,
-	}
 }
 
 // Creates and starts multiple workers with a list of configurations
 func startWorkers(t *testing.T, factory *middleware.MockQueueFactory, configs []worker.WorkerConfig) []*worker.Worker {
 	workers := make([]*worker.Worker, len(configs))
-	
+
 	for i, config := range configs {
 		w, err := worker.NewWorker(config, factory)
 		if err != nil {
@@ -79,7 +53,7 @@ func startWorkers(t *testing.T, factory *middleware.MockQueueFactory, configs []
 		go w.Start()
 		workers[i] = w
 	}
-	
+
 	return workers
 }
 
@@ -103,7 +77,7 @@ func createResponseBuilder(t *testing.T, factory *middleware.MockQueueFactory, r
 
 	rb := response_builder.NewResponseBuilder(config, factory)
 	go rb.Start()
-	
+
 	return rb
 }
 
@@ -114,7 +88,7 @@ func runWorkersFirstQuery(t *testing.T, factory *middleware.MockQueueFactory, nu
 	// Create year filter workers
 	yearConfigs := make([]worker.WorkerConfig, numYearWorkers)
 	for i := 1; i <= numYearWorkers; i++ {
-		yearConfigs[i-1] = createWorkerConfig("transactions_1", "transactions_2024_2025_q1", inputSendersYear, outputReceiversYear, "YEAR_FILTER", i)
+		yearConfigs[i-1] = CreateWorkerConfig("transactions_1", "transactions_2024_2025_q1", inputSendersYear, outputReceiversYear, "YEAR_FILTER", i)
 	}
 	yearWorkers := startWorkers(t, factory, yearConfigs)
 	allWorkers = append(allWorkers, yearWorkers...)
@@ -123,7 +97,7 @@ func runWorkersFirstQuery(t *testing.T, factory *middleware.MockQueueFactory, nu
 	// Create hour filter workers
 	hourConfigs := make([]worker.WorkerConfig, numHourWorkers)
 	for i := 1; i <= numHourWorkers; i++ {
-		hourConfigs[i-1] = createWorkerConfig("transactions_2024_2025_q1", "transactions_filtered_by_hour_q1", inputSendersHour, outputReceiversHour, "HOUR_FILTER", i)
+		hourConfigs[i-1] = CreateWorkerConfig("transactions_2024_2025_q1", "transactions_filtered_by_hour_q1", inputSendersHour, outputReceiversHour, "HOUR_FILTER", i)
 	}
 	hourWorkers := startWorkers(t, factory, hourConfigs)
 	allWorkers = append(allWorkers, hourWorkers...)
@@ -132,7 +106,7 @@ func runWorkersFirstQuery(t *testing.T, factory *middleware.MockQueueFactory, nu
 	// Create amount filter workers
 	amountConfigs := make([]worker.WorkerConfig, numAmountWorkers)
 	for i := 1; i <= numAmountWorkers; i++ {
-		amountConfigs[i-1] = createWorkerConfig("transactions_filtered_by_hour_q1", "results_1", inputSendersAmount, outputReceiversAmount, "AMOUNT_FILTER", i)
+		amountConfigs[i-1] = CreateWorkerConfig("transactions_filtered_by_hour_q1", "results_1", inputSendersAmount, outputReceiversAmount, "AMOUNT_FILTER", i)
 	}
 	amountWorkers := startWorkers(t, factory, amountConfigs)
 	allWorkers = append(allWorkers, amountWorkers...)
@@ -157,14 +131,14 @@ func TestFirstQuery(t *testing.T) {
 		{"1\nEOF", false, "EOF marker"},
 	}
 
-	sendTestData(firstInputQueues, testData)
+	SendTestData(firstInputQueues, testData)
 
 	workers := runWorkersFirstQuery(t, factory, 1, 1, 1, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"})
 	defer stopWorkers(workers)
 
 	createResponseBuilder(t, factory, 1)
 	time.Sleep(5 * time.Second)
-	
+
 	outputMessages := finalOutput.GetMessages()
 	fmt.Printf("Output Messages: %s\n", outputMessages)
 	assert.Equal(t, 1, len(outputMessages), "Output queue should have exactly 1 message")
@@ -182,7 +156,7 @@ func TestEOF(t *testing.T) {
 		{"1\nEOF", false, "EOF marker"},
 	}
 
-	sendTestData(firstInputQueues, testData)
+	SendTestData(firstInputQueues, testData)
 
 	workers := runWorkersFirstQuery(t, factory, 1, 1, 1, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"}, []string{"1"})
 	defer stopWorkers(workers)
@@ -207,7 +181,7 @@ func TestEOFWithManyInputWorkers(t *testing.T) {
 		{"1\nEOF", false, "EOF marker"},
 	}
 
-	sendTestData(firstInputQueues, testData)
+	SendTestData(firstInputQueues, testData)
 
 	workers := runWorkersFirstQuery(t, factory, 2, 2, 2, []string{"1"}, []string{"2"}, []string{"2"}, []string{"2"}, []string{"2"}, []string{"1"})
 	defer stopWorkers(workers)

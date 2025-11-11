@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// Store normal message (overwrites on same msgID).
+// Stores normal message (overwrites on same msgID).
 func StoreMessage(baseDir string, clientID, msgID, body string) error {
 	clientDir := filepath.Join(baseDir, clientID, "messages")
 	if err := os.MkdirAll(clientDir, 0o755); err != nil {
@@ -16,7 +16,7 @@ func StoreMessage(baseDir string, clientID, msgID, body string) error {
 	return os.WriteFile(path, []byte(body), 0o644)
 }
 
-// Store EOF (overwrites on same msgID).
+// Stores EOF (overwrites on same msgID).
 func StoreEOF(baseDir string, clientID, msgID string) error {
 	eofDir := filepath.Join(baseDir, clientID, "eof")
 	if err := os.MkdirAll(eofDir, 0o755); err != nil {
@@ -32,7 +32,7 @@ func StoreEOF(baseDir string, clientID, msgID string) error {
 	return nil
 }
 
-// GetEOFCount returns the number of stored EOF messages for a client.
+// Returns the number of stored EOF messages for a client.
 func GetEOFCount(baseDir, clientID string) (int, error) {
 	eofDir := filepath.Join(baseDir, clientID, "eof")
 	entries, err := os.ReadDir(eofDir)
@@ -42,6 +42,7 @@ func GetEOFCount(baseDir, clientID string) (int, error) {
 	return len(entries), nil
 }
 
+// Checks all client directories in baseDir to see if they have reached the EOF threshold.
 func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, thresholdReachedHandle func(outChan chan string, baseDir string, clientID string) error) error {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
@@ -68,6 +69,7 @@ func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof
 	return nil
 }
 
+// Checks if a client has reached the EOF threshold.
 func ThresholdReached(baseDir, clientID string, neededEof int) (bool, error) {
 	eofDir := filepath.Join(baseDir, clientID, "eof")
 

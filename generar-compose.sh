@@ -327,6 +327,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done

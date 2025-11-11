@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type WorkerConfig struct {
 	WorkerJob       string
 	ID              int
 	IsTest          bool
+	BaseDir         string
 }
 
 type Worker struct {
@@ -293,7 +295,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(grouper.CreateBySemesterGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_SEMESTER":
 		log.Info("Starting AGGREGATOR_SEMESTER worker...")
-		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
@@ -390,20 +392,31 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 			return nil
 
 		case msg := <-inChan:
-			// Not that good, we are assuming that short messages are
-			// EOF, this doesn't scale with clients of id really high
-			// (probably will never happen)
-			if len(msg) < EOF_MESSAGE_MAX_LENGTH && strings.Contains(msg, "EOF") {
+			lines := strings.SplitN(msg, "\n", 2)
+
+			if lines[1] == "EOF" {
 				log.Infof("Broadcasting EOF")
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
 						log.Debugf("Broadcasting EOF to queue: ", queue)
-						queue.Send([]byte(msg))
+
+						// This if won't be necessary once implemented for all groupers
+						if w.config.WorkerJob != "GROUPER_BY_SEMESTER" {
+							queue.Send([]byte(msg))
+						} else {
+							// generate a random message ID
+							// this is a workaround until we refactor the grouper to
+							// properly handle message IDs
+							msgID := fmt.Sprintf("%d", rand.Int63())
+							message := lines[0] + "\n" + msgID + "\n" + lines[1]
+							log.Infof("Forwarding message:\n%s", message)
+							queue.Send([]byte(message))
+						}
 					}
 				}
 				continue
 			}
-			lines := strings.SplitN(msg, "\n", 3)
+			lines = strings.SplitN(msg, "\n", 3)
 
 			clientId := lines[0]
 			key := lines[1]
@@ -421,9 +434,16 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 				}
 				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, aggregatorIdx+1)
 
-				message = clientId + "\n" + message
-
-				queues[aggregatorIdx].Send([]byte(message))
+				// This if won't be necessary once implemented for all groupers
+				if w.config.WorkerJob != "GROUPER_BY_SEMESTER" {
+					queues[aggregatorIdx].Send([]byte(clientId + "\n" + message))
+				} else {
+					// generate a random message ID
+					// this is a workaround until we refactor the grouper to
+					// properly handle message IDs
+					msgID := fmt.Sprintf("%d", rand.Int63())
+					queues[aggregatorIdx].Send([]byte(clientId + "\n" + msgID + "\n" + message))
+				}
 			}
 
 		}

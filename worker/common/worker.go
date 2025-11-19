@@ -283,7 +283,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_BY_PROFIT_QUANTITY":
 		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
-		inQueue.StartConsuming(aggregator.CreateByQuantityProfitAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleProfitQuantity))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
@@ -295,7 +295,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(grouper.CreateBySemesterGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_SEMESTER":
 		log.Info("Starting AGGREGATOR_SEMESTER worker...")
-		inQueue.StartConsuming(aggregator.CreateBySemesterAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleSemester))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
@@ -307,7 +307,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(grouper.CreateByStoreUserGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_BY_STORE_USER":
 		log.Info("Starting AGGREGATOR_BY_STORE_USER worker...")
-		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleStoreUser))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/grouper"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
@@ -70,7 +69,7 @@ func getSemesterAccumulatorBatches(accumulator map[string]grouper.SemesterStats)
 }
 
 // Function called when EOF threshold is reached for a client
-func thresholdReachedHandleSemester(outChan chan string, baseDir string, clientID string) error {
+func ThresholdReachedHandleSemester(outChan chan string, baseDir string, clientID string) error {
 	accumulator := make(map[string]grouper.SemesterStats)
 
 	messagesDir := filepath.Join(baseDir, clientID, "messages")
@@ -125,67 +124,4 @@ func thresholdReachedHandleSemester(outChan chan string, baseDir string, clientI
 
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)
-}
-
-func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Check existing EOF thresholds before starting to consume messages.
-	// This ensures that if the worker restarts, it can pick up where it left off.
-	// TODO: move this to Worker once all workers implement it
-	err := utils.CheckAllClientsEOFThresholds(outChan, baseDir, neededEof, thresholdReachedHandleSemester)
-	if err != nil {
-		log.Errorf("Error checking existing EOF thresholds: %v", err)
-		return nil
-	}
-
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		for {
-			select {
-			case <-done:
-				log.Info("Shutdown signal received, stopping worker...")
-				return
-
-			case msg, ok := <-*consumeChannel:
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.SplitN(payload, "\n", 3)
-
-				// Separate header and the rest
-				clientID := lines[0]
-				msgId := lines[1]
-
-				// Store message or EOF on disk
-				if lines[2] == "EOF" {
-					utils.StoreEOF(baseDir, clientID, msgId)
-				} else {
-					utils.StoreMessage(baseDir, clientID, msgId, lines[2])
-				}
-
-				// Acknowledge message
-				msg.Ack(false)
-
-				// Check if threshold reached for this client
-				if lines[2] == "EOF" {
-					thresholdReached, err := utils.ThresholdReached(baseDir, clientID, neededEof)
-					if err != nil {
-						log.Errorf("Error checking threshold for client %s: %v", clientID, err)
-						return
-					}
-					if thresholdReached {
-						err := thresholdReachedHandleSemester(outChan, baseDir, clientID)
-						if err != nil {
-							log.Errorf("Error handling threshold reached for client %s: %v", clientID, err)
-							return
-						}
-					}
-				}
-
-			}
-		}
-	}
 }

@@ -126,6 +126,7 @@ func thresholdReachedHandleSemester(outChan chan string, baseDir string, clientI
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)
 }
+
 func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Check existing EOF thresholds before starting to consume messages.
 	// This ensures that if the worker restarts, it can pick up where it left off.

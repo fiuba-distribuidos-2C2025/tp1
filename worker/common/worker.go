@@ -307,7 +307,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(grouper.CreateByStoreUserGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "AGGREGATOR_BY_STORE_USER":
 		log.Info("Starting AGGREGATOR_BY_STORE_USER worker...")
-		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(aggregator.CreateByStoreUserAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
 		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan))
@@ -401,9 +401,7 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 						log.Debugf("Broadcasting EOF to queue: ", queue)
 
 						// This if won't be necessary once implemented for all groupers
-						if w.config.WorkerJob != "GROUPER_BY_SEMESTER" {
-							queue.Send([]byte(msg))
-						} else {
+						if shouldGenerateMessageID(w.config.WorkerJob) {
 							// generate a random message ID
 							// this is a workaround until we refactor the grouper to
 							// properly handle message IDs
@@ -411,6 +409,9 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 							message := lines[0] + "\n" + msgID + "\n" + lines[1]
 							log.Infof("Forwarding message:\n%s", message)
 							queue.Send([]byte(message))
+						} else {
+							queue.Send([]byte(msg))
+
 						}
 					}
 				}
@@ -434,19 +435,35 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 				}
 				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, aggregatorIdx+1)
 
-				// This if won't be necessary once implemented for all groupers
-				if w.config.WorkerJob != "GROUPER_BY_SEMESTER" {
-					queues[aggregatorIdx].Send([]byte(clientId + "\n" + message))
-				} else {
+				// TODO: This if won't be necessary once implemented for all groupers
+				if shouldGenerateMessageID(w.config.WorkerJob) {
 					// generate a random message ID
 					// this is a workaround until we refactor the grouper to
 					// properly handle message IDs
 					msgID := fmt.Sprintf("%d", rand.Int63())
+					log.Infof("Generated message ID: %s", msgID)
 					queues[aggregatorIdx].Send([]byte(clientId + "\n" + msgID + "\n" + message))
+				} else {
+					queues[aggregatorIdx].Send([]byte(clientId + "\n" + message))
 				}
 			}
 
 		}
+	}
+}
+
+// shouldGenerateMessageID returns true if the worker job requires generating
+// a message ID when forwarding messages to the next stage.
+// This is a workaround until we refactor all workers to properly generate and handle
+// message IDs.
+func shouldGenerateMessageID(workerJob string) bool {
+	switch workerJob {
+	case "GROUPER_BY_SEMESTER":
+		return true
+	case "GROUPER_BY_STORE_USER":
+		return true
+	default:
+		return false
 	}
 }
 

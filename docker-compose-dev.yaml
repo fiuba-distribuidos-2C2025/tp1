@@ -677,6 +677,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_store_user2:
     container_name: aggregator_by_store_user2
@@ -696,6 +697,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_store_user3:
     container_name: aggregator_by_store_user3
@@ -715,6 +717,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_store_user4:
     container_name: aggregator_by_store_user4
@@ -734,6 +737,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=4
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_id1:
     container_name: joiner_by_user_id1

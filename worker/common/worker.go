@@ -285,7 +285,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof))
 	case "GROUPER_BY_YEAR_MONTH":
 		log.Info("Starting GROUPER_BY_YEAR_MONTH worker...")
-		inQueue.StartConsuming(grouper.CreateByYearMonthGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(grouper.CreateGrouperCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, grouper.ThresholdReachedHandleByYearMonth))
 	case "AGGREGATOR_BY_PROFIT_QUANTITY":
 		log.Info("Starting AGGREGATOR_BY_PROFIT_QUANTITY worker...")
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleProfitQuantity))

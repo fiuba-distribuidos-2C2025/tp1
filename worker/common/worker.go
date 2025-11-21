@@ -309,7 +309,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 	// ==============================================================================
 	case "GROUPER_BY_STORE_USER":
 		log.Info("Starting GROUPER_BY_STORE_USER worker...")
-		inQueue.StartConsuming(grouper.CreateByStoreUserGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(grouper.CreateGrouperCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, grouper.ThresholdReachedHandleByStoreUser))
 	case "AGGREGATOR_BY_STORE_USER":
 		log.Info("Starting AGGREGATOR_BY_STORE_USER worker...")
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleStoreUser))

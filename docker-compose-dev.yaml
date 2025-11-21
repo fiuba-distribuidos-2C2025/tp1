@@ -342,6 +342,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_profit_quantity2:
     container_name: aggregator_by_profit_quantity2
@@ -361,6 +362,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_profit_quantity3:
     container_name: aggregator_by_profit_quantity3
@@ -380,6 +382,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_profit_quantity4:
     container_name: aggregator_by_profit_quantity4
@@ -399,6 +402,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=4
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_item_id1:
     container_name: joiner_by_item_id1
@@ -460,6 +464,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   grouper_by_semester_worker2:
     container_name: grouper_by_semester_worker2
@@ -479,6 +484,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_semester_worker1:
     container_name: aggregator_semester_worker1

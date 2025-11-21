@@ -104,13 +104,14 @@ func (rb *ResponseBuilder) Start() error {
 
 func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState) error {
 	// Parse message
-	lines := strings.SplitN(msg.Value, "\n", 2)
-	if len(lines) < 2 {
+	lines := strings.SplitN(msg.Value, "\n", 3)
+	if len(lines) < 3 {
 		return fmt.Errorf("invalid message format: expected clientId\\nmessage")
 	}
 
 	clientId := lines[0]
-	message := lines[1]
+	// msgID := lines[1]
+	message := lines[2]
 
 	// Get or create client state
 	state, ok := clients[clientId]

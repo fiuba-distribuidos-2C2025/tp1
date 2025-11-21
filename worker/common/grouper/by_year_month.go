@@ -124,13 +124,14 @@ func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof i
 
 				// Separate header and the rest
 				clientID := lines[0]
+				// msgID := lines[1]
 
 				// Create accumulator for client
 				if _, exists := accumulator[clientID]; !exists {
 					accumulator[clientID] = make(map[string]ItemStats)
 				}
 
-				transactions := lines[1:]
+				transactions := lines[2:]
 				if transactions[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1

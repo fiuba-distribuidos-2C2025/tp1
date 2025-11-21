@@ -140,10 +140,15 @@ func (w *Worker) Start() error {
 			return nil
 
 		case msg := <-inQueueResponseChan:
-			// Not that good, we are assuming that short messages are
-			// EOF, this doesn't scale with clients of id really high
-			// (probably will never happen)
-			if len(msg) < EOF_MESSAGE_MAX_LENGTH && strings.Contains(msg, "EOF") {
+
+			lines := strings.SplitN(msg, "\n", 2)
+			// generate a random message ID
+			// this is a workaround until we refactor the grouper to
+			// properly handle message IDs
+			msgID := fmt.Sprintf("%d", rand.Int63())
+			msg = lines[0] + "\n" + msgID + "\n" + lines[1]
+
+			if lines[1] == "EOF" {
 				log.Infof("Broadcasting EOF")
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
@@ -292,7 +297,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 	// ==============================================================================
 	case "GROUPER_BY_SEMESTER":
 		log.Info("Starting GROUPER_BY_SEMESTER worker...")
-		inQueue.StartConsuming(grouper.CreateBySemesterGrouperCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(grouper.CreateGrouperCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, grouper.ThresholdReachedHandleSemester))
 	case "AGGREGATOR_SEMESTER":
 		log.Info("Starting AGGREGATOR_SEMESTER worker...")
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleSemester))
@@ -354,16 +359,22 @@ func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]middlewa
 			return nil
 
 		case msg := <-inChan:
+			// generate a random message ID
+			// this is a workaround until we refactor the grouper to
+			// properly handle message IDs
+			msgID := fmt.Sprintf("%d", rand.Int63())
 			if msg == "EOF" {
 				log.Infof("Broadcasting EOF")
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
 						log.Debugf("Broadcasting EOF to queue: ", queue)
-						queue.Send([]byte("EOF"))
+						queue.Send([]byte(msgID + "\n" + msg))
 					}
 				}
 				return nil
 			}
+			lines := strings.SplitN(msg, "\n", 2)
+			msg = lines[0] + "\n" + msgID + "\n" + lines[1]
 			for _, queues := range outputQueues {
 				for _, queue := range queues {
 					log.Infof("Forwarding message:\n%s\nto queue %d with ", msg, queue)
@@ -393,6 +404,10 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 
 		case msg := <-inChan:
 			lines := strings.SplitN(msg, "\n", 2)
+			// generate a random message ID
+			// this is a workaround until we refactor the grouper to
+			// properly handle message IDs
+			msgID := fmt.Sprintf("%d", rand.Int63())
 
 			if lines[1] == "EOF" {
 				log.Infof("Broadcasting EOF")
@@ -400,28 +415,18 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 					for _, queue := range queues {
 						log.Debugf("Broadcasting EOF to queue: ", queue)
 
-						// This if won't be necessary once implemented for all groupers
-						if shouldGenerateMessageID(w.config.WorkerJob) {
-							// generate a random message ID
-							// this is a workaround until we refactor the grouper to
-							// properly handle message IDs
-							msgID := fmt.Sprintf("%d", rand.Int63())
-							message := lines[0] + "\n" + msgID + "\n" + lines[1]
-							log.Infof("Forwarding message:\n%s", message)
-							queue.Send([]byte(message))
-						} else {
-							queue.Send([]byte(msg))
+						msg = lines[0] + "\n" + msgID + "\n" + lines[1]
+						queue.Send([]byte(msg))
 
-						}
 					}
 				}
 				continue
 			}
 			lines = strings.SplitN(msg, "\n", 3)
-
-			clientId := lines[0]
+			clientID := lines[0]
 			key := lines[1]
-			message := lines[2]
+			msg = clientID + "\n" + msgID + "\n" + lines[2]
+
 			for i, queues := range outputQueues {
 				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
 				if err != nil {
@@ -435,37 +440,11 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 				}
 				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, aggregatorIdx+1)
 
-				// TODO: This if won't be necessary once implemented for all groupers
-				if shouldGenerateMessageID(w.config.WorkerJob) {
-					// generate a random message ID
-					// this is a workaround until we refactor the grouper to
-					// properly handle message IDs
-					msgID := fmt.Sprintf("%d", rand.Int63())
-					log.Infof("Generated message ID: %s", msgID)
-					queues[aggregatorIdx].Send([]byte(clientId + "\n" + msgID + "\n" + message))
-				} else {
-					queues[aggregatorIdx].Send([]byte(clientId + "\n" + message))
-				}
+				queues[aggregatorIdx].Send([]byte(msg))
+
 			}
 
 		}
-	}
-}
-
-// shouldGenerateMessageID returns true if the worker job requires generating
-// a message ID when forwarding messages to the next stage.
-// This is a workaround until we refactor all workers to properly generate and handle
-// message IDs.
-func shouldGenerateMessageID(workerJob string) bool {
-	switch workerJob {
-	case "GROUPER_BY_SEMESTER":
-		return true
-	case "GROUPER_BY_STORE_USER":
-		return true
-	case "GROUPER_BY_YEAR_MONTH":
-		return true
-	default:
-		return false
 	}
 }
 

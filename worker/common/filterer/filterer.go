@@ -38,7 +38,7 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 				// Separate header and the rest
 				clientID := lines[0]
 
-				transactions := lines[1:]
+				transactions := lines[2:]
 				if transactions[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1

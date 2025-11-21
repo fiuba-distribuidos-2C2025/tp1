@@ -107,7 +107,7 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				// Ack message only if we have secondary queue data to handle it
 				msg.Ack(false)
 
-				users := lines[1:]
+				users := lines[2:]
 				if users[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1

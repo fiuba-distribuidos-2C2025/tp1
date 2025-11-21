@@ -109,7 +109,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				// Ack message only if we have secondary queue data to handle it
 				msg.Ack(false)
 
-				items := lines[1:]
+				items := lines[2:]
 				if items[0] == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
 						clientEofCount[clientID] = 1

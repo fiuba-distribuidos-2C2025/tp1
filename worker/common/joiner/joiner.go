@@ -9,27 +9,6 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-// Splits a message into an array of strings
-// using the newline separator.
-func splitBatchInRows(body string) []string {
-	return strings.Split(body, "\n")
-}
-
-// Removes unnecessary fields from a csv string
-// keeping only the specified indices.
-func removeNeedlessFields(row string, indices []int) string {
-	elements := strings.Split(row, ",")
-	needed := make([]string, 0, len(indices))
-
-	for _, idx := range indices {
-		if idx >= 0 && idx < len(elements) {
-			needed = append(needed, elements[idx])
-		}
-	}
-
-	return strings.Join(needed, ",")
-}
-
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	clientEofCount := map[string]int{}
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -44,11 +23,12 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					return
 				}
 				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.SplitN(payload, "\n", 2)
+				lines := strings.SplitN(payload, "\n", 3)
 
 				// Separate header and the rest
 				clientID := lines[0]
-				items := lines[1]
+				// msgID := lines[1]
+				items := lines[2]
 
 				if items == "EOF" {
 					if _, exists := clientEofCount[clientID]; !exists {
@@ -59,14 +39,14 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 
 					eofCount := clientEofCount[clientID]
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						outChan <- payload
 						continue
 					}
 				}
 
 				if items != "" {
 					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
-					outChan <- clientID + "\n" + items
+					outChan <- payload
 				}
 			}
 		}

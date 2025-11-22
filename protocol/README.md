@@ -85,6 +85,8 @@ All messages begin with a single byte message type identifier:
 
 ### Phase 2: Results Retrieval
 
+The client tracks pending results (queries 1-4) and retrieves them incrementally:
+
 1. Client reconnects to server (can be done immediately or after a delay)
 2. Client sends `MessageTypeResultsRequest` (0x09) with query ID
 3. Server responds with either:
@@ -92,6 +94,8 @@ All messages begin with a single byte message type identifier:
    - `MessageTypeResultsReady` (0x0B) - results ready, followed by result chunks
 4. If results are ready, server sends result chunks using `MessageTypeResultChunk` (0x05)
 5. Server signals end of each result queue with `MessageTypeResultEOF` (0x06)
+6. Client removes completed queries from its pending results list
+7. Steps 1-6 repeat until all pending results are received (pendingResults list is empty)
 
 ## Message Formats
 

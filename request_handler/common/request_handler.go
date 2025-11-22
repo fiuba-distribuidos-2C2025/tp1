@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -149,9 +148,10 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 		// TODO: handle errors here?
 		handleQueryRequest(proto, cfg, channel)
 	case protocol.MessageTypeResultsRequest:
-		queryId := data.(*protocol.QueryIdMessage).QueryID
+		queryId := data.(*protocol.ResultRequestMessage).QueryID
+		requestedResults := data.(*protocol.ResultRequestMessage).RequestedResults
 		// TODO: handle errors here?
-		handleResultsRequest(proto, cfg, channel, queryId, cfg.BufferSize)
+		handleResultsRequest(proto, cfg, channel, queryId, requestedResults, cfg.BufferSize)
 	default:
 		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
 		return
@@ -508,14 +508,13 @@ func saveResponse(queryId string, queueID int32, data []byte) error {
 	return os.WriteFile(fileName, data, 0644)
 }
 
-// TODO: if we are to optimize this function, we could also receive which specific
-// queries we want the results of
-func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string, bufferSize int) error {
+func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string, requestedResults []int, bufferSize int) error {
 	log.Infof("Handling results request for query %s", queryId)
 
-	// Check if all needed files are present
-	if !checkFilesPresent(queryId) {
-		log.Infof("All results for query %s are not present", queryId)
+	// Check if at least one of the requested files is present
+	availableResults := checkAvailableResults(queryId, requestedResults)
+	if len(availableResults) == 0 {
+		log.Debugf("None of the results for query %s are present", queryId)
 		return proto.SendResultsPending()
 	}
 
@@ -524,7 +523,7 @@ func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, ch
 		return err
 	}
 
-	for queueID := 1; queueID <= 4; queueID++ {
+	for _, queueID := range availableResults {
 		fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
 		result, err := os.ReadFile(fileName)
 		if err != nil {
@@ -539,26 +538,17 @@ func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, ch
 	return nil
 }
 
-// Check if all files are present for a given query ID
-// TODO: looks really unefficient
-func checkFilesPresent(queryId string) bool {
-	_, err := os.Stat(fmt.Sprintf("final_results_1_%s.txt", queryId))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
+// Check if at least one of the requested files is available
+func checkAvailableResults(queryId string, requestedResults []int) []int {
+	var availableResults []int
+	for _, queueID := range requestedResults {
+		fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
+		_, err := os.Stat(fileName)
+		if err == nil {
+			availableResults = append(availableResults, queueID)
+		}
 	}
-	_, err = os.Stat(fmt.Sprintf("final_results_2_%s.txt", queryId))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	_, err = os.Stat(fmt.Sprintf("final_results_3_%s.txt", queryId))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	_, err = os.Stat(fmt.Sprintf("final_results_4_%s.txt", queryId))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	return true
+	return availableResults
 }
 
 func sendResponse(proto *protocol.Protocol, queueID int32, result []byte, bufferSize int) error {

@@ -18,8 +18,8 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	expectedResultCount = 4
-	resultsWaitTime     = 5 * time.Second
+	queryCount      = 4
+	resultsWaitTime = 5 * time.Second
 )
 
 // ClientConfig holds configuration for the client
@@ -32,11 +32,12 @@ type ClientConfig struct {
 
 // Client manages connection to the server and file transfers
 type Client struct {
-	config   ClientConfig
-	shutdown chan struct{}
-	conn     net.Conn
-	protocol *protocol.Protocol
-	queryID  string
+	config         ClientConfig
+	shutdown       chan struct{}
+	conn           net.Conn
+	protocol       *protocol.Protocol
+	queryID        string
+	pendingResults []int
 }
 
 // fileMetadata holds metadata about the file being transferred
@@ -48,8 +49,9 @@ type fileMetadata struct {
 // NewClient creates a new Client instance
 func NewClient(config ClientConfig) *Client {
 	return &Client{
-		config:   config,
-		shutdown: make(chan struct{}),
+		config:         config,
+		shutdown:       make(chan struct{}),
+		pendingResults: []int{1, 2, 3, 4},
 	}
 }
 
@@ -86,9 +88,16 @@ func (c *Client) Start() error {
 	log.Info("Transfered all files succesfully, closing connection")
 	c.stopServerConn()
 
-	if err := c.tryReadResults(); err != nil {
-		log.Errorf("Failed to read results: %v", err)
-		return err
+	for {
+		if err := c.tryReadResults(); err != nil {
+			log.Errorf("Failed to read results: %v", err)
+			return err
+		}
+
+		if len(c.pendingResults) == 0 {
+			log.Infof("All %d results received successfully", queryCount)
+			break
+		}
 	}
 
 	<-c.shutdown
@@ -405,14 +414,6 @@ func (c *Client) waitForQueryId() error {
 // tryReadResults stablished connection with the server
 // and reads the results from it
 func (c *Client) tryReadResults() error {
-	// This first implementation expects that all results are retrieved
-	// in a single connection, if for any reason it drops, the client
-	// will restart from scratch. We also assume that the req handler will
-	// only start sending results once it has processed all four queries.
-	//
-	// As a second iteration, we could implement a logic that
-	// allows the client to resume from where it left off. The req handler
-	// should also be capable of sending results of query as they are processed.
 	for {
 		// Establish connection with the client
 		log.Info("Connecting with server to request results...")
@@ -424,12 +425,13 @@ func (c *Client) tryReadResults() error {
 		}
 
 		// Send results request with queryId
-		if err := c.protocol.SendResultsRequest(c.queryID); err != nil {
+		if err := c.protocol.SendResultsRequest(c.queryID, c.pendingResults); err != nil {
 			log.Errorf("Failed to send results request: %v", err)
 			// TODO: consider `continue` here
 			// with a max number of retries
 			return err
 		}
+		log.Debugf("Sent results request for pending results: ", c.pendingResults)
 
 		msgType, _, err := c.protocol.ReceiveMessage()
 		if err != nil {
@@ -458,6 +460,7 @@ func (c *Client) tryReadResults() error {
 			}
 			// TODO: implement max retries to prevent infinite loop
 		}
+		c.stopServerConn()
 		return nil
 	}
 }
@@ -473,7 +476,7 @@ func (c *Client) readResults() error {
 	resultsReceived := 0
 	resultBuffers := make(map[int32][]byte)
 
-	for resultsReceived < expectedResultCount {
+	for resultsReceived < len(c.pendingResults) {
 		msgType, data, err := c.protocol.ReceiveMessage()
 		if err != nil {
 			return fmt.Errorf("failed to receive message: %w", err)
@@ -494,13 +497,20 @@ func (c *Client) readResults() error {
 
 			if result, ok := resultBuffers[eofMsg.QueueID]; ok {
 				log.Infof("Result %d/%d received from queue %d - Total size: %d bytes",
-					resultsReceived, expectedResultCount, eofMsg.QueueID, len(result))
+					resultsReceived, queryCount, eofMsg.QueueID, len(result))
 
 				if err := c.processResult(eofMsg.QueueID, result); err != nil {
 					log.Errorf("Failed to process result from queue %d: %v", eofMsg.QueueID, err)
 				}
-				// Process result here (save to file, print, etc.)
-				c.processResult(eofMsg.QueueID, result)
+
+				// Remove queue from pending results
+				for i, v := range c.pendingResults {
+					if v == int(eofMsg.QueueID) {
+						c.pendingResults = append(c.pendingResults[:i], c.pendingResults[i+1:]...)
+						break
+					}
+				}
+
 				delete(resultBuffers, eofMsg.QueueID)
 			}
 
@@ -509,7 +519,6 @@ func (c *Client) readResults() error {
 		}
 	}
 
-	log.Infof("All %d results received successfully", expectedResultCount)
 	return nil
 }
 

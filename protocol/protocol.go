@@ -113,6 +113,12 @@ type QueryIdMessage struct {
 	QueryID string
 }
 
+// ResultRequestMessage represents the identifier generated for an specific request
+type ResultRequestMessage struct {
+	QueryID          string
+	RequestedResults []int
+}
+
 // Protocol handles message serialization and deserialization with proper framing
 // This version uses buffered I/O to prevent short reads/writes
 type Protocol struct {
@@ -356,10 +362,15 @@ func (p *Protocol) SendQueryRequest() error {
 }
 
 // SendResultsRequest sends the query ID for the needed response
-func (p *Protocol) SendResultsRequest(queryID string) error {
+// and the specific results it wants to retrieve
+func (p *Protocol) SendResultsRequest(queryID string, resultIDs []int) error {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(MessageTypeResultsRequest))
 	buf.WriteString(queryID)
+	binary.Write(&buf, binary.BigEndian, int32(len(resultIDs)))
+	for _, id := range resultIDs {
+		binary.Write(&buf, binary.BigEndian, int32(id))
+	}
 
 	return p.writeFull(buf.Bytes())
 }
@@ -404,6 +415,34 @@ func (p *Protocol) ReceiveQueryId() (*QueryIdMessage, error) {
 	return &QueryIdMessage{QueryID: queryID}, nil
 }
 
+// ReceiveResultsRequest receives the query ID generated for the request
+func (p *Protocol) ReceiveResultsRequest() (*ResultRequestMessage, error) {
+	buf := make([]byte, 8)
+	if _, err := io.ReadFull(p.reader, buf); err != nil {
+		return nil, fmt.Errorf("failed to read query ID: %w", err)
+	}
+	queryID := string(buf)
+
+	var count int32
+	if err := binary.Read(p.reader, binary.BigEndian, &count); err != nil {
+		return nil, fmt.Errorf("failed to read result count: %w", err)
+	}
+
+	requestedResults := make([]int, int(count))
+	for i := range requestedResults {
+		var v int32
+		if err := binary.Read(p.reader, binary.BigEndian, &v); err != nil {
+			return nil, fmt.Errorf("failed to read result ID: %w", err)
+		}
+		requestedResults[i] = int(v)
+	}
+
+	return &ResultRequestMessage{
+		QueryID:          queryID,
+		RequestedResults: requestedResults,
+	}, nil
+}
+
 // ReceiveMessage receives any message type and returns the type and appropriate data
 func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 	msgTypeBuf := make([]byte, 1)
@@ -444,7 +483,7 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 		return msgType, nil, nil
 
 	case MessageTypeResultsRequest:
-		msg, err := p.ReceiveQueryId()
+		msg, err := p.ReceiveResultsRequest()
 		return msgType, msg, err
 
 	case MessageTypeResultsPending:

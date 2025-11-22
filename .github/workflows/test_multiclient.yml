@@ -36,8 +36,22 @@ jobs:
       - name: Run with multiclient setup
         run: make run_multiclient_test
 
-      - name: Wait for queries to finish
-        run: sleep 30
+      - name: Wait for multiclient results
+        run: |
+          echo "Waiting for client_alice and client_bob results directories..."
+
+          for i in {1..60}; do  # wait up to 60 × 5s = 300s
+            if [ -d "./results/client_alice" ] && [ -d "./results/client_bob" ]; then
+              echo "Both result directories found."
+              exit 0
+            fi
+
+            echo "Not ready yet... ($i)"
+            sleep 5
+          done
+
+          echo "Timeout waiting for result directories!"
+          exit 1
 
       - name: Compare results for Alice
         run: CLIENT=alice CLIENT_RESULTS=multiclient_1 make compare_results_multiclient

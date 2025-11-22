@@ -59,7 +59,11 @@ func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof
 		}
 
 		clientID := e.Name()
-		{
+		thresholdReached, err := ThresholdReached(baseDir, clientID, neededEof)
+		if err != nil {
+			return err
+		}
+		if thresholdReached {
 			err := thresholdReachedHandle(outChan, baseDir, clientID)
 			if err != nil {
 				return err
@@ -71,17 +75,10 @@ func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof
 
 // Checks if a client has reached the EOF threshold.
 func ThresholdReached(baseDir, clientID string, neededEof int) (bool, error) {
-	eofDir := filepath.Join(baseDir, clientID, "eof")
-
-	eofEntries, err := os.ReadDir(eofDir)
+	count, err := GetEOFCount(baseDir, clientID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil // no EOFs for this client
-		}
 		return false, err
 	}
-
-	count := len(eofEntries)
 
 	return count >= neededEof, nil
 }

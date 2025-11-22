@@ -304,6 +304,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   grouper_by_year_month_worker2:
     container_name: grouper_by_year_month_worker2
@@ -323,6 +324,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_profit_quantity1:
     container_name: aggregator_by_profit_quantity1
@@ -422,6 +424,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_item_id2:
     container_name: joiner_by_item_id2
@@ -441,6 +444,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
 # ==============================================================================
 # Third Query
@@ -584,6 +588,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_store_id2:
     container_name: joiner_by_store_id2
@@ -603,6 +608,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_store_id3:
     container_name: joiner_by_store_id3
@@ -622,6 +628,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=3
+      - WORKER_BASEDIR=/base_dir
 
 # ==============================================================================
 # Fourth Query
@@ -645,6 +652,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   grouper_by_store_user_worker2:
     container_name: grouper_by_store_user_worker2
@@ -664,6 +672,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   aggregator_by_store_user1:
     container_name: aggregator_by_store_user1
@@ -763,6 +772,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_id2:
     container_name: joiner_by_user_id2
@@ -782,6 +792,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=4
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_store1:
     container_name: joiner_by_user_store1
@@ -801,6 +812,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_store2:
     container_name: joiner_by_user_store2
@@ -820,6 +832,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_store3:
     container_name: joiner_by_user_store3
@@ -839,6 +852,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=3
+      - WORKER_BASEDIR=/base_dir
 
   joiner_by_user_store4:
     container_name: joiner_by_user_store4
@@ -858,6 +872,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=4
+      - WORKER_BASEDIR=/base_dir
 
 networks:
   testing_net:

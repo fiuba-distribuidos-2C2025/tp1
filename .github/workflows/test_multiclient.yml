@@ -87,7 +87,7 @@ jobs:
           exit 1
 
       - name: Compare results for Alice
-        run: CLIENT=alice CLIENT_RESULTS=multiclient_1 make compare_results_multiclient
+        run: CLIENT=alice EXPECTED_CLIENT_RESULTS=multiclient_1 make compare_results_multiclient
 
       - name: Compare results for Bob
-        run: CLIENT=bob CLIENT_RESULTS=multiclient_2 make compare_results_multiclient
+        run: CLIENT=bob EXPECTED_CLIENT_RESULTS=multiclient_2 make compare_results_multiclient

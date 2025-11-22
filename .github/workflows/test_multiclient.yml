@@ -38,11 +38,42 @@ jobs:
 
       - name: Wait for multiclient results
         run: |
-          echo "Waiting for client_alice and client_bob results directories..."
+          echo "Waiting for result files for client_alice and client_bob..."
 
-          for i in {1..60}; do  # wait up to 60 × 5s = 300s
-            if [ -d "./results/client_alice" ] && [ -d "./results/client_bob" ]; then
-              echo "Both result directories found."
+          FILES=("query_1.csv" "query_2.csv" "query_3.csv" "query_4.csv")
+
+          # Wait up to 60 * 5s = 300 seconds
+          for i in {1..60}; do
+            alice_ready=true
+            bob_ready=true
+
+            # Check Alice
+            if [ -d "./results/client_alice" ]; then
+              for f in "${FILES[@]}"; do
+                if [ ! -f "./results/client_alice/$f" ]; then
+                  alice_ready=false
+                  break
+                fi
+              done
+            else
+              alice_ready=false
+            fi
+
+            # Check Bob
+            if [ -d "./results/client_bob" ]; then
+              for f in "${FILES[@]}"; do
+                if [ ! -f "./results/client_bob/$f" ]; then
+                  bob_ready=false
+                  break
+                fi
+              done
+            else
+              bob_ready=false
+            fi
+
+            # If both are ready → continue
+            if [ "$alice_ready" = true ] && [ "$bob_ready" = true ]; then
+              echo "All expected result files found for both clients."
               exit 0
             fi
 
@@ -50,7 +81,9 @@ jobs:
             sleep 5
           done
 
-          echo "Timeout waiting for result directories!"
+          echo "Timeout waiting for full result sets!"
+          echo "Existing files in ./results:"
+          find ./results || true
           exit 1
 
       - name: Compare results for Alice

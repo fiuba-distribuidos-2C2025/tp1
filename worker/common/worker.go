@@ -270,19 +270,19 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 	// ==============================================================================
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	case "HOUR_FILTER":
 		log.Info("Starting HOUR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	// ==============================================================================
 	// Second Query
 	// ==============================================================================
 	case "YEAR_FILTER_ITEMS":
 		log.Info("Starting YEAR_FILTER_ITEMS worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof))
+		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
 	case "GROUPER_BY_YEAR_MONTH":
 		log.Info("Starting GROUPER_BY_YEAR_MONTH worker...")
 		inQueue.StartConsuming(grouper.CreateGrouperCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, grouper.ThresholdReachedHandleByYearMonth))

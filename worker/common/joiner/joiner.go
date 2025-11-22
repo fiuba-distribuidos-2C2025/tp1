@@ -12,33 +12,6 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-func loadClientsEofCount(baseDir string) (map[string]int, error) {
-	clientsEofCount := make(map[string]int)
-	entries, err := os.ReadDir(baseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No messages yet, nothing to do.
-			return clientsEofCount, nil
-		}
-		return clientsEofCount, err
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-
-		clientID := e.Name()
-		eofCount, err := utils.GetEOFCount(baseDir, clientID)
-		if err != nil {
-			return clientsEofCount, err
-		}
-		clientsEofCount[clientID] = eofCount
-
-	}
-	return clientsEofCount, nil
-}
-
 // Resend stored messages in case of worker restart
 func resendClientMessages(baseDir string, outChan chan string) error {
 	clients, err := os.ReadDir(baseDir)
@@ -109,7 +82,7 @@ func resendClientEofs(clientsEofCount map[string]int, neededEof int, outChan cha
 
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := loadClientsEofCount(baseDir)
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil

@@ -48,9 +48,9 @@ func transactionGreaterFinalAmount(transaction string, targetAmount float64, ind
 //
 // Output format of each row (batched when processed):
 // transaction_id,final_amount
-func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByAmountFilterCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	filterFunc := func(transaction string) (string, bool) {
 		return transactionGreaterFinalAmount(transaction, targetAmount, byAmountFieldIndices)
 	}
-	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
+	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc, baseDir)
 }

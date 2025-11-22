@@ -93,3 +93,30 @@ func RemoveClientDir(baseDir string, clientID string) error {
 
 	return nil
 }
+
+func LoadClientsEofCount(baseDir string) (map[string]int, error) {
+	clientsEofCount := make(map[string]int)
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return clientsEofCount, nil
+		}
+		return clientsEofCount, err
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		clientID := e.Name()
+		eofCount, err := GetEOFCount(baseDir, clientID)
+		if err != nil {
+			return clientsEofCount, err
+		}
+		clientsEofCount[clientID] = eofCount
+
+	}
+	return clientsEofCount, nil
+}

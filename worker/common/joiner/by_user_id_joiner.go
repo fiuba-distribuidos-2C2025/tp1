@@ -63,7 +63,7 @@ func processNeededUsers(top3Lines []string) map[string]string {
 
 func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := loadClientsEofCount(baseDir)
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil

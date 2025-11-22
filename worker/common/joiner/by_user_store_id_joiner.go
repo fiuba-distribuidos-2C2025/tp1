@@ -36,7 +36,7 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 
 func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := loadClientsEofCount(baseDir)
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil

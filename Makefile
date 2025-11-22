@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
-CLIENT?=1
-CLIENT_RESULTS?=multiclient_1
+CLIENT?=alice
+EXPECTED_CLIENT_RESULTS?=multiclient_1
 
 default: build
 
@@ -70,7 +70,7 @@ compare_full_results:
 	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/full
 
 compare_results_multiclient:
-	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/$(CLIENT_RESULTS)
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/$(EXPECTED_CLIENT_RESULTS)
 
 download_reduced_dataset:
 	./scripts/load_dataset.sh 1 0

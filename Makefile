@@ -107,3 +107,8 @@ integration_test:
 	cd tests && go test
 
 .PHONY: integration_test
+
+watcher:
+	python3 watcher.py
+
+.PHONY: watcher

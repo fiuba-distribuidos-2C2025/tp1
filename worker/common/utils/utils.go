@@ -121,10 +121,11 @@ func LoadClientsEofCount(baseDir string) (map[string]int, error) {
 	return clientsEofCount, nil
 }
 
-func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string) {
+func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string) {
 	for clientID, eofCount := range clientsEofCount {
 		if eofCount >= neededEof {
-			outChan <- clientID + "\nEOF"
+			msgID := workerID
+			outChan <- clientID + "\n" + msgID + "\nEOF"
 			RemoveClientDir(baseDir, clientID)
 			delete(clientsEofCount, clientID)
 		}

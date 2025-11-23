@@ -115,7 +115,8 @@ func (w *Worker) Start() error {
 	}
 
 	inQueueResponseChan := make(chan string)
-	w.listenToPrimaryQueue(inQueueResponseChan, secondaryQueueMessagesChan)
+	mesageSentNotificationChan := make(chan string)
+	w.listenToPrimaryQueue(inQueueResponseChan, mesageSentNotificationChan, secondaryQueueMessagesChan)
 
 	outputQueues, err := w.setupOutputQueues()
 	if err != nil {
@@ -132,7 +133,6 @@ func (w *Worker) Start() error {
 		return w.distributeBetweenAggregators(inQueueResponseChan, outputQueues)
 	}
 
-	idx := 0
 	for {
 		select {
 		case <-w.shutdown:
@@ -141,15 +141,10 @@ func (w *Worker) Start() error {
 
 		case msg := <-inQueueResponseChan:
 
-			lines := strings.SplitN(msg, "\n", 2)
-			// generate a random message ID
-			// this is a workaround until we refactor the grouper to
-			// properly handle message IDs
-			msgID := fmt.Sprintf("%d", rand.Int63())
-			msg = lines[0] + "\n" + msgID + "\n" + lines[1]
+			lines := strings.SplitN(msg, "\n", 3)
 
-			if lines[1] == "EOF" {
-				log.Infof("Broadcasting EOF")
+			if lines[2] == "EOF" {
+				log.Infof("Broadcasting EOF for client %s", lines[0])
 				for _, queues := range outputQueues {
 					for _, queue := range queues {
 						log.Debugf("Broadcasting EOF to queue: ", queue)
@@ -159,22 +154,42 @@ func (w *Worker) Start() error {
 				continue
 			}
 
+			msgID := lines[1]
+
 			for i, queues := range outputQueues {
 				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
 				if err != nil {
-					return err
+					return fmt.Errorf("invalid OutputReceivers[%d]=%q: %w", i, w.config.OutputReceivers[i], err)
 				}
-
-				receiver := (idx + w.config.ID) % outputWorkerCount
+				// In case of worker restarts, ensure same distribution
+				workerIdx := chooseWorkerIdx(msgID, outputWorkerCount)
 				msg_truncated := msg
 				if len(msg_truncated) > 200 {
 					msg_truncated = msg_truncated[:200] + "..."
 				}
-				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, receiver+1)
-				queues[receiver].Send([]byte(msg))
+				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, workerIdx+1)
+
+				queues[workerIdx].Send([]byte(msg))
 			}
-			idx += 1
+			if isFilterer(w.config.WorkerJob) {
+				mesageSentNotificationChan <- "sent"
+			}
 		}
+	}
+}
+
+func isFilterer(workerJob string) bool {
+	switch workerJob {
+	case "YEAR_FILTER":
+		return true
+	case "HOUR_FILTER":
+		return true
+	case "AMOUNT_FILTER":
+		return true
+	case "YEAR_FILTER_ITEMS":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -254,7 +269,7 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 	}
 }
 
-func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondaryQueueMessagesChan chan string) error {
+func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, messageSentNotificationChan chan string, secondaryQueueMessagesChan chan string) error {
 	log.Infof("Declaring input queue: %s", w.config.InputQueue[MAIN_QUEUE]+"_"+strconv.Itoa(w.config.ID))
 	inQueue := w.queueFactory.CreateQueue(w.config.InputQueue[MAIN_QUEUE] + "_" + strconv.Itoa(w.config.ID))
 	neededEof, err := strconv.Atoi(w.config.InputSenders[MAIN_QUEUE])
@@ -270,19 +285,19 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 	// ==============================================================================
 	case "YEAR_FILTER":
 		log.Info("Starting YEAR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(filter.CreateByYearFilterCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	case "HOUR_FILTER":
 		log.Info("Starting HOUR_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(filter.CreateByHourFilterCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	case "AMOUNT_FILTER":
 		log.Info("Starting AMOUNT_FILTER worker...")
-		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(filter.CreateByAmountFilterCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	// ==============================================================================
 	// Second Query
 	// ==============================================================================
 	case "YEAR_FILTER_ITEMS":
 		log.Info("Starting YEAR_FILTER_ITEMS worker...")
-		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+		inQueue.StartConsuming(filter.CreateByYearFilterItemsCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	case "GROUPER_BY_YEAR_MONTH":
 		log.Info("Starting GROUPER_BY_YEAR_MONTH worker...")
 		inQueue.StartConsuming(grouper.CreateGrouperCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, grouper.ThresholdReachedHandleByYearMonth))
@@ -291,7 +306,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleProfitQuantity))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir))
+		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	// ==============================================================================
 	// Third Query
 	// ==============================================================================
@@ -303,7 +318,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleSemester))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir))
+		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	// ==============================================================================
 	// Fourth Query
 	// ==============================================================================
@@ -315,10 +330,10 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, secondary
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleStoreUser))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir))
+		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	case "JOINER_BY_USER_STORE":
 		log.Info("starting JOINER_BY_USER_STORE worker...")
-		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir))
+		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 
 	default:
 		log.Error("Unknown worker job")
@@ -359,25 +374,9 @@ func (w *Worker) broadcastMessages(inChan chan string, outputQueues [][]middlewa
 			return nil
 
 		case msg := <-inChan:
-			// generate a random message ID
-			// this is a workaround until we refactor the grouper to
-			// properly handle message IDs
-			msgID := fmt.Sprintf("%d", rand.Int63())
-			if msg == "EOF" {
-				log.Infof("Broadcasting EOF")
-				for _, queues := range outputQueues {
-					for _, queue := range queues {
-						log.Debugf("Broadcasting EOF to queue: ", queue)
-						queue.Send([]byte(msgID + "\n" + msg))
-					}
-				}
-				return nil
-			}
-			lines := strings.SplitN(msg, "\n", 2)
-			msg = lines[0] + "\n" + msgID + "\n" + lines[1]
+			log.Infof("Broadcasting message:\n%s\n", msg)
 			for _, queues := range outputQueues {
 				for _, queue := range queues {
-					log.Infof("Forwarding message:\n%s\nto queue %d with ", msg, queue)
 					queue.Send([]byte(msg))
 				}
 			}
@@ -391,7 +390,7 @@ func hashKey64(s string) uint64 {
 	return h.Sum64()
 }
 
-func chooseAggregatorIdx(key string, workerCount int) int {
+func chooseWorkerIdx(key string, workerCount int) int {
 	return int(hashKey64(key) % uint64(workerCount))
 }
 
@@ -432,7 +431,7 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, outputQueues [
 				if err != nil {
 					return fmt.Errorf("invalid OutputReceivers[%d]=%q: %w", i, w.config.OutputReceivers[i], err)
 				}
-				aggregatorIdx := chooseAggregatorIdx(key, outputWorkerCount)
+				aggregatorIdx := chooseWorkerIdx(key, outputWorkerCount)
 
 				msg_truncated := msg
 				if len(msg_truncated) > 200 {

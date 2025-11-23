@@ -1,6 +1,8 @@
 package joiner
 
 import (
+	"fmt"
+	"math/rand"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -61,14 +63,14 @@ func processNeededUsers(top3Lines []string) map[string]string {
 	return neededUsers
 }
 
-func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
 	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID)
 	neededUsers := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -129,7 +131,10 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						// generate a random message ID
+						// TODO: This shouldn't be random
+						msgID := fmt.Sprintf("%d", rand.Int63())
+						outChan <- clientID + "\n" + msgID + "\nEOF"
 						// clear accumulator memory
 						delete(clientsEofCount, clientID)
 						delete(neededUsers, clientID)
@@ -140,7 +145,10 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				top3WithBirthdates := concatTop3WithBirthdates(users, neededUsers[clientID])
 				if top3WithBirthdates != "" {
-					outChan <- clientID + "\n" + top3WithBirthdates
+					// generate a random message ID
+					// TODO: This shouldn't be random
+					msgID := fmt.Sprintf("%d", rand.Int63())
+					outChan <- clientID + "\n" + msgID + "\n" + top3WithBirthdates
 				}
 
 				// Acknowledge message

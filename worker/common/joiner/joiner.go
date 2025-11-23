@@ -49,25 +49,30 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 			filePath := filepath.Join(messagesDir, e.Name())
 
 			data, err := os.ReadFile(filePath)
-			payload := strings.TrimSpace(string(data))
-			lines := strings.SplitN(payload, "\n", 3)
+			items := strings.TrimSpace(string(data))
 
-			// Separate header and the rest
-			// clientID := lines[0]
-			// msgID := lines[1]
-			items := lines[2]
 			if err != nil {
 				log.Infof("failed to read file %s: %v", filePath, err)
 				continue
 			}
 			if items != "" {
 				log.Info("RESENDING THROUGH SECONDARY CHANNEL\n%s", items)
-				outChan <- payload
+				outChan <- clientID + "\n" + items
 			}
 
 		}
 	}
 	return nil
+}
+
+func ResendClientEofsToSecondary(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string) {
+	for clientID, eofCount := range clientsEofCount {
+		if eofCount >= neededEof {
+			outChan <- clientID + "\nEOF"
+			utils.RemoveClientDir(baseDir, clientID)
+			delete(clientsEofCount, clientID)
+		}
+	}
 }
 
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -78,7 +83,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		return nil
 	}
 	resendClientMessages(baseDir, outChan)
-	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
 
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for secondary queue messages...")
@@ -102,7 +107,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 				if lines[2] == "EOF" {
 					utils.StoreEOF(baseDir, clientID, msgID)
 				} else {
-					utils.StoreMessage(baseDir, clientID, msgID, payload)
+					utils.StoreMessage(baseDir, clientID, msgID, items)
 				}
 
 				// Acknowledge message
@@ -117,7 +122,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 
 					eofCount := clientsEofCount[clientID]
 					if eofCount >= neededEof {
-						outChan <- payload
+						outChan <- clientID + "\nEOF"
 						// remove the client entry from the map
 						delete(clientsEofCount, clientID)
 						continue
@@ -126,7 +131,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 
 				if items != "" {
 					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
-					outChan <- payload
+					outChan <- clientID + "\n" + items
 				}
 			}
 		}

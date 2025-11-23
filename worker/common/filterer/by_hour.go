@@ -65,9 +65,9 @@ func transactionInHourRange(transaction string, minHour string, maxHour string, 
 //
 // Output format of each row (batched when processed):
 // transaction_id,store_id,user_id,final_amount,created_at
-func CreateByHourFilterCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByHourFilterCallbackWithOutput(outChan chan string, messageSent chan string, neededEof int, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	filterFunc := func(transaction string) (string, bool) {
 		return transactionInHourRange(transaction, minHour, maxHour, byHourFieldIndices)
 	}
-	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc, baseDir)
+	return CreateGenericFilterCallbackWithOutput(outChan, messageSent, neededEof, filterFunc, baseDir, workerID)
 }

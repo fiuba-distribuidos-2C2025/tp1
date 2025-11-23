@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -107,7 +109,10 @@ func ThresholdReachedHandleStoreUser(outChan chan string, baseDir string, client
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages, forward EOF and clean up
-			msg := clientID + "\nEOF"
+			// generate a random message ID
+			// TODO: This shouldn't be random
+			msgID := fmt.Sprintf("%d", rand.Int63())
+			msg := clientID + "\n" + msgID + "\nEOF"
 			outChan <- msg
 			return utils.RemoveClientDir(baseDir, clientID)
 		}
@@ -153,10 +158,16 @@ func ThresholdReachedHandleStoreUser(outChan chan string, baseDir string, client
 
 	for _, batch := range batches {
 		if batch != "" {
-			outChan <- clientID + "\n" + batch
+			// generate a random message ID
+			// TODO: This shouldn't be random
+			msgID := fmt.Sprintf("%d", rand.Int63())
+			outChan <- clientID + "\n" + msgID + "\n" + batch
 		}
 	}
-	msg := clientID + "\nEOF"
+	// generate a random message ID
+	// TODO: This shouldn't be random
+	msgID := fmt.Sprintf("%d", rand.Int63())
+	msg := clientID + "\n" + msgID + "\nEOF"
 	outChan <- msg
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)

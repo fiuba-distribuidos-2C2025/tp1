@@ -1,6 +1,8 @@
 package joiner
 
 import (
+	"fmt"
+	"math/rand"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -57,14 +59,14 @@ func ProcessStoreIds(storesDataLines []string) map[string]string {
 	return storesData
 }
 
-func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
 	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID)
 	processedStores := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -132,7 +134,10 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						// generate a random message ID
+						// TODO: This shouldn't be random
+						msgID := fmt.Sprintf("%d", rand.Int63())
+						outChan <- clientID + "\n" + msgID + "\nEOF"
 						// clear accumulator memory
 						delete(clientsEofCount, clientID)
 						delete(processedStores, clientID)
@@ -152,7 +157,10 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- clientID + "\n" + outBuilder.String()
+					// generate a random message ID
+					// TODO: This shouldn't be random
+					msgID := fmt.Sprintf("%d", rand.Int63())
+					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
 				}
 				// Acknowledge message
 				msg.Ack(false)

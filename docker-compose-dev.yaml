@@ -136,6 +136,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -148,6 +149,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_RECEIVERS=2,2
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_year_worker2:
     container_name: filter_by_year_worker2
@@ -155,6 +157,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -167,6 +170,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_RECEIVERS=2,2
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_hour_worker1:
     container_name: filter_by_hour_worker1
@@ -174,6 +178,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_hour_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -186,6 +191,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_RECEIVERS=2,2
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_hour_worker2:
     container_name: filter_by_hour_worker2
@@ -193,6 +199,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_hour_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -205,6 +212,7 @@ services:
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_RECEIVERS=2,2
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_amount_worker1:
     container_name: filter_by_amount_worker1
@@ -212,6 +220,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_amount_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -224,6 +233,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_amount_worker2:
     container_name: filter_by_amount_worker2
@@ -231,6 +241,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_amount_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -243,6 +254,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=2
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
 # ==============================================================================
 # Second Query
@@ -254,6 +266,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_items_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -266,6 +279,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
+      - WORKER_BASEDIR=/base_dir
 
   filter_by_year_items_worker2:
     container_name: filter_by_year_items_worker2
@@ -273,6 +287,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_items_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -285,6 +300,7 @@ services:
       - WORKER_MIDDLEWARE_SENDERS=1
       - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
+      - WORKER_BASEDIR=/base_dir
 
   grouper_by_year_month_worker1:
     container_name: grouper_by_year_month_worker1
@@ -292,6 +308,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_year_month_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -312,6 +329,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_year_month_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -332,6 +350,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_profit_quantity_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -352,6 +371,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_profit_quantity_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -372,6 +392,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_profit_quantity_3:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -392,6 +413,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_profit_quantity_4:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -412,6 +434,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_item_id_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -432,6 +455,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_item_id_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -456,6 +480,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_semester_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -476,6 +501,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_semester_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -496,6 +522,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_semester_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -516,6 +543,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_semester_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -536,6 +564,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_semester_3:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -556,6 +585,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_semester_4:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -576,6 +606,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_store_id_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -596,6 +627,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_store_id_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -616,6 +648,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_store_id_3:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -640,6 +673,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_store_user_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -660,6 +694,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_store_user_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -680,6 +715,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_store_user_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -700,6 +736,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_store_user_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -720,6 +757,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_store_user_3:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -740,6 +778,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_store_user_4:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -760,6 +799,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_id_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -780,6 +820,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_id_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -800,6 +841,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_store_1:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -820,6 +862,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_store_2:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -840,6 +883,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_store_3:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -860,6 +904,7 @@ services:
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_store_4:/base_dir
     networks:
       - testing_net
     depends_on:
@@ -874,6 +919,44 @@ services:
       - WORKER_ID=4
       - WORKER_BASEDIR=/base_dir
 
+volumes:
+  base_dir_filter_by_year_1:
+  base_dir_filter_by_year_2:
+  base_dir_filter_by_hour_1:
+  base_dir_filter_by_hour_2:
+  base_dir_filter_by_amount_1:
+  base_dir_filter_by_amount_2:
+  base_dir_filter_by_year_items_1:
+  base_dir_filter_by_year_items_2:
+  base_dir_grouper_by_year_month_1:
+  base_dir_grouper_by_year_month_2:
+  base_dir_aggregator_by_profit_quantity_1:
+  base_dir_aggregator_by_profit_quantity_2:
+  base_dir_aggregator_by_profit_quantity_3:
+  base_dir_aggregator_by_profit_quantity_4:
+  base_dir_joiner_by_item_id_1:
+  base_dir_joiner_by_item_id_2:
+  base_dir_grouper_by_semester_1:
+  base_dir_grouper_by_semester_2:
+  base_dir_aggregator_semester_1:
+  base_dir_aggregator_semester_2:
+  base_dir_aggregator_semester_3:
+  base_dir_aggregator_semester_4:
+  base_dir_joiner_by_store_id_1:
+  base_dir_joiner_by_store_id_2:
+  base_dir_joiner_by_store_id_3:
+  base_dir_grouper_by_store_user_1:
+  base_dir_grouper_by_store_user_2:
+  base_dir_aggregator_by_store_user_1:
+  base_dir_aggregator_by_store_user_2:
+  base_dir_aggregator_by_store_user_3:
+  base_dir_aggregator_by_store_user_4:
+  base_dir_joiner_by_user_id_1:
+  base_dir_joiner_by_user_id_2:
+  base_dir_joiner_by_user_store_1:
+  base_dir_joiner_by_user_store_2:
+  base_dir_joiner_by_user_store_3:
+  base_dir_joiner_by_user_store_4:
 networks:
   testing_net:
     ipam:

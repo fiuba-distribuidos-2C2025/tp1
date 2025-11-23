@@ -70,16 +70,6 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 	return nil
 }
 
-func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string) {
-	for clientID, eofCount := range clientsEofCount {
-		if eofCount >= neededEof {
-			outChan <- clientID + "\nEOF"
-			utils.RemoveClientDir(baseDir, clientID)
-			delete(clientsEofCount, clientID)
-		}
-	}
-}
-
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
 	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
@@ -88,7 +78,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		return nil
 	}
 	resendClientMessages(baseDir, outChan)
-	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
 
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for secondary queue messages...")

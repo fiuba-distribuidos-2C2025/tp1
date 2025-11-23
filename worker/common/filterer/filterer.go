@@ -22,6 +22,7 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, neededEof int, f
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
+	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 

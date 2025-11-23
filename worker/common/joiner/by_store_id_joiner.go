@@ -64,7 +64,7 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	ResendClientEofs(clientsEofCount, neededEof, outChan)
+	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
 	processedStores := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")

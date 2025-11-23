@@ -2,6 +2,7 @@ SHELL := /bin/bash
 PWD := $(shell pwd)
 
 CLIENT?=1
+WATCHER_PID_FILE := .watcher.pid
 
 default: build
 
@@ -44,9 +45,16 @@ docker-image:
 
 docker-compose-up: docker-image
 	docker compose -f docker-compose-dev.yaml up -d --build
+	nohup python3 watcher.py > /dev/null 2>&1 & echo $$! > $(WATCHER_PID_FILE)
+	@echo "Watcher started in background (PID: $$(cat $(WATCHER_PID_FILE)))"
 .PHONY: docker-compose-up
 
 docker-compose-down:
+	@if [ -f $(WATCHER_PID_FILE) ]; then \
+		kill $$(cat $(WATCHER_PID_FILE)) 2>/dev/null || true; \
+		rm $(WATCHER_PID_FILE); \
+		echo "Watcher stopped"; \
+	fi
 	docker compose -f docker-compose-dev.yaml stop -t 10
 	docker compose -f docker-compose-dev.yaml down -v
 .PHONY: docker-compose-down

@@ -1,8 +1,7 @@
 import docker
 import time
 import logging
-from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List
 
 # Configure logging
 logging.basicConfig(
@@ -10,7 +9,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('docker_watcher.log'),
-        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)

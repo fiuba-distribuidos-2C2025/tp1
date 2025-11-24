@@ -82,13 +82,13 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 					log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
 					payload := strings.TrimSpace(secondaryQueueNewMessage)
 					rows := strings.Split(payload, "\n")
-					if len(rows) < 3 {
+					if len(rows) < 2 {
 						log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
 						continue
 					}
 
 					secondaryQueueClientID := rows[0]
-					storeIdRows := rows[2:]
+					storeIdRows := rows[1:]
 					processedStoreIds := ProcessStoreIds(storeIdRows)
 					processedStores[secondaryQueueClientID] = processedStoreIds
 

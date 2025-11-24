@@ -51,6 +51,9 @@ def compare_files(file1, file2, query_num):
     data_set1 = parse_data_to_set(lines1)
     data_set2 = parse_data_to_set(lines2)
 
+    expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 20 correct results
+    expected_correct_total_results_query4 = 30 # 10 stores and top 3 per store, a total of 30 correct results
+
     # Compare data sets (order-independent)
     if not int(query_num) == 4 and not int(query_num) == 3 and data_set1 == data_set2:
         print(f"QUERY {query_num}: Results are OK! ✅")
@@ -65,9 +68,14 @@ def compare_files(file1, file2, query_num):
                     f"Row {','.join(row)} is not in the expected result but present in the actual result"
                 )
                 return
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print(f"{'-' * 60}")
-        return
+            expected_correct_total_results_query3 -= 1
+
+        if expected_correct_total_results_query3 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     elif int(query_num) == 4:
         for row in data_set1:
@@ -77,10 +85,14 @@ def compare_files(file1, file2, query_num):
                     f"Row {','.join(row)} is not in the expected result but present in the actual result"
                 )
                 return
+            expected_correct_total_results_query4 -= 1
 
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print(f"{'-' * 60}")
-        return
+        if expected_correct_total_results_query4 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     # Find differences
     print(f"QUERY {query_num}: Results are WRONG! ❌")

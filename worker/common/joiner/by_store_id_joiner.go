@@ -1,8 +1,6 @@
 package joiner
 
 import (
-	"fmt"
-	"math/rand"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -59,14 +57,14 @@ func ProcessStoreIds(storesDataLines []string) map[string]string {
 	return storesData
 }
 
-func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
 	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID)
+	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	processedStores := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -134,14 +132,17 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						// generate a random message ID
-						// TODO: This shouldn't be random
-						msgID := fmt.Sprintf("%d", rand.Int63())
-						outChan <- clientID + "\n" + msgID + "\nEOF"
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
 						// clear accumulator memory
 						delete(clientsEofCount, clientID)
 						delete(processedStores, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
+
 					}
 					continue
 				}
@@ -157,10 +158,11 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, neededEof int,
 				}
 
 				if outBuilder.Len() > 0 {
-					// generate a random message ID
-					// TODO: This shouldn't be random
-					msgID := fmt.Sprintf("%d", rand.Int63())
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
 					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
 				}
 				// Acknowledge message
 				msg.Ack(false)

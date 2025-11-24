@@ -32,13 +32,8 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 		messagesDir := filepath.Join(baseDir, clientID, "messages")
 		entries, err := os.ReadDir(messagesDir)
 		if err != nil {
-			if os.IsNotExist(err) {
-				// No messages, forward EOF and clean up
-				msg := clientID + "\nEOF"
-				outChan <- msg
-				return utils.RemoveClientDir(baseDir, clientID)
-			}
-			return err
+			log.Errorf("Error reading messages dir for client %s: %v", clientID, err)
+			continue
 		}
 
 		for _, e := range entries {
@@ -49,7 +44,7 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 			filePath := filepath.Join(messagesDir, e.Name())
 
 			data, err := os.ReadFile(filePath)
-			items := strings.TrimSpace(string(data))
+			items := string(data)
 
 			if err != nil {
 				log.Infof("failed to read file %s: %v", filePath, err)
@@ -69,7 +64,20 @@ func ResendClientEofsToSecondary(clientsEofCount map[string]int, neededEof int, 
 	for clientID, eofCount := range clientsEofCount {
 		if eofCount >= neededEof {
 			outChan <- clientID + "\nEOF"
+			delete(clientsEofCount, clientID)
+		}
+	}
+}
+
+func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNofificationChan chan string) {
+	for clientID, eofCount := range clientsEofCount {
+		if eofCount >= neededEof {
+			msgID := workerID
+			outChan <- clientID + "\n" + msgID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNofificationChan
 			utils.RemoveClientDir(baseDir, clientID)
+			utils.RemoveClientDir(baseDir+"/secondary", clientID)
 			delete(clientsEofCount, clientID)
 		}
 	}
@@ -82,8 +90,11 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	resendClientMessages(baseDir, outChan)
-	ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
+	go func() {
+		// In case of a restart, this may block before we start consuming messages, leading to a deadlock
+		resendClientMessages(baseDir, outChan)
+		ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
+	}()
 
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for secondary queue messages...")
@@ -102,6 +113,17 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 				clientID := lines[0]
 				msgID := lines[1]
 				items := lines[2]
+
+				exists, err := utils.MessageAlreadyExists(baseDir, clientID, msgID)
+				if err != nil {
+					log.Errorf("Error checking existing message for client %s msg %s: %v", clientID, msgID, err)
+					continue
+				}
+				if exists {
+					log.Infof("Message for client %s msg %s already processed, skipping", clientID, msgID)
+					msg.Ack(false)
+					continue
+				}
 
 				// Store message or EOF on disk
 				if lines[2] == "EOF" {

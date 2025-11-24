@@ -151,6 +151,9 @@ func (w *Worker) Start() error {
 						queue.Send([]byte(msg))
 					}
 				}
+				if shouldNotify(w.config.WorkerJob) {
+					mesageSentNotificationChan <- "sent"
+				}
 				continue
 			}
 
@@ -171,14 +174,14 @@ func (w *Worker) Start() error {
 
 				queues[workerIdx].Send([]byte(msg))
 			}
-			if isFilterer(w.config.WorkerJob) {
+			if shouldNotify(w.config.WorkerJob) {
 				mesageSentNotificationChan <- "sent"
 			}
 		}
 	}
 }
 
-func isFilterer(workerJob string) bool {
+func shouldNotify(workerJob string) bool {
 	switch workerJob {
 	case "YEAR_FILTER":
 		return true
@@ -187,6 +190,14 @@ func isFilterer(workerJob string) bool {
 	case "AMOUNT_FILTER":
 		return true
 	case "YEAR_FILTER_ITEMS":
+		return true
+	case "JOINER_BY_ITEM_ID":
+		return true
+	case "JOINER_BY_STORE_ID":
+		return true
+	case "JOINER_BY_USER_ID":
+		return true
+	case "JOINER_BY_USER_STORE":
 		return true
 	default:
 		return false
@@ -239,7 +250,7 @@ func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) 
 		return // TODO: should return error
 	}
 	// All joiners use the same callback.
-	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir))
+	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir+"/secondary"))
 
 	clientMessages := make(map[string]string)
 	for {
@@ -306,7 +317,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, messageSe
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleProfitQuantity))
 	case "JOINER_BY_ITEM_ID":
 		log.Info("Starting JOINER_BY_ITEM_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
+		inQueue.StartConsuming(joiner.CreateByItemIdJoinerCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	// ==============================================================================
 	// Third Query
 	// ==============================================================================
@@ -318,7 +329,7 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, messageSe
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleSemester))
 	case "JOINER_BY_STORE_ID":
 		log.Info("Starting JOINER_BY_STORE_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
+		inQueue.StartConsuming(joiner.CreateByStoreIdJoinerCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	// ==============================================================================
 	// Fourth Query
 	// ==============================================================================
@@ -330,10 +341,10 @@ func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, messageSe
 		inQueue.StartConsuming(aggregator.CreateAggregatorCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir, aggregator.ThresholdReachedHandleStoreUser))
 	case "JOINER_BY_USER_ID":
 		log.Info("Starting JOINER_BY_USER_ID worker...")
-		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
+		inQueue.StartConsuming(joiner.CreateByUserIdJoinerCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 	case "JOINER_BY_USER_STORE":
 		log.Info("starting JOINER_BY_USER_STORE worker...")
-		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
+		inQueue.StartConsuming(joiner.CreateByUserStoreIdJoinerCallbackWithOutput(inQueueResponseChan, messageSentNotificationChan, neededEof, secondaryQueueMessagesChan, w.config.BaseDir, strconv.Itoa(w.config.ID)))
 
 	default:
 		log.Error("Unknown worker job")

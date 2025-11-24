@@ -60,8 +60,8 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 					eofCount := clientEofCount[clientID]
 					if eofCount >= neededEof {
 						outChan <- clientID + "\nEOF"
-						continue
 					}
+					continue
 				}
 
 				if items != "" {

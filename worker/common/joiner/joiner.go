@@ -1,23 +1,107 @@
 package joiner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 	"github.com/op/go-logging"
 )
 
 var log = logging.MustGetLogger("log")
 
-func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
+// Resend stored messages in case of worker restart
+func resendClientMessages(baseDir string, outChan chan string) error {
+	clients, err := os.ReadDir(baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return nil
+		}
+		return err
+	}
+
+	for _, c := range clients {
+		if !c.IsDir() {
+			continue
+		}
+
+		clientID := c.Name()
+		messagesDir := filepath.Join(baseDir, clientID, "messages")
+		entries, err := os.ReadDir(messagesDir)
+		if err != nil {
+			log.Errorf("Error reading messages dir for client %s: %v", clientID, err)
+			continue
+		}
+
+		for _, e := range entries {
+			if e.IsDir() {
+				continue // skip nested directories
+			}
+
+			filePath := filepath.Join(messagesDir, e.Name())
+
+			data, err := os.ReadFile(filePath)
+			items := string(data)
+
+			if err != nil {
+				log.Infof("failed to read file %s: %v", filePath, err)
+				continue
+			}
+			if items != "" {
+				log.Info("RESENDING THROUGH SECONDARY CHANNEL\n%s", items)
+				outChan <- clientID + "\n" + items
+			}
+
+		}
+	}
+	return nil
+}
+
+func ResendClientEofsToSecondary(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string) {
+	for clientID, eofCount := range clientsEofCount {
+		if eofCount >= neededEof {
+			outChan <- clientID + "\nEOF"
+			delete(clientsEofCount, clientID)
+		}
+	}
+}
+
+func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
+	for clientID, eofCount := range clientsEofCount {
+		if eofCount >= neededEof {
+			msgID := workerID
+			outChan <- clientID + "\n" + msgID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			utils.RemoveClientDir(baseDir, clientID)
+			utils.RemoveClientDir(baseDir+"/secondary", clientID)
+			delete(clientsEofCount, clientID)
+		}
+	}
+}
+
+func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	// Load existing clients EOF count in case of worker restart
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	if err != nil {
+		log.Errorf("Error loading clients EOF count: %v", err)
+		return nil
+	}
+	go func() {
+		// In case of a restart, this may block before we start consuming messages, leading to a deadlock
+		resendClientMessages(baseDir, outChan)
+		ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
+	}()
+
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for secondary queue messages...")
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
 				log.Infof("SECONDARY QUEUE MESSAGE RECEIVED")
-				msg.Ack(false)
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
@@ -27,26 +111,49 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int) fun
 
 				// Separate header and the rest
 				clientID := lines[0]
-				// msgID := lines[1]
+				msgID := lines[1]
 				items := lines[2]
 
+				exists, err := utils.MessageAlreadyExists(baseDir, clientID, msgID)
+				if err != nil {
+					log.Errorf("Error checking existing message for client %s msg %s: %v", clientID, msgID, err)
+					continue
+				}
+				if exists {
+					log.Infof("Message for client %s msg %s already processed, skipping", clientID, msgID)
+					msg.Ack(false)
+					continue
+				}
+
+				// Store message or EOF on disk
+				if lines[2] == "EOF" {
+					utils.StoreEOF(baseDir, clientID, msgID)
+				} else {
+					utils.StoreMessage(baseDir, clientID, msgID, items)
+				}
+
+				// Acknowledge message
+				msg.Ack(false)
+
 				if items == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
+					if _, exists := clientsEofCount[clientID]; !exists {
+						clientsEofCount[clientID] = 1
 					} else {
-						clientEofCount[clientID]++
+						clientsEofCount[clientID]++
 					}
 
-					eofCount := clientEofCount[clientID]
+					eofCount := clientsEofCount[clientID]
 					if eofCount >= neededEof {
-						outChan <- payload
-						continue
+						outChan <- clientID + "\nEOF"
+						// remove the client entry from the map
+						delete(clientsEofCount, clientID)
 					}
+					continue
 				}
 
 				if items != "" {
 					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
-					outChan <- payload
+					outChan <- clientID + "\n" + items
 				}
 			}
 		}

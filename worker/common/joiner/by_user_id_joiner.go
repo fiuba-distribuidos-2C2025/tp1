@@ -4,35 +4,40 @@ import (
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
-func concatTop3(top3PerStoreArray []string, usersBirthdays map[string]string) string {
+func concatTop3WithBirthdates(users []string, neededUsers map[string]string) string {
 	var sb strings.Builder
 
-	for _, line := range top3PerStoreArray {
-		elements := strings.Split(line, ",")
-		if len(elements) < 3 {
+	for _, user := range users {
+		// user_id,gender,birthdate,registered_at
+		// 2018392,male,1992-12-27,2025-06-01 09:56:51
+		fields := strings.Split(user, ",")
+		if len(fields) < 4 {
+			log.Errorf("Invalid user format: %s", user)
 			continue
 		}
-		// storeId,userId,PurchaseQty:
-		// 1,1,10
-		storeId := elements[0]
-		userId := elements[1]
-		purchaseQty := elements[2]
-
-		// If we don't hold the data internally, we assume that
-		// other worked does
-		birthdate, exists := usersBirthdays[userId]
-		if birthdate == "" || !exists {
-			continue
+		userId := fields[0] + ".0" // TODO: datasets show userId in different formats
+		birthdate := fields[2]
+		if _, needed := neededUsers[userId]; needed {
+			top3line := neededUsers[userId]
+			elements := strings.Split(top3line, ",")
+			if len(elements) < 3 {
+				continue
+			}
+			// storeId,userId,PurchaseQty:
+			// 1,1,10
+			storeId := elements[0]
+			// userId := elements[1]
+			purchaseQty := elements[2]
+			sb.WriteString(storeId)
+			sb.WriteByte(',')
+			sb.WriteString(birthdate)
+			sb.WriteByte(',')
+			sb.WriteString(purchaseQty)
+			sb.WriteByte('\n')
 		}
-
-		sb.WriteString(storeId)
-		sb.WriteByte(',')
-		sb.WriteString(birthdate)
-		sb.WriteByte(',')
-		sb.WriteString(purchaseQty)
-		sb.WriteByte('\n')
 	}
 
 	return sb.String()
@@ -41,7 +46,7 @@ func concatTop3(top3PerStoreArray []string, usersBirthdays map[string]string) st
 // example store ids data input
 // storeId,userId,PurchaseQty:
 // 1,1,10
-func processNeededUsers(top3Lines []string) (map[string]string, []string) {
+func processNeededUsers(top3Lines []string) map[string]string {
 	// Preprocess stores data into a map for quick lookup
 	neededUsers := make(map[string]string)
 	for _, line := range top3Lines {
@@ -51,23 +56,26 @@ func processNeededUsers(top3Lines []string) (map[string]string, []string) {
 			continue
 		}
 		userId := fields[1]
-		neededUsers[userId] = ""
+		neededUsers[userId] = line
 	}
-	return neededUsers, top3Lines
+	return neededUsers
 }
 
-func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, top3PerStoreRowsChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
+func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	// Load existing clients EOF count in case of worker restart
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	if err != nil {
+		log.Errorf("Error loading clients EOF count: %v", err)
+		return nil
+	}
+	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	neededUsers := make(map[string]map[string]string)
-	top3PerStoreArray := make(map[string][]string)
-	// neededUsers, top3PerStoreArray := processNeededUsers(top3PerStoreRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
@@ -77,9 +85,11 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				// Separate header and the rest
 				clientID := lines[0]
+				msgID := lines[1]
 
 				// Ensure we have the needed users for this client.
 				// This will block until the expected clientID arrives.
+				// TODO: avoid blocking other clients while waiting for one
 				for len(neededUsers[clientID]) == 0 {
 					secondaryQueueNewMessage, ok := <-top3PerStoreRowsChan
 					if !ok {
@@ -96,55 +106,54 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					}
 
 					secondaryQueueClientID := rows[0]
-					top3PerStoreRows := rows[1:]
-					clientNeededUsers, clientTop3PerStoreArray := processNeededUsers(top3PerStoreRows)
+					clientTop3PerStoreArray := rows[1:]
+					clientNeededUsers := processNeededUsers(clientTop3PerStoreArray)
 					neededUsers[secondaryQueueClientID] = clientNeededUsers
-					top3PerStoreArray[secondaryQueueClientID] = clientTop3PerStoreArray
-
 					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
 				}
 
-				// Ack message only if we have secondary queue data to handle it
-				msg.Ack(false)
-
 				users := lines[2:]
 				if users[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
+					// Store EOF on disk as tracking the count in memory is not secure
+					// in case of worker restart
+					utils.StoreEOF(baseDir, clientID, msgID)
+					// Acknowledge message
+					msg.Ack(false)
+					if _, exists := clientsEofCount[clientID]; !exists {
+						clientsEofCount[clientID] = 1
 					} else {
-						clientEofCount[clientID]++
+						clientsEofCount[clientID]++
 					}
 
-					eofCount := clientEofCount[clientID]
+					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						clientTop3 := concatTop3(top3PerStoreArray[clientID], neededUsers[clientID])
-						if clientTop3 != "" {
-							outChan <- clientID + "\n" + clientTop3
-						}
-						outChan <- clientID + "\nEOF"
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
 						// clear accumulator memory
-						delete(clientEofCount, clientID)
+						delete(clientsEofCount, clientID)
 						delete(neededUsers, clientID)
-						delete(top3PerStoreArray, clientID)
+						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}
 
-				for _, user := range users {
-					// user_id,gender,birthdate,registered_at
-					// 2018392,male,1992-12-27,2025-06-01 09:56:51
-					fields := strings.Split(user, ",")
-					if len(fields) < 4 {
-						log.Errorf("Invalid user format: %s", user)
-						continue
-					}
-					userId := fields[0] + ".0" // TODO: datasets show userId in different formats
-					birthdate := fields[2]
-					if _, needed := neededUsers[clientID][userId]; needed {
-						neededUsers[clientID][userId] = birthdate
-					}
+				top3WithBirthdates := concatTop3WithBirthdates(users, neededUsers[clientID])
+				if top3WithBirthdates != "" {
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + top3WithBirthdates
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
 				}
+
+				// Acknowledge message
+				msg.Ack(false)
+
 			}
 		}
 	}

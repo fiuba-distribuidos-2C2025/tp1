@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 // Validates if a transaction final amount is greater than the target amount.
@@ -55,8 +56,14 @@ func processMenuItems(menuItemLines []string) map[string]string {
 	return menuItemsData
 }
 
-func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRowsChan chan string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
+func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	// Load existing clients EOF count in case of worker restart
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	if err != nil {
+		log.Errorf("Error loading clients EOF count: %v", err)
+		return nil
+	}
+	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	processedMenuItems := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -75,6 +82,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				// Separate header and the rest
 				clientID := lines[0]
+				msgID := lines[1]
 
 				// Create accumulator for client
 				if _, exists := processedMenuItems[clientID]; !exists {
@@ -83,6 +91,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 
 				// Ensure we have menu items for this client.
 				// This will block until the expected clientID arrives.
+				// TODO: avoid blocking other clients while waiting for one
 				for len(processedMenuItems[clientID]) == 0 {
 					secondaryQueueNewMessage, ok := <-menuItemRowsChan
 					if !ok {
@@ -106,25 +115,32 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
 				}
 
-				// Ack message only if we have secondary queue data to handle it
-				msg.Ack(false)
-
 				items := lines[2:]
 				if items[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
+					// Store EOF on disk as tracking the count in memory is not secure
+					// in case of worker restart
+					utils.StoreEOF(baseDir, clientID, msgID)
+					// Acknowledge message
+					msg.Ack(false)
+					if _, exists := clientsEofCount[clientID]; !exists {
+						clientsEofCount[clientID] = 1
 					} else {
-						clientEofCount[clientID]++
+						clientsEofCount[clientID]++
 					}
 
-					eofCount := clientEofCount[clientID]
+					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						msg := clientID + "\nEOF"
-						outChan <- msg
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
 						// clear accumulator memory
-						delete(clientEofCount, clientID)
+						delete(clientsEofCount, clientID)
 						delete(processedMenuItems, clientID)
+						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}
@@ -140,9 +156,16 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- clientID + "\n" + outBuilder.String()
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
 					log.Infof("Processed message")
 				}
+				// Acknowledge message
+				msg.Ack(false)
+				log.Infof("Processed message")
 			}
 		}
 	}

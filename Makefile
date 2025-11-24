@@ -3,6 +3,7 @@ PWD := $(shell pwd)
 
 CLIENT?=1
 WATCHER_PID_FILE := .watcher.pid
+CHAOS_INTERVAL:=30s
 
 default: build
 
@@ -120,3 +121,8 @@ watcher:
 	python3 watcher.py
 
 .PHONY: watcher
+
+chaos:
+	./scripts/chaos.sh ${CHAOS_INTERVAL} 're2:^(grouper_|joiner_|filter_|aggregator_)'
+
+.PHONY: chaos

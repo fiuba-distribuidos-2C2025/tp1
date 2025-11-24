@@ -61,14 +61,14 @@ func processNeededUsers(top3Lines []string) map[string]string {
 	return neededUsers
 }
 
-func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
 	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	utils.ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	neededUsers := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -76,7 +76,6 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
@@ -129,18 +128,27 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
 						// clear accumulator memory
 						delete(clientsEofCount, clientID)
 						delete(neededUsers, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}
 
 				top3WithBirthdates := concatTop3WithBirthdates(users, neededUsers[clientID])
 				if top3WithBirthdates != "" {
-					outChan <- clientID + "\n" + top3WithBirthdates
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + top3WithBirthdates
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
 				}
 
 				// Acknowledge message

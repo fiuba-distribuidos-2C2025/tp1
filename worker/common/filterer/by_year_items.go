@@ -37,9 +37,9 @@ func filterAndExtractFieldsItems(transaction string, minYear int, maxYear int) (
 // Output format of each row (batched when processed):
 // transaction_id,item_id,quantity,unit_price,subtotal,created_at
 // 2ae6d188-76c2-4095-b861-ab97d3cd9312,6,3,9.5,28.5,2023-07-01 07:00:00
-func CreateByYearFilterItemsCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByYearFilterItemsCallbackWithOutput(outChan chan string, messageSent chan string, neededEof int, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	filterFunc := func(transaction string) (string, bool) {
 		return filterAndExtractFieldsItems(transaction, minYearAllowed, maxYearAllowed)
 	}
-	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
+	return CreateGenericFilterCallbackWithOutput(outChan, messageSent, neededEof, filterFunc, baseDir, workerID)
 }

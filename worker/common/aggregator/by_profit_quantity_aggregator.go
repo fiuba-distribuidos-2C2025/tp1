@@ -1,10 +1,12 @@
 package aggregator
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 type ItemStats struct {
@@ -114,71 +116,73 @@ func get_accumulator_batches(maxQuantityItems map[string]ItemStats, maxProfitIte
 	return batches
 }
 
-func CreateByQuantityProfitAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
-	accumulator := make(map[string]map[string]ItemStats)
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
+// Function called when EOF threshold is reached for a client
+func ThresholdReachedHandleProfitQuantity(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	accumulator := make(map[string]ItemStats)
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
 
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
+	entries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Use the workerID as msgID for the EOF
+			// to ensure uniqueness across workers and restarts
+			outChan <- clientID + "\n" + workerID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			return utils.RemoveClientDir(baseDir, clientID)
+		}
+		return err
+	}
 
-				// Separate header and the rest
-				clientID := lines[0]
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip nested directories
+		}
 
-				// Create accumulator for client
-				if _, exists := accumulator[clientID]; !exists {
-					accumulator[clientID] = make(map[string]ItemStats)
-				}
+		filePath := filepath.Join(messagesDir, e.Name())
 
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
-					} else {
-						clientEofCount[clientID]++
-					}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Infof("failed to read file %s: %v", filePath, err)
+			continue
+		}
 
-					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
-					if eofCount >= neededEof {
-						maxQuantityItems, maxProfitITems := getMaxItems(accumulator[clientID])
+		payload := strings.TrimSpace(string(data))
 
-						batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
-						for _, batch := range batches {
-							if batch != "" {
-								outChan <- clientID + "\n" + batch
-							}
-						}
-						msg := clientID + "\nEOF"
-						outChan <- msg
+		transactions := strings.Split(payload, "\n")
 
-						// clear accumulator memory
-						accumulator[clientID] = nil
-					}
-					continue
-				}
+		for _, transaction := range transactions {
 
-				for _, transaction := range transactions {
-
-					item_key, sub_month_item_stats := parseTransactionData(transaction)
-					if _, ok := accumulator[clientID][item_key]; !ok {
-						accumulator[clientID][item_key] = ItemStats{quantity: 0, subtotal: 0, id: sub_month_item_stats.id, date: sub_month_item_stats.date}
-					}
-					txStat := accumulator[clientID][item_key]
-					txStat.quantity += sub_month_item_stats.quantity
-					txStat.subtotal += sub_month_item_stats.subtotal
-					accumulator[clientID][item_key] = txStat
-				}
+			item_key, sub_month_item_stats := parseTransactionData(transaction)
+			if _, ok := accumulator[item_key]; !ok {
+				accumulator[item_key] = ItemStats{quantity: 0, subtotal: 0, id: sub_month_item_stats.id, date: sub_month_item_stats.date}
 			}
+			txStat := accumulator[item_key]
+			txStat.quantity += sub_month_item_stats.quantity
+			txStat.subtotal += sub_month_item_stats.subtotal
+			accumulator[item_key] = txStat
 		}
 	}
+
+	maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
+
+	batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
+	for i, batch := range batches {
+		if batch != "" {
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
+			outChan <- clientID + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+		}
+	}
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
+
+	// clean up client directory
+	return utils.RemoveClientDir(baseDir, clientID)
 }

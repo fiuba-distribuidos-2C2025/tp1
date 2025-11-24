@@ -1,10 +1,12 @@
 package grouper
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 type UserStats struct {
@@ -88,77 +90,75 @@ func getUserAccumulatorBatches(accumulator map[string]UserStats) ([]string, []st
 	return userKeys, batches
 }
 
-func CreateByStoreUserGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
-	accumulator := make(map[string]map[string]UserStats)
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
+// Function called when EOF threshold is reached for a client
+func ThresholdReachedHandleByStoreUser(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	accumulator := make(map[string]UserStats)
 
-		for {
-			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
 
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
+	entries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages, forward EOF and clean up
+			// Use the workerID as msgID for the EOF
+			// to ensure uniqueness across workers and restarts
+			outChan <- clientID + "\n" + workerID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			return utils.RemoveClientDir(baseDir, clientID)
+		}
+		return err
+	}
 
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip nested directories
+		}
 
-				// Separate header and the rest
-				clientID := lines[0]
+		filePath := filepath.Join(messagesDir, e.Name())
 
-				// Create accumulator for client
-				if _, exists := accumulator[clientID]; !exists {
-					accumulator[clientID] = make(map[string]UserStats)
-				}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Infof("failed to read file %s: %v", filePath, err)
+			continue
+		}
 
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
-					} else {
-						clientEofCount[clientID]++
-					}
+		payload := strings.TrimSpace(string(data))
 
-					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						userKeys, batches := getUserAccumulatorBatches(accumulator[clientID])
-						for i, batch := range batches {
-							if batch != "" {
-								outChan <- clientID + "\n" + userKeys[i] + "\n" + batch
-							}
-						}
-						msg := clientID + "\nEOF"
-						outChan <- msg
+		transactions := strings.Split(payload, "\n")
 
-						// clear accumulator memory
-						accumulator[clientID] = nil
-					}
-					continue
-				}
-
-				for _, transaction := range transactions {
-					store_user_key, user_stats := parseTransactionUserData(transaction)
-					if store_user_key == "" {
-						// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
-						continue
-					}
-					if _, ok := accumulator[clientID][store_user_key]; !ok {
-						accumulator[clientID][store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
-					}
-					userStats := accumulator[clientID][store_user_key]
-					userStats.PurchasesQty += 1
-					accumulator[clientID][store_user_key] = userStats
-				}
+		for _, transaction := range transactions {
+			store_user_key, user_stats := parseTransactionUserData(transaction)
+			if store_user_key == "" {
+				// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+				continue
 			}
+			if _, ok := accumulator[store_user_key]; !ok {
+				accumulator[store_user_key] = UserStats{UserId: user_stats.UserId, StoreId: user_stats.StoreId, PurchasesQty: 0}
+			}
+			userStats := accumulator[store_user_key]
+			userStats.PurchasesQty += 1
+			accumulator[store_user_key] = userStats
 		}
 	}
+
+	userKeys, batches := getUserAccumulatorBatches(accumulator)
+	for i, batch := range batches {
+		if batch != "" {
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
+			outChan <- clientID + "\n" + userKeys[i] + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+		}
+	}
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
+
+	// clean up client directory
+	return utils.RemoveClientDir(baseDir, clientID)
 }

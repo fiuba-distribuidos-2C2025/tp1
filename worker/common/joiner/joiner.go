@@ -91,7 +91,8 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		return nil
 	}
 	go func() {
-		// In case of a restart, this may block before we start consuming messages, leading to a deadlock
+		// In case of a restart, this may block before we start consuming messages, leading to a deadlock.
+		// Because of that, we run it in a separate goroutine.
 		resendClientMessages(baseDir, outChan)
 		ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
 	}()

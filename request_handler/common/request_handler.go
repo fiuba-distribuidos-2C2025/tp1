@@ -331,7 +331,7 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	var payload strings.Builder
 	// generate a random message ID
-	// this is a workaround until we refactor the grouper to
+	// this is a workaround until we refactor the request handler to
 	// properly handle message IDs
 	msgID := fmt.Sprintf("%d", rand.Int63())
 
@@ -402,7 +402,7 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	log.Infof("Sending EOF from client id %d", clientId)
 	// generate a random message ID
-	// this is a workaround until we refactor the grouper to
+	// this is a workaround until we refactor the request handler to
 	// properly handle message IDs
 	msgID := fmt.Sprintf("%d", rand.Int63())
 

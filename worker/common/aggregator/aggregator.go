@@ -12,9 +12,11 @@ var log = logging.MustGetLogger("log")
 
 func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string, workerID string, messageSentNotificationChan chan string, thresholdReachedHandle func(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Check existing EOF thresholds before starting to consume messages.
-	// This ensures that if the worker restarts, it can pick up where it left off.
+	// This ensures that if the worker restarts, it sends the aggregated
+	// results for clients that have already sent all their data.
 	go func() {
-		// In case of a restart, this may block before we start consuming messages, leading to a deadlock
+		// In case of a restart, this may block before we start consuming messages, leading to a deadlock.
+		// Because of that, we run it in a separate goroutine.
 		err := utils.CheckAllClientsEOFThresholds(outChan, baseDir, neededEof, workerID, messageSentNotificationChan, thresholdReachedHandle)
 		if err != nil {
 			log.Errorf("Error checking existing EOF thresholds: %v", err)

@@ -54,9 +54,9 @@ func filterAndExtractFields(transaction string, minYear int, maxYear int, indice
 //
 // Output format of each row (batched when processed):
 // transaction_id,store_id,user_id,final_amount,created_at
-func CreateByYearFilterCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByYearFilterCallbackWithOutput(outChan chan string, messageSent chan string, neededEof int, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	filterFunc := func(transaction string) (string, bool) {
 		return filterAndExtractFields(transaction, minYearAllowed, maxYearAllowed, byYearFieldIndices)
 	}
-	return CreateGenericFilterCallbackWithOutput(outChan, neededEof, filterFunc)
+	return CreateGenericFilterCallbackWithOutput(outChan, messageSent, neededEof, filterFunc, baseDir, workerID)
 }

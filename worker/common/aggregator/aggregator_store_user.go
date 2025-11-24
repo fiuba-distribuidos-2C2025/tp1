@@ -98,7 +98,7 @@ func getUserAccumulatorBatches(maxQuantityItems map[string][]grouper.UserStats) 
 }
 
 // Function called when EOF threshold is reached for a client
-func ThresholdReachedHandleStoreUser(outChan chan string, baseDir string, clientID string) error {
+func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
 	accumulator := make(map[string]grouper.UserStats)
 
 	messagesDir := filepath.Join(baseDir, clientID, "messages")
@@ -107,8 +107,11 @@ func ThresholdReachedHandleStoreUser(outChan chan string, baseDir string, client
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages, forward EOF and clean up
-			msg := clientID + "\nEOF"
-			outChan <- msg
+			// Use the workerID as msgID for the EOF
+			// to ensure uniqueness across workers and restarts
+			outChan <- clientID + "\n" + workerID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 			return utils.RemoveClientDir(baseDir, clientID)
 		}
 		return err
@@ -151,13 +154,20 @@ func ThresholdReachedHandleStoreUser(outChan chan string, baseDir string, client
 	top3Users := getTop3Users(accumulator)
 	batches := getUserAccumulatorBatches(top3Users)
 
-	for _, batch := range batches {
+	for i, batch := range batches {
 		if batch != "" {
-			outChan <- clientID + "\n" + batch
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
+			outChan <- clientID + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 		}
 	}
-	msg := clientID + "\nEOF"
-	outChan <- msg
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)
 }

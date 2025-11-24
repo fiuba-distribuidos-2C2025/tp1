@@ -69,13 +69,13 @@ func ResendClientEofsToSecondary(clientsEofCount map[string]int, neededEof int, 
 	}
 }
 
-func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNofificationChan chan string) {
+func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
 	for clientID, eofCount := range clientsEofCount {
 		if eofCount >= neededEof {
 			msgID := workerID
 			outChan <- clientID + "\n" + msgID + "\nEOF"
 			// Here we just block until we are notified that the message was sent
-			<-messageSentNofificationChan
+			<-messageSentNotificationChan
 			utils.RemoveClientDir(baseDir, clientID)
 			utils.RemoveClientDir(baseDir+"/secondary", clientID)
 			delete(clientsEofCount, clientID)
@@ -147,8 +147,8 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 						outChan <- clientID + "\nEOF"
 						// remove the client entry from the map
 						delete(clientsEofCount, clientID)
-						continue
 					}
+					continue
 				}
 
 				if items != "" {

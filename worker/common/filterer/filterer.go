@@ -13,13 +13,13 @@ var log = logging.MustGetLogger("log")
 // FilterFunc represents a function that filters and potentially transforms a transaction
 type FilterFunc func(transaction string) (string, bool)
 
-func resendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNofificationChan chan string) {
+func resendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
 	for clientID, eofCount := range clientsEofCount {
 		if eofCount >= neededEof {
 			msgID := workerID
 			outChan <- clientID + "\n" + msgID + "\nEOF"
 			// Here we just block until we are notified that the message was sent
-			<-messageSentNofificationChan
+			<-messageSentNotificationChan
 			utils.RemoveClientDir(baseDir, clientID)
 			delete(clientsEofCount, clientID)
 		}

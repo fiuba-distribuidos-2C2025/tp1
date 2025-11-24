@@ -91,7 +91,7 @@ func getUserAccumulatorBatches(accumulator map[string]UserStats) ([]string, []st
 }
 
 // Function called when EOF threshold is reached for a client
-func ThresholdReachedHandleByStoreUser(outChan chan string, baseDir string, clientID string) error {
+func ThresholdReachedHandleByStoreUser(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
 	accumulator := make(map[string]UserStats)
 
 	messagesDir := filepath.Join(baseDir, clientID, "messages")
@@ -100,8 +100,11 @@ func ThresholdReachedHandleByStoreUser(outChan chan string, baseDir string, clie
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages, forward EOF and clean up
-			msg := clientID + "\nEOF"
-			outChan <- msg
+			// Use the workerID as msgID for the EOF
+			// to ensure uniqueness across workers and restarts
+			outChan <- clientID + "\n" + workerID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 			return utils.RemoveClientDir(baseDir, clientID)
 		}
 		return err
@@ -142,11 +145,19 @@ func ThresholdReachedHandleByStoreUser(outChan chan string, baseDir string, clie
 	userKeys, batches := getUserAccumulatorBatches(accumulator)
 	for i, batch := range batches {
 		if batch != "" {
-			outChan <- clientID + "\n" + userKeys[i] + "\n" + batch
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
+			outChan <- clientID + "\n" + userKeys[i] + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 		}
 	}
-	msg := clientID + "\nEOF"
-	outChan <- msg
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
 
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)

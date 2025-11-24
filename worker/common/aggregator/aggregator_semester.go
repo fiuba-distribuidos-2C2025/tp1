@@ -1,8 +1,6 @@
 package aggregator
 
 import (
-	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -71,7 +69,7 @@ func getSemesterAccumulatorBatches(accumulator map[string]grouper.SemesterStats)
 }
 
 // Function called when EOF threshold is reached for a client
-func ThresholdReachedHandleSemester(outChan chan string, baseDir string, clientID string) error {
+func ThresholdReachedHandleSemester(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
 	accumulator := make(map[string]grouper.SemesterStats)
 
 	messagesDir := filepath.Join(baseDir, clientID, "messages")
@@ -80,11 +78,12 @@ func ThresholdReachedHandleSemester(outChan chan string, baseDir string, clientI
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages, forward EOF and clean up
-			// generate a random message ID
-			// TODO: This shouldn't be random
-			msgID := fmt.Sprintf("%d", rand.Int63())
-			msg := clientID + "\n" + msgID + "\nEOF"
-			outChan <- msg
+			// Use the workerID as msgID for the EOF
+			// to ensure uniqueness across workers and restarts
+			outChan <- clientID + "\n" + workerID + "\nEOF"
+
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 			return utils.RemoveClientDir(baseDir, clientID)
 		}
 		return err
@@ -119,19 +118,22 @@ func ThresholdReachedHandleSemester(outChan chan string, baseDir string, clientI
 	}
 
 	batches := getSemesterAccumulatorBatches(accumulator)
-	for _, batch := range batches {
+	for i, batch := range batches {
 		if batch != "" {
-			// generate a random message ID
-			// TODO: This shouldn't be random
-			msgID := fmt.Sprintf("%d", rand.Int63())
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
 			outChan <- clientID + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
 		}
 	}
-	// generate a random message ID
-	// TODO: This shouldn't be random
-	msgID := fmt.Sprintf("%d", rand.Int63())
-	msg := clientID + "\n" + msgID + "\nEOF"
-	outChan <- msg
+	// No messages, forward EOF and clean up
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
 
 	// clean up client directory
 	return utils.RemoveClientDir(baseDir, clientID)

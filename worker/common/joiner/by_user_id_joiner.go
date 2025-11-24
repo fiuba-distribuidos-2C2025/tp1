@@ -76,7 +76,6 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 		for {
 			select {
 			case msg, ok := <-*consumeChannel:
-				log.Infof("MESSAGE RECEIVED")
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
 					return
@@ -139,7 +138,6 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 						delete(neededUsers, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
 						utils.RemoveClientDir(baseDir+"/secondary", clientID)
-
 					}
 					continue
 				}

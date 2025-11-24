@@ -43,7 +43,7 @@ func GetEOFCount(baseDir, clientID string) (int, error) {
 }
 
 // Checks all client directories in baseDir to see if they have reached the EOF threshold.
-func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, thresholdReachedHandle func(outChan chan string, baseDir string, clientID string) error) error {
+func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, workerID string, messageSentNotificationChan chan string, thresholdReachedHandle func(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error) error {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -64,7 +64,7 @@ func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof
 			return err
 		}
 		if thresholdReached {
-			err := thresholdReachedHandle(outChan, baseDir, clientID)
+			err := thresholdReachedHandle(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 			if err != nil {
 				return err
 			}

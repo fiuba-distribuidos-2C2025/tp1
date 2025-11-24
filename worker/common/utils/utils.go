@@ -37,13 +37,13 @@ func GetEOFCount(baseDir, clientID string) (int, error) {
 	eofDir := filepath.Join(baseDir, clientID, "eof")
 	entries, err := os.ReadDir(eofDir)
 	if err != nil {
-		return 0, err
+		return 0, nil
 	}
 	return len(entries), nil
 }
 
 // Checks all client directories in baseDir to see if they have reached the EOF threshold.
-func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, thresholdReachedHandle func(outChan chan string, baseDir string, clientID string) error) error {
+func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof int, workerID string, messageSentNotificationChan chan string, thresholdReachedHandle func(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error) error {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -64,7 +64,7 @@ func CheckAllClientsEOFThresholds(outChan chan string, baseDir string, neededEof
 			return err
 		}
 		if thresholdReached {
-			err := thresholdReachedHandle(outChan, baseDir, clientID)
+			err := thresholdReachedHandle(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 			if err != nil {
 				return err
 			}
@@ -92,4 +92,61 @@ func RemoveClientDir(baseDir string, clientID string) error {
 	}
 
 	return nil
+}
+
+func LoadClientsEofCount(baseDir string) (map[string]int, error) {
+	clientsEofCount := make(map[string]int)
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return clientsEofCount, nil
+		}
+		return clientsEofCount, err
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		clientID := e.Name()
+		eofCount, err := GetEOFCount(baseDir, clientID)
+		if err != nil {
+			return clientsEofCount, err
+		}
+		clientsEofCount[clientID] = eofCount
+
+	}
+	return clientsEofCount, nil
+}
+
+func eofAlreadyExists(baseDir string, clientID string, msgID string) (bool, error) {
+	eofPath := filepath.Join(baseDir, clientID, "eof", msgID+".eof")
+	if _, err := os.Stat(eofPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func MessageAlreadyExists(baseDir string, clientID string, msgID string) (bool, error) {
+	exists, err := eofAlreadyExists(baseDir, clientID, msgID)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		return true, nil
+	}
+
+	messagePath := filepath.Join(baseDir, clientID, "messages", msgID+".txt")
+	if _, err := os.Stat(messagePath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

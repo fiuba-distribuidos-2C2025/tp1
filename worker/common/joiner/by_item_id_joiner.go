@@ -56,14 +56,14 @@ func processMenuItems(menuItemLines []string) map[string]string {
 	return menuItemsData
 }
 
-func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := loadClientsEofCount(baseDir)
+	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir)
+	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	processedMenuItems := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -131,11 +131,16 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 					eofCount := clientsEofCount[clientID]
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
 						// clear accumulator memory
 						delete(clientsEofCount, clientID)
 						delete(processedMenuItems, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}
@@ -151,7 +156,12 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, neededEof int, 
 				}
 
 				if outBuilder.Len() > 0 {
-					outChan <- clientID + "\n" + outBuilder.String()
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
+					log.Infof("Processed message")
 				}
 				// Acknowledge message
 				msg.Ack(false)

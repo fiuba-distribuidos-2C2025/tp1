@@ -10,15 +10,16 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string, thresholdReachedHandle func(outChan chan string, baseDir string, clientID string) error) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string, workerID string, messageSentNotificationChan chan string, thresholdReachedHandle func(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Check existing EOF thresholds before starting to consume messages.
 	// This ensures that if the worker restarts, it can pick up where it left off.
-	// TODO: move this to Worker once all workers implement it
-	err := utils.CheckAllClientsEOFThresholds(outChan, baseDir, neededEof, thresholdReachedHandle)
-	if err != nil {
-		log.Errorf("Error checking existing EOF thresholds: %v", err)
-		return nil
-	}
+	go func() {
+		// In case of a restart, this may block before we start consuming messages, leading to a deadlock
+		err := utils.CheckAllClientsEOFThresholds(outChan, baseDir, neededEof, workerID, messageSentNotificationChan, thresholdReachedHandle)
+		if err != nil {
+			log.Errorf("Error checking existing EOF thresholds: %v", err)
+		}
+	}()
 
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -60,7 +61,7 @@ func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, base
 						return
 					}
 					if thresholdReached {
-						err := thresholdReachedHandle(outChan, baseDir, clientID)
+						err := thresholdReachedHandle(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 						if err != nil {
 							log.Errorf("Error handling threshold reached for client %s: %v", clientID, err)
 							return

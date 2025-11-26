@@ -7,10 +7,10 @@ import (
 	"strings"
 	"syscall"
 
+	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/response_builder/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
-	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 )
 
 var log = logging.MustGetLogger("log")

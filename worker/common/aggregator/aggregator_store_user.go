@@ -1,12 +1,14 @@
 package aggregator
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/grouper"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 // sample string input
@@ -95,80 +97,58 @@ func getUserAccumulatorBatches(maxQuantityItems map[string][]grouper.UserStats) 
 	return batches
 }
 
-func CreateByStoreUserAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
-	accumulator := make(map[string]map[string]grouper.UserStats)
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
+// Function called when EOF threshold is reached for a client
+func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	accumulator := make(map[string]grouper.UserStats)
 
-		for {
-			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
 
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
+	entries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+		}
+		return err
+	}
 
-				// Separate header and the rest
-				clientID := lines[0]
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip nested directories
+		}
 
-				// Create accumulator for client
-				if _, exists := accumulator[clientID]; !exists {
-					accumulator[clientID] = make(map[string]grouper.UserStats)
-				}
+		filePath := filepath.Join(messagesDir, e.Name())
 
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
-					} else {
-						clientEofCount[clientID]++
-					}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Errorf("failed to read file %s: %v", filePath, err)
+			continue
+		}
 
-					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
-					if eofCount >= neededEof {
-						top3Users := getTop3Users(accumulator[clientID])
-						batches := getUserAccumulatorBatches(top3Users)
+		payload := strings.TrimSpace(string(data))
 
-						for _, batch := range batches {
-							if batch != "" {
-								outChan <- clientID + "\n" + batch
-							}
-						}
-						msg := clientID + "\nEOF"
-						outChan <- msg
+		transactions := strings.Split(payload, "\n")
 
-						// clear accumulator memory
-						accumulator[clientID] = nil
-					}
-					continue
-				}
+		for _, transaction := range transactions {
 
-				for _, transaction := range transactions {
-
-					store_user_key, sub_user_stats := parseStoreUserData(transaction)
-					if store_user_key == "" {
-						// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
-						continue
-					}
-
-					if _, ok := accumulator[clientID][store_user_key]; !ok {
-						accumulator[clientID][store_user_key] = grouper.UserStats{UserId: sub_user_stats.UserId, StoreId: sub_user_stats.StoreId, PurchasesQty: 0}
-					}
-					userStats := accumulator[clientID][store_user_key]
-					userStats.PurchasesQty += sub_user_stats.PurchasesQty
-					accumulator[clientID][store_user_key] = userStats
-				}
+			store_user_key, sub_user_stats := parseStoreUserData(transaction)
+			if store_user_key == "" {
+				log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+				continue
 			}
+
+			if _, ok := accumulator[store_user_key]; !ok {
+				accumulator[store_user_key] = grouper.UserStats{UserId: sub_user_stats.UserId, StoreId: sub_user_stats.StoreId, PurchasesQty: 0}
+			}
+			userStats := accumulator[store_user_key]
+			userStats.PurchasesQty += sub_user_stats.PurchasesQty
+			accumulator[store_user_key] = userStats
 		}
 	}
+
+	top3Users := getTop3Users(accumulator)
+	batches := getUserAccumulatorBatches(top3Users)
+
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
+
+	return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 }

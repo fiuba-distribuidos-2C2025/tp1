@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"slices"
 	"strconv"
@@ -329,7 +330,14 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 // sendToQueue sends the batch message to the appropriate queue based on file type
 func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	var payload strings.Builder
+	// generate a random message ID
+	// this is a workaround until we refactor the request handler to
+	// properly handle message IDs
+	msgID := fmt.Sprintf("%d", rand.Int63())
+
 	payload.WriteString(strconv.FormatUint(uint64(message.ClientID), 10))
+	payload.WriteString("\n")
+	payload.WriteString(msgID)
 	payload.WriteString("\n")
 	payload.WriteString(strings.Join(message.CSVRows, "\n"))
 	payloadBytes := []byte(payload.String())
@@ -393,9 +401,15 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 // sendEOFForFileType sends EOF message to all receiver queues for a specific fileType
 func sendEOFForFileType(clientId uint16, fileType protocol.FileType, cfg RequestHandlerConfig, channel *amqp.Channel) error {
 	log.Infof("Sending EOF from client id %d", clientId)
+	// generate a random message ID
+	// this is a workaround until we refactor the request handler to
+	// properly handle message IDs
+	msgID := fmt.Sprintf("%d", rand.Int63())
 
 	var payload strings.Builder
 	payload.WriteString(strconv.FormatUint(uint64(clientId), 10))
+	payload.WriteString("\n")
+	payload.WriteString(msgID)
 	payload.WriteString("\nEOF")
 	payloadBytes := []byte(payload.String())
 

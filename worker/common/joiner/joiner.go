@@ -154,7 +154,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 
 				if items != "" {
 					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
-					outChan <- clientID + "\n" + items
+					outChan <- clientID + "\n" + items + "\n"
 				}
 			}
 		}

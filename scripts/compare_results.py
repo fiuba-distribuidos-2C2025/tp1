@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import os
-import argparse
 from pathlib import Path
 import traceback
 
@@ -38,6 +36,7 @@ def parse_data_to_set(lines):
 def compare_files(file1, file2, query_num):
     print(f"QUERY {query_num} COMPARISON")
 
+    is_reduced = "reduced" in str(Path(file2))
     try:
         lines1 = read_query_file(file1)
         lines2 = read_query_file(file2)
@@ -50,6 +49,12 @@ def compare_files(file1, file2, query_num):
     # Parse data into sets
     data_set1 = parse_data_to_set(lines1)
     data_set2 = parse_data_to_set(lines2)
+
+    if is_reduced:
+        expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 30 correct results
+    else:
+        expected_correct_total_results_query3 = 30 # 10 stores in three semesters, a total of 30 correct results
+    expected_correct_total_results_query4 = 30 # 10 stores and top 3 per store, a total of 30 correct results
 
     # Compare data sets (order-independent)
     if not int(query_num) == 4 and not int(query_num) == 3 and data_set1 == data_set2:
@@ -65,9 +70,14 @@ def compare_files(file1, file2, query_num):
                     f"Row {','.join(row)} is not in the expected result but present in the actual result"
                 )
                 return
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print(f"{'-' * 60}")
-        return
+            expected_correct_total_results_query3 -= 1
+
+        if expected_correct_total_results_query3 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     elif int(query_num) == 4:
         for row in data_set1:
@@ -77,10 +87,14 @@ def compare_files(file1, file2, query_num):
                     f"Row {','.join(row)} is not in the expected result but present in the actual result"
                 )
                 return
+            expected_correct_total_results_query4 -= 1
 
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print(f"{'-' * 60}")
-        return
+        if expected_correct_total_results_query4 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     # Find differences
     print(f"QUERY {query_num}: Results are WRONG! ❌")

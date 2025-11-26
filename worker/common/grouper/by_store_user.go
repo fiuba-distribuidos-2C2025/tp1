@@ -124,7 +124,7 @@ func ThresholdReachedHandleByStoreUser(outChan chan string, messageSentNotificat
 		for _, transaction := range transactions {
 			store_user_key, user_stats := parseTransactionUserData(transaction)
 			if store_user_key == "" {
-				// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+				log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
 				continue
 			}
 			if _, ok := accumulator[store_user_key]; !ok {

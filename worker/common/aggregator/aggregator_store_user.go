@@ -132,7 +132,7 @@ func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificatio
 
 			store_user_key, sub_user_stats := parseStoreUserData(transaction)
 			if store_user_key == "" {
-				// log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
+				log.Debugf("Invalid data in transaction: %s, ignoring", transaction)
 				continue
 			}
 

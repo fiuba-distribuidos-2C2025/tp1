@@ -51,7 +51,7 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 				continue
 			}
 			if items != "" {
-				log.Info("RESENDING THROUGH SECONDARY CHANNEL\n%s", items)
+				log.Info("Resending through secondary channel\n%s", items)
 				outChan <- clientID + "\n" + items
 			}
 

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import os
-import argparse
 from pathlib import Path
 import traceback
 
@@ -21,6 +19,7 @@ def parse_data_to_set(lines):
 def compare_files(file1, file2, query_num):
     print(f"QUERY {query_num} COMPARISON")
 
+    is_reduced = "reduced" in str(Path(file2))
     try:
         lines1 = read_query_file(file1)
         lines2 = read_query_file(file2)
@@ -31,7 +30,17 @@ def compare_files(file1, file2, query_num):
     data_set1 = parse_data_to_set(lines1)
     data_set2 = parse_data_to_set(lines2)
 
-    q = int(query_num)
+    if is_reduced:
+        expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 30 correct results
+    else:
+        expected_correct_total_results_query3 = 30 # 10 stores in three semesters, a total of 30 correct results
+    expected_correct_total_results_query4 = 30 # 10 stores and top 3 per store, a total of 30 correct results
+
+    # Compare data sets (order-independent)
+    if not int(query_num) == 4 and not int(query_num) == 3 and data_set1 == data_set2:
+        print(f"QUERY {query_num}: Results are OK! ✅")
+        print(f"{'-' * 60}")
+        return
 
     # Queries 3 and 4 have special comparison rules.
     if q not in (3, 4) and data_set1 == data_set2:
@@ -42,24 +51,36 @@ def compare_files(file1, file2, query_num):
     if q == 3:
         for row in data_set1:
             if not any(row[:-1] == s[:-1] for s in data_set2):
-                print(f"❌ QUERY {query_num}: Results are WRONG!")
-                print(f"Row {','.join(row)} missing (comparing all but last column)")
-                print("-" * 60)
-                return False
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print("-" * 60)
-        return True
+                print("Results are WRONG! ❌\n")
+                print(
+                    f"Row {','.join(row)} is not in the expected result but present in the actual result"
+                )
+                return
+            expected_correct_total_results_query3 -= 1
+
+        if expected_correct_total_results_query3 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     if q == 4:
         for row in data_set1:
             if row not in data_set2:
-                print(f"❌ QUERY {query_num}: Results are WRONG!")
-                print(f"Row {','.join(row)} missing from expected result")
-                print("-" * 60)
-                return False
-        print(f"QUERY {query_num}: Results are OK! ✅")
-        print("-" * 60)
-        return True
+                print("Results are WRONG! ❌\n")
+                print(
+                    f"Row {','.join(row)} is not in the expected result but present in the actual result"
+                )
+                return
+            expected_correct_total_results_query4 -= 1
+
+        if expected_correct_total_results_query4 == 0:
+            print(f"QUERY {query_num}: Results are OK! ✅")
+            print(f"{'-' * 60}")
+            return
+        else:
+            print("Not enough correct results, some are missing")
 
     # Standard mismatch reporting
     if data_set1 != data_set2:

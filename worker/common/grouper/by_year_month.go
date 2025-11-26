@@ -1,10 +1,12 @@
 package grouper
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 type ItemStats struct {
@@ -56,94 +58,102 @@ func parseTransactionItemData(transaction string) (string, ItemStats) {
 }
 
 // Convert accumulator map to batches of at most 10mb strings for output
-func get_accumulator_batches(accumulator map[string]ItemStats) []string {
+func getAccumulatorBatches(accumulator map[string]ItemStats) ([]string, []string) {
+	const maxBatchSizeBytes = 10 * 1024 * 1024 // 10 MB
+
+	var itemKeys []string
 	var batches []string
-	var currentBatch strings.Builder
-	currentSize := 0
-	maxBatchSize := 10 * 1024 * 1024 // 10 MB
+
+	// Track partial batches and sizes per item
+	itemBuilders := make(map[string]*strings.Builder)
+	itemSizes := make(map[string]int)
 
 	for key, stats := range accumulator {
-		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
-		lineSize := len(line)
+		itemKey := stats.date // This is the key used to distribute between aggregators later
 
-		if currentSize+lineSize > maxBatchSize && currentSize > 0 {
-			batches = append(batches, currentBatch.String())
-			currentBatch.Reset()
+		// Prepare line to write
+		line := key + "," + stats.date + "," + stats.id + "," + strconv.Itoa(stats.quantity) + "," + strconv.FormatFloat(stats.subtotal, 'f', 2, 64) + "\n"
+		lineSizeBytes := len(line)
+
+		// Initialize structures if this item hasn't been seen yet
+		if _, exists := itemBuilders[itemKey]; !exists {
+			itemBuilders[itemKey] = &strings.Builder{}
+			itemSizes[itemKey] = 0
+		}
+
+		builder := itemBuilders[itemKey]
+		currentSize := itemSizes[itemKey]
+
+		// Flush this item's batch if adding this line would exceed max size
+		if currentSize+lineSizeBytes > maxBatchSizeBytes && currentSize > 0 {
+			itemKeys = append(itemKeys, itemKey)
+			batches = append(batches, builder.String())
+			builder.Reset()
 			currentSize = 0
 		}
 
-		currentBatch.WriteString(line)
-		currentSize += lineSize
-	}
-	if currentSize > 0 {
-		batches = append(batches, currentBatch.String())
+		builder.WriteString(line)
+		itemSizes[itemKey] = currentSize + lineSizeBytes
 	}
 
-	return batches
-}
-
-func CreateByYearMonthGrouperCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
-	accumulator := make(map[string]map[string]ItemStats)
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
-
-				// Separate header and the rest
-				clientID := lines[0]
-
-				// Create accumulator for client
-				if _, exists := accumulator[clientID]; !exists {
-					accumulator[clientID] = make(map[string]ItemStats)
-				}
-
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
-					} else {
-						clientEofCount[clientID]++
-					}
-
-					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d)", eofCount, neededEof)
-					if eofCount >= neededEof {
-						batches := get_accumulator_batches(accumulator[clientID])
-						for _, batch := range batches {
-							if batch != "" {
-								outChan <- clientID + "\n" + batch
-							}
-						}
-						msg := clientID + "\nEOF"
-						outChan <- msg
-
-						// clear accumulator memory
-						accumulator[clientID] = nil
-					}
-					continue
-				}
-
-				for _, transaction := range transactions {
-					item_id, item_tx_stat := parseTransactionItemData(transaction)
-					if _, ok := accumulator[clientID][item_id]; !ok {
-						accumulator[clientID][item_id] = ItemStats{quantity: 0, subtotal: 0, date: item_tx_stat.date, id: item_tx_stat.id}
-					}
-					txStat := accumulator[clientID][item_id]
-					txStat.quantity += item_tx_stat.quantity
-					txStat.subtotal += item_tx_stat.subtotal
-					accumulator[clientID][item_id] = txStat
-				}
-			}
+	// Flush remaining non-empty item batches
+	for itemKey, builder := range itemBuilders {
+		if itemSizes[itemKey] > 0 {
+			itemKeys = append(itemKeys, itemKey)
+			batches = append(batches, builder.String())
 		}
 	}
+
+	return itemKeys, batches
+}
+
+// Function called when EOF threshold is reached for a client
+func ThresholdReachedHandleByYearMonth(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	accumulator := make(map[string]ItemStats)
+
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
+
+	entries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages, forward EOF and clean up
+			return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+		}
+		return err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip nested directories
+		}
+
+		filePath := filepath.Join(messagesDir, e.Name())
+
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Errorf("failed to read file %s: %v", filePath, err)
+			continue
+		}
+
+		payload := strings.TrimSpace(string(data))
+
+		transactions := strings.Split(payload, "\n")
+
+		for _, transaction := range transactions {
+			item_id, item_tx_stat := parseTransactionItemData(transaction)
+			if _, ok := accumulator[item_id]; !ok {
+				accumulator[item_id] = ItemStats{quantity: 0, subtotal: 0, date: item_tx_stat.date, id: item_tx_stat.id}
+			}
+			txStat := accumulator[item_id]
+			txStat.quantity += item_tx_stat.quantity
+			txStat.subtotal += item_tx_stat.subtotal
+			accumulator[item_id] = txStat
+		}
+	}
+
+	itemKeys, batches := getAccumulatorBatches(accumulator)
+
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches, itemKeys)
+
+	return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 }

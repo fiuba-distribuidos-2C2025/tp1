@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -21,13 +22,15 @@ type ResponseBuilderConfig struct {
 	WorkerResultsTwoCount   int
 	WorkerResultsThreeCount int
 	WorkerResultsFourCount  int
+	IsTest                  bool
 }
 
 type ResponseBuilder struct {
-	Config      ResponseBuilderConfig
-	listener    net.Listener
-	workerAddrs []string
-	shutdown    chan os.Signal
+	Config       ResponseBuilderConfig
+	listener     net.Listener
+	workerAddrs  []string
+	shutdown     chan os.Signal
+	queueFactory middleware.QueueFactory
 }
 
 type ResultMessage struct {
@@ -40,31 +43,37 @@ type clientState struct {
 	eofCounts map[int]int
 }
 
-func NewResponseBuilder(config ResponseBuilderConfig) *ResponseBuilder {
+func NewResponseBuilder(config ResponseBuilderConfig, factory middleware.QueueFactory) *ResponseBuilder {
 	return &ResponseBuilder{
-		Config:      config,
-		listener:    nil,
-		workerAddrs: nil,
-		shutdown:    make(chan os.Signal, 1),
+		Config:       config,
+		listener:     nil,
+		workerAddrs:  nil,
+		shutdown:     make(chan os.Signal, 1),
+		queueFactory: factory,
 	}
 }
 
 func (rb *ResponseBuilder) Start() error {
 	log.Info("Starting response builder")
 
-	conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
-	if err != nil {
-		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-	defer conn.Close()
+	if !rb.Config.IsTest {
+		conn, err := amqp.Dial(rb.Config.MiddlewareUrl)
+		if err != nil {
+			return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+		}
+		defer conn.Close()
 
-	channel, err := conn.Channel()
-	if err != nil {
-		return fmt.Errorf("failed to open channel: %w", err)
+		channel, err := conn.Channel()
+		if err != nil {
+			return fmt.Errorf("failed to open channel: %w", err)
+		}
+		defer channel.Close()
+		rb.queueFactory.SetChannel(channel)
 	}
-	defer channel.Close()
 
 	clients := make(map[string]*clientState)
+	// workaround to discard duplicate messages
+	receivedMessages := make(map[string]map[string]map[string]bool)
 	outChan := make(chan ResultMessage, 100)
 	errChan := make(chan error, 4)
 
@@ -73,8 +82,8 @@ func (rb *ResponseBuilder) Start() error {
 		queueName := fmt.Sprintf("results_%d_1", resultID)
 		log.Infof("Listening on queue %s", queueName)
 
-		resultsQueue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID))
+		resultsQueue := rb.queueFactory.CreateQueue(queueName)
+		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest))
 	}
 
 	// Main processing loop
@@ -89,22 +98,36 @@ func (rb *ResponseBuilder) Start() error {
 			// Continue processing, individual consumers handle their own errors
 
 		case msg := <-outChan:
-			if err := rb.processResult(msg, clients, channel); err != nil {
+			if err := rb.processResult(msg, clients, receivedMessages); err != nil {
 				log.Errorf("Failed to process result: %v", err)
 			}
 		}
 	}
 }
 
-func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState, channel *amqp.Channel) error {
+func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState, receivedMessages map[string]map[string]map[string]bool) error {
 	// Parse message
-	lines := strings.SplitN(msg.Value, "\n", 2)
-	if len(lines) < 2 {
+	lines := strings.SplitN(msg.Value, "\n", 3)
+	if len(lines) < 3 {
 		return fmt.Errorf("invalid message format: expected clientId\\nmessage")
 	}
 
 	clientId := lines[0]
-	message := lines[1]
+	msgID := lines[1]
+	message := lines[2]
+
+	// Check for duplicate messages
+	if _, exists := receivedMessages[clientId]; !exists {
+		receivedMessages[clientId] = make(map[string]map[string]bool)
+	}
+	if _, exists := receivedMessages[clientId][strconv.Itoa(msg.ID)]; !exists {
+		receivedMessages[clientId][strconv.Itoa(msg.ID)] = make(map[string]bool)
+	}
+	if _, exists := receivedMessages[clientId][strconv.Itoa(msg.ID)][msgID]; exists {
+		log.Infof("Duplicate message received for client %s query %d msg %s, ignoring", clientId, msg.ID, msgID)
+		return nil
+	}
+	receivedMessages[clientId][strconv.Itoa(msg.ID)][msgID] = true
 
 	// Get or create client state
 	state, ok := clients[clientId]
@@ -131,7 +154,7 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 
 			// Send final results
 			finalQueueName := fmt.Sprintf("final_results_%s_%d", clientId, msg.ID)
-			finalResultsQueue := middleware.NewMessageMiddlewareQueue(finalQueueName, channel)
+			finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
 
 			finalResult := strings.Join(state.results[msg.ID], "\n")
 			finalResultsQueue.Send([]byte(finalResult))
@@ -168,17 +191,19 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 	}
 }
 
-func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int) func(middleware.ConsumeChannel, chan error) {
+func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
-			if err := msg.Ack(false); err != nil {
-				log.Errorf("Failed to acknowledge message: %v", err)
-				errChan <- fmt.Errorf("failed to ack message: %w", err)
-				continue
+			if !isTest {
+				if err := msg.Ack(false); err != nil {
+					log.Errorf("Failed to acknowledge message: %v", err)
+					errChan <- fmt.Errorf("failed to ack message: %w", err)
+					continue
+				}
 			}
-
+			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),
 				ID:    resultID,

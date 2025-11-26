@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
@@ -112,9 +113,11 @@ func main() {
 		OutputReceivers: OutputReceivers,
 		WorkerJob:       v.GetString("job"),
 		ID:              v.GetInt("id"),
+		IsTest:          false,
+		BaseDir:         v.GetString("baseDir"),
 	}
 
-	worker, err := common.NewWorker(workerConfig)
+	worker, err := common.NewWorker(workerConfig, middleware.NewRealQueueFactory(nil))
 	if err != nil {
 		log.Criticalf("Failed to create worker: %v", err)
 	}

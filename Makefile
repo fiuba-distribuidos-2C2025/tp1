@@ -100,3 +100,8 @@ run_client: clean_results
       client:latest
 
 .PHONY: run_multiclient_test
+
+integration_test:
+	cd tests && go test
+
+.PHONY: integration_test

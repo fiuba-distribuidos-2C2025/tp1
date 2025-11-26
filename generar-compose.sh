@@ -81,8 +81,10 @@ cat >> "$OUTPUT_FILE" <<EOL
         - ./data:/data
         - ./results:/results
     depends_on:
-        - rabbit
-        - request_handler
+        rabbit:
+            condition: service_healthy
+        request_handler:
+            condition: service_started
     networks:
         - testing_net
     environment:
@@ -106,10 +108,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -117,6 +121,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_2024_2025_q1,transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_HOUR,$WORKER_COUNT_GROUPER_BY_STORE_USER
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -129,10 +134,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_hour_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -140,6 +147,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=transactions_filtered_by_hour_q1,transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_FILTER_BY_AMOUNT,$WORKER_COUNT_GROUPER_BY_SEMESTER
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -152,10 +160,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_amount_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -163,6 +173,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -182,10 +193,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_filter_by_year_items_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -193,6 +206,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -205,10 +219,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_year_month_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -216,6 +232,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -228,10 +245,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_profit_quantity_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -239,6 +258,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_ITEM_ID
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -252,10 +272,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_item_id_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -263,6 +285,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY,$REQUEST_CONTROLLER_COUNT
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -282,17 +305,20 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_semester_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_aggregator_queue
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one aggregator
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_AGGREGATOR_BY_SEMESTER
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -305,10 +331,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_semester_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -316,6 +344,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=semester_grouped_transactions
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_STORE_ID
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -328,17 +357,20 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_store_id_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
-      - WORKER_MIDDLEWARE_SENDERS=1,$REQUEST_CONTROLLER_COUNT
+      - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_SEMESTER,$REQUEST_CONTROLLER_COUNT
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -358,17 +390,20 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_grouper_by_store_user_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_YEAR
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=store_user_transactions
-      - WORKER_MIDDLEWARE_RECEIVERS=1 # Only one top 3 aggregator
+      - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_AGGREGATOR_BY_STORE_USER
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -381,10 +416,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_aggregator_by_store_user_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -392,6 +429,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_store_users
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_USER_ID
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -404,17 +442,20 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_id_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
-      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT,1
+      - WORKER_MIDDLEWARE_SENDERS=$REQUEST_CONTROLLER_COUNT,$WORKER_COUNT_AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=top_3_users_name
       - WORKER_MIDDLEWARE_RECEIVERS=$WORKER_COUNT_JOINER_BY_USER_STORE
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
 done
@@ -427,10 +468,12 @@ cat >> "$OUTPUT_FILE" <<EOL
     entrypoint: /worker
     volumes:
       - ./worker/config.yaml:/config.yaml
+      - base_dir_joiner_by_user_store_$i:/base_dir
     networks:
       - testing_net
     depends_on:
-        - rabbit
+        rabbit:
+            condition: service_healthy
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -438,8 +481,74 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
       - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_CONTROLLER_COUNT
       - WORKER_ID=$i
+      - WORKER_BASEDIR=/base_dir
 
 EOL
+done
+
+# Declaración de todos los volúmenes para /base_dir
+cat >> "$OUTPUT_FILE" <<EOL
+volumes:
+EOL
+
+# First Query
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
+  echo "  base_dir_filter_by_year_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_HOUR; i++)); do
+  echo "  base_dir_filter_by_hour_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_AMOUNT; i++)); do
+  echo "  base_dir_filter_by_amount_$i:" >> "$OUTPUT_FILE"
+done
+
+# Second Query
+for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
+  echo "  base_dir_filter_by_year_items_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
+  echo "  base_dir_grouper_by_year_month_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY; i++)); do
+  echo "  base_dir_aggregator_by_profit_quantity_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_ITEM_ID; i++)); do
+  echo "  base_dir_joiner_by_item_id_$i:" >> "$OUTPUT_FILE"
+done
+
+# Third Query
+for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
+  echo "  base_dir_grouper_by_semester_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_SEMESTER; i++)); do
+  echo "  base_dir_aggregator_semester_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
+  echo "  base_dir_joiner_by_store_id_$i:" >> "$OUTPUT_FILE"
+done
+
+# Fourth Query
+for ((i=1; i<=WORKER_COUNT_GROUPER_BY_STORE_USER; i++)); do
+  echo "  base_dir_grouper_by_store_user_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
+  echo "  base_dir_aggregator_by_store_user_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_ID; i++)); do
+  echo "  base_dir_joiner_by_user_id_$i:" >> "$OUTPUT_FILE"
+done
+
+for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
+  echo "  base_dir_joiner_by_user_store_$i:" >> "$OUTPUT_FILE"
 done
 
 cat >> "$OUTPUT_FILE" <<EOL

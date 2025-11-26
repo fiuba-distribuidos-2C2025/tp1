@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from operator import contains
 import sys
 import os
 import argparse
@@ -38,6 +39,7 @@ def parse_data_to_set(lines):
 def compare_files(file1, file2, query_num):
     print(f"QUERY {query_num} COMPARISON")
 
+    is_reduced = "reduced" in str(Path(file2))
     try:
         lines1 = read_query_file(file1)
         lines2 = read_query_file(file2)
@@ -51,7 +53,10 @@ def compare_files(file1, file2, query_num):
     data_set1 = parse_data_to_set(lines1)
     data_set2 = parse_data_to_set(lines2)
 
-    expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 20 correct results
+    if is_reduced:
+        expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 30 correct results
+    else:
+        expected_correct_total_results_query3 = 30 # 10 stores in three semesters, a total of 30 correct results
     expected_correct_total_results_query4 = 30 # 10 stores and top 3 per store, a total of 30 correct results
 
     # Compare data sets (order-independent)

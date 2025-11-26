@@ -447,7 +447,7 @@ func (c *Client) tryReadResults() error {
 		case protocol.MessageTypeResultsReady:
 			log.Info("Request handler ready to send results")
 		default:
-			// Something went wrong with the client, abort conenction
+			// Something went wrong with the client, abort connection
 			c.stopServerConn()
 			return fmt.Errorf("unexpected message type while reading results: 0x%02x", msgType)
 		}

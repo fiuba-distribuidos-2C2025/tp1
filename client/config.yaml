@@ -6,5 +6,3 @@ log:
   level: "DEBUG"
 middleware:
   url: "amqp://guest:guest@rabbit:5672/"
-file_paths:
-  - "/data/transactions_test.csv"

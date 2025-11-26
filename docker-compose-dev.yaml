@@ -42,7 +42,7 @@ services:
     volumes:
       - ./proxy/config.yaml:/config/config.yaml
     environment:
-      - PROXY_REQUESTHANDLERS_ADDRESSES=request_handler1:8901,request_handler2:8902
+      - PROXY_REQUESTHANDLERS_ADDRESSES=request_handler1:8901,request_handler2:8902,request_handler3:8903
     depends_on:
         rabbit:
             condition: service_healthy
@@ -95,6 +95,28 @@ services:
       - REQUEST_PORT=8902
       - ID=2
 
+  request_handler3:
+    container_name: request_handler3
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    networks:
+      - testing_net
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
+      - REQUEST_IP=request_handler3
+      - REQUEST_PORT=8903
+      - ID=3
+
   client1:
     container_name: client1
     image: client:latest
@@ -130,42 +152,6 @@ services:
         - testing_net
     environment:
         - CLIENT_ID=2
-
-  client3:
-    container_name: client3
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        proxy:
-            condition: service_started
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=3
-
-  client4:
-    container_name: client4
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        proxy:
-            condition: service_started
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=4
 
 # ==============================================================================
 # First Query

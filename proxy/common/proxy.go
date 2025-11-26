@@ -13,30 +13,27 @@ import (
 
 var proxyLog = logging.MustGetLogger("log")
 
-// ProxyConfig holds configuration for the proxy
 type ProxyConfig struct {
-	Port             string   // Port to listen on for client connections
-	IP               string   // IP to bind to
-	RequestHandlers  []string // List of request handler addresses (IP:Port)
+	Port                string        // Port to listen on for client connections
+	IP                  string        // IP of the proxy
+	RequestHandlers     []string      // List of request handler addresses (IP:Port)
 	HealthCheckInterval time.Duration // How often to check handler health
-	BufferSize       int      // Buffer size for client connections
+	BufferSize          int           // Buffer size for messages with the client
 }
 
-// Proxy acts as a load balancer for request handlers
 type Proxy struct {
-	Config           ProxyConfig
-	listener         net.Listener
-	shutdown         chan struct{}
-	currentHandler   uint32 // Atomic counter for round-robin
-	healthyHandlers  []string
-	handlersMutex    sync.RWMutex
-	wg               sync.WaitGroup
+	Config          ProxyConfig
+	listener        net.Listener
+	shutdown        chan struct{}
+	currentHandler  uint32
+	healthyHandlers []string
+	handlersMutex   sync.RWMutex
 }
 
 // NewProxy creates a new Proxy instance
 func NewProxy(config ProxyConfig) *Proxy {
 	if config.HealthCheckInterval == 0 {
-		config.HealthCheckInterval = 10 * time.Second
+		config.HealthCheckInterval = 5 * time.Second
 	}
 
 	return &Proxy{
@@ -46,11 +43,9 @@ func NewProxy(config ProxyConfig) *Proxy {
 	}
 }
 
-// Start begins the proxy operations
 func (p *Proxy) Start() error {
 	proxyLog.Infof("Starting proxy with config %+v", p.Config)
 
-	// Initial health check
 	p.updateHealthyHandlers()
 
 	if len(p.healthyHandlers) == 0 {
@@ -66,9 +61,7 @@ func (p *Proxy) Start() error {
 	proxyLog.Infof("Proxy listening on %s", addr)
 
 	// Start health check routine
-	p.wg.Add(1)
 	go p.healthCheckLoop()
-
 	// Start accepting connections
 	go p.acceptConnections()
 
@@ -76,7 +69,6 @@ func (p *Proxy) Start() error {
 	return nil
 }
 
-// Stop gracefully shuts down the proxy
 func (p *Proxy) Stop() {
 	proxyLog.Info("Shutting down proxy...")
 	close(p.shutdown)
@@ -87,11 +79,9 @@ func (p *Proxy) Stop() {
 		}
 	}
 
-	p.wg.Wait()
 	proxyLog.Info("Proxy shutdown complete")
 }
 
-// acceptConnections continuously accepts new client connections
 func (p *Proxy) acceptConnections() {
 	for {
 		clientConn, err := p.listener.Accept()
@@ -107,14 +97,11 @@ func (p *Proxy) acceptConnections() {
 
 		proxyLog.Infof("New client connection from %s", clientConn.RemoteAddr())
 
-		p.wg.Add(1)
 		go p.handleConnection(clientConn)
 	}
 }
 
-// handleConnection forwards a client connection to a request handler
 func (p *Proxy) handleConnection(clientConn net.Conn) {
-	defer p.wg.Done()
 	defer clientConn.Close()
 
 	// Get next healthy handler using round-robin
@@ -127,73 +114,78 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	proxyLog.Infof("Forwarding connection from %s to handler %s",
 		clientConn.RemoteAddr(), handlerAddr)
 
-	// Connect to the request handler
-	handlerConn, err := net.DialTimeout("tcp", handlerAddr, 5*time.Second)
+	handlerConn, err := p.dialWithRetry(handlerAddr)
 	if err != nil {
+		proxyLog.Error("Failed to connect to any handler after retries")
+		return
+	}
+
+	defer handlerConn.Close()
+	proxyLog.Infof("Established connection to handler %s", handlerAddr)
+
+	p.bidirectionalCopy(clientConn, handlerConn)
+	proxyLog.Infof("Connection from %s completed", clientConn.RemoteAddr())
+}
+
+func (p *Proxy) bidirectionalCopy(clientConn, handlerConn net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Copy from client to handler
+	go func() {
+		defer wg.Done()
+		io.Copy(handlerConn, clientConn)
+		if tcpConn, ok := handlerConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
+	}()
+
+	// Copy from handler to client
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, handlerConn)
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
+	}()
+
+	wg.Wait()
+}
+
+func (p *Proxy) dialWithRetry(initialAddr string) (net.Conn, error) {
+	handlerAddr := initialAddr
+
+	for {
+		handlerConn, err := net.DialTimeout("tcp", handlerAddr, 5*time.Second)
+		if err == nil {
+			return handlerConn, nil
+		}
+
 		proxyLog.Errorf("Failed to connect to handler %s: %v", handlerAddr, err)
 		p.removeUnhealthyHandler(handlerAddr)
 
 		handlerAddr = p.getNextHandler()
 		if handlerAddr == "" {
-			proxyLog.Error("No healthy request handlers available after retry")
-			return
-		}
-
-		handlerConn, err = net.DialTimeout("tcp", handlerAddr, 5*time.Second)
-		if err != nil {
-			proxyLog.Errorf("Failed to connect to backup handler %s: %v", handlerAddr, err)
-			return
+			return nil, fmt.Errorf("no healthy request handlers available after retries")
 		}
 	}
-	defer handlerConn.Close()
-
-	proxyLog.Infof("Established connection to handler %s", handlerAddr)
-
-	// Bidirectional copy between client and handler
-	done := make(chan struct{})
-
-	// Copy from client to handler
-	go func() {
-		io.Copy(handlerConn, clientConn)
-		// Signal that client->handler is done, but don't close yet
-		done <- struct{}{}
-	}()
-
-	// Copy from handler to client
-	go func() {
-		io.Copy(clientConn, handlerConn)
-		// Signal that handler->client is done
-		done <- struct{}{}
-	}()
-
-	// Wait for BOTH directions to complete naturally
-	<-done
-	<-done
-
-	proxyLog.Infof("Connection from %s completed", clientConn.RemoteAddr())
 }
 
 func (p *Proxy) getNextHandler() string {
-    p.handlersMutex.RLock()
-    numHandlers := len(p.healthyHandlers)
-    if numHandlers == 0 {
-        p.handlersMutex.RUnlock()
-        return ""
-    }
+	p.handlersMutex.RLock()
+	defer p.handlersMutex.RUnlock()
 
-    // Atomically get and increment, then calculate index
-    counter := atomic.AddUint32(&p.currentHandler, 1)
-    idx := (counter - 1) % uint32(numHandlers)
-    handler := p.healthyHandlers[idx]
-    p.handlersMutex.RUnlock()
+	numHandlers := len(p.healthyHandlers)
+	if numHandlers == 0 {
+		return ""
+	}
 
-    return handler
+	counter := atomic.AddUint32(&p.currentHandler, 1)
+	idx := (counter - 1) % uint32(numHandlers)
+	return p.healthyHandlers[idx]
 }
 
-// healthCheckLoop periodically checks handler health
 func (p *Proxy) healthCheckLoop() {
-	defer p.wg.Done()
-
 	ticker := time.NewTicker(p.Config.HealthCheckInterval)
 	defer ticker.Stop()
 
@@ -207,7 +199,6 @@ func (p *Proxy) healthCheckLoop() {
 	}
 }
 
-// updateHealthyHandlers checks all handlers and updates the healthy list
 func (p *Proxy) updateHealthyHandlers() {
 	proxyLog.Debug("Performing health check on request handlers")
 
@@ -229,7 +220,6 @@ func (p *Proxy) updateHealthyHandlers() {
 		len(healthy), len(p.Config.RequestHandlers))
 }
 
-// isHealthy checks if a handler is responsive
 func (p *Proxy) isHealthy(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -239,7 +229,6 @@ func (p *Proxy) isHealthy(addr string) bool {
 	return true
 }
 
-// removeUnhealthyHandler temporarily removes a handler from the healthy list
 func (p *Proxy) removeUnhealthyHandler(addr string) {
 	p.handlersMutex.Lock()
 	defer p.handlersMutex.Unlock()
@@ -251,11 +240,4 @@ func (p *Proxy) removeUnhealthyHandler(addr string) {
 			break
 		}
 	}
-}
-
-// GetHealthyHandlerCount returns the current number of healthy handlers
-func (p *Proxy) GetHealthyHandlerCount() int {
-	p.handlersMutex.RLock()
-	defer p.handlersMutex.RUnlock()
-	return len(p.healthyHandlers)
 }

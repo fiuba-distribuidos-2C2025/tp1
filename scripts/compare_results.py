@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-from operator import contains
 import sys
-import os
-import argparse
 from pathlib import Path
 import traceback
 

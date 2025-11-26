@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -9,6 +10,18 @@ import (
 )
 
 var log = logging.MustGetLogger("log")
+
+func SendBatches(outChan chan string, messageSentNotificationChan chan string, clientID string, workerID string, batches []string) {
+	for i, batch := range batches {
+		if batch != "" {
+			// This ensures deterministic message IDs per batch
+			msgID := workerID + "-" + strconv.Itoa(i)
+			outChan <- clientID + "\n" + msgID + "\n" + batch
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+		}
+	}
+}
 
 func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, baseDir string, workerID string, messageSentNotificationChan chan string, thresholdReachedHandle func(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Check existing EOF thresholds before starting to consume messages.

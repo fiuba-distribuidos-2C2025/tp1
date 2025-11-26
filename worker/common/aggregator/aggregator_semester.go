@@ -118,15 +118,9 @@ func ThresholdReachedHandleSemester(outChan chan string, messageSentNotification
 	}
 
 	batches := getSemesterAccumulatorBatches(accumulator)
-	for i, batch := range batches {
-		if batch != "" {
-			// This ensures deterministic message IDs per batch
-			msgID := workerID + "-" + strconv.Itoa(i)
-			outChan <- clientID + "\n" + msgID + "\n" + batch
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-		}
-	}
+
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
+
 	// No messages, forward EOF and clean up
 	// Use the workerID as msgID for the EOF
 	// to ensure uniqueness across workers and restarts

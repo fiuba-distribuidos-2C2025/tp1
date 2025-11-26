@@ -167,15 +167,8 @@ func ThresholdReachedHandleProfitQuantity(outChan chan string, messageSentNotifi
 	maxQuantityItems, maxProfitITems := getMaxItems(accumulator)
 
 	batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
-	for i, batch := range batches {
-		if batch != "" {
-			// This ensures deterministic message IDs per batch
-			msgID := workerID + "-" + strconv.Itoa(i)
-			outChan <- clientID + "\n" + msgID + "\n" + batch
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-		}
-	}
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
+
 	// Use the workerID as msgID for the EOF
 	// to ensure uniqueness across workers and restarts
 	outChan <- clientID + "\n" + workerID + "\nEOF"

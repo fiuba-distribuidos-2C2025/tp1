@@ -143,15 +143,7 @@ func ThresholdReachedHandleByStoreUser(outChan chan string, messageSentNotificat
 	}
 
 	userKeys, batches := getUserAccumulatorBatches(accumulator)
-	for i, batch := range batches {
-		if batch != "" {
-			// This ensures deterministic message IDs per batch
-			msgID := workerID + "-" + strconv.Itoa(i)
-			outChan <- clientID + "\n" + userKeys[i] + "\n" + msgID + "\n" + batch
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-		}
-	}
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches, userKeys)
 	// Use the workerID as msgID for the EOF
 	// to ensure uniqueness across workers and restarts
 	outChan <- clientID + "\n" + workerID + "\nEOF"

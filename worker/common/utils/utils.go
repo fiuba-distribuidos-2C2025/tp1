@@ -150,3 +150,12 @@ func MessageAlreadyExists(baseDir string, clientID string, msgID string) (bool, 
 	}
 	return true, nil
 }
+
+func SendEof(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	// Use the workerID as msgID for the EOF
+	// to ensure uniqueness across workers and restarts
+	outChan <- clientID + "\n" + workerID + "\nEOF"
+	// Here we just block until we are notified that the message was sent
+	<-messageSentNotificationChan
+	return RemoveClientDir(baseDir, clientID)
+}

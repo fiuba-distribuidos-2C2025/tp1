@@ -106,13 +106,7 @@ func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificatio
 	entries, err := os.ReadDir(messagesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No messages, forward EOF and clean up
-			// Use the workerID as msgID for the EOF
-			// to ensure uniqueness across workers and restarts
-			outChan <- clientID + "\n" + workerID + "\nEOF"
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-			return utils.RemoveClientDir(baseDir, clientID)
+			return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 		}
 		return err
 	}
@@ -156,11 +150,5 @@ func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificatio
 
 	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
 
-	// Use the workerID as msgID for the EOF
-	// to ensure uniqueness across workers and restarts
-	outChan <- clientID + "\n" + workerID + "\nEOF"
-	// Here we just block until we are notified that the message was sent
-	<-messageSentNotificationChan
-	// clean up client directory
-	return utils.RemoveClientDir(baseDir, clientID)
+	return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 }

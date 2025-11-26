@@ -169,13 +169,5 @@ func ThresholdReachedHandleProfitQuantity(outChan chan string, messageSentNotifi
 	batches := get_accumulator_batches(maxQuantityItems, maxProfitITems)
 	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
 
-	// Use the workerID as msgID for the EOF
-	// to ensure uniqueness across workers and restarts
-	outChan <- clientID + "\n" + workerID + "\nEOF"
-
-	// Here we just block until we are notified that the message was sent
-	<-messageSentNotificationChan
-
-	// clean up client directory
-	return utils.RemoveClientDir(baseDir, clientID)
+	return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 }

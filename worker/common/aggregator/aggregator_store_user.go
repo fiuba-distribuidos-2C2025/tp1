@@ -120,7 +120,7 @@ func ThresholdReachedHandleStoreUser(outChan chan string, messageSentNotificatio
 
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			log.Infof("failed to read file %s: %v", filePath, err)
+			log.Errorf("failed to read file %s: %v", filePath, err)
 			continue
 		}
 

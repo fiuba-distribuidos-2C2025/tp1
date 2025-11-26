@@ -47,7 +47,7 @@ func resendClientMessages(baseDir string, outChan chan string) error {
 			items := string(data)
 
 			if err != nil {
-				log.Infof("failed to read file %s: %v", filePath, err)
+				log.Errorf("failed to read file %s: %v", filePath, err)
 				continue
 			}
 			if items != "" {

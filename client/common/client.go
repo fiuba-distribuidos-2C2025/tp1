@@ -415,7 +415,7 @@ func (c *Client) waitForQueryId() error {
 // and reads the results from it
 func (c *Client) tryReadResults() error {
 	for {
-		// Establish connection with the client
+		// Establish connection with the server
 		log.Info("Connecting with server to request results...")
 		if err := c.connectToServer(); err != nil {
 			log.Errorf("Failed to connect to server: %v", err)

@@ -3,7 +3,8 @@ PWD := $(shell pwd)
 
 CLIENT?=1
 WATCHER_PID_FILE := .watcher.pid
-CHAOS_INTERVAL:=30s
+CHAOS_INTERVAL?=30s
+NUM_TO_KILL?=1
 
 default: build
 
@@ -123,6 +124,5 @@ watcher:
 .PHONY: watcher
 
 chaos:
-	./scripts/chaos.sh ${CHAOS_INTERVAL} 're2:^(grouper_|joiner_|filter_|aggregator_)'
-
+	./scripts/chaos.sh ${CHAOS_INTERVAL} 'aggregator\|joiner\|grouper\|filter' ${NUM_TO_KILL}
 .PHONY: chaos

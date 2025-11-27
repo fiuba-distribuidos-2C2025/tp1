@@ -19,7 +19,7 @@ def parse_data_to_set(lines):
 def compare_files(file1, file2, query_num):
     print(f"QUERY {query_num} COMPARISON")
 
-    is_reduced = "reduced" in str(Path(file2))
+    is_reduced = "reduced" in str(Path(file2)) or "multiclient" in str(Path(file2))
     try:
         lines1 = read_query_file(file1)
         lines2 = read_query_file(file2)
@@ -31,7 +31,7 @@ def compare_files(file1, file2, query_num):
     data_set2 = parse_data_to_set(lines2)
 
     if is_reduced:
-        expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 30 correct results
+        expected_correct_total_results_query3 = 20 # 10 stores in two semesters, a total of 20 correct results
     else:
         expected_correct_total_results_query3 = 30 # 10 stores in three semesters, a total of 30 correct results
     expected_correct_total_results_query4 = 30 # 10 stores and top 3 per store, a total of 30 correct results
@@ -103,11 +103,6 @@ def compare_files(file1, file2, query_num):
 
         print("-" * 60)
         return False
-
-    print(f"QUERY {query_num}: Results are OK! ✅")
-    print("-" * 60)
-    return True
-
 
 def compare_query_folders(folder1, folder2):
     folder1_path = Path(folder1)

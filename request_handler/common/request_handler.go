@@ -355,9 +355,9 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 
 	var payload strings.Builder
 	clientIdStr := protocol.ClientIDToString(internalUUID)
-	msgID := fmt.Sprintf("%d", rand.Int63())
 	payload.WriteString(clientIdStr)
 	payload.WriteString("\n")
+	msgID := fmt.Sprintf("%d", rand.Int63())
 	payload.WriteString(msgID)
 	payload.WriteString("\n")
 	payload.WriteString(strings.Join(message.CSVRows, "\n"))
@@ -429,7 +429,7 @@ func sendEOFForFileType(clientId string, fileType protocol.FileType, cfg Request
 	// generate a random message ID
 	// this is a workaround until we refactor the request handler to
 	// properly handle message IDs
-	msgID := fmt.Sprintf("%d", rand.Int63())
+	msgID := fmt.Sprintf("\n%d", rand.Int63())
 	payload.WriteString(msgID)
 
 	payload.WriteString("\nEOF")

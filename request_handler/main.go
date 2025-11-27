@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/request_handler/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
@@ -156,6 +157,8 @@ func main() {
 	// Create and start request handler
 	config := buildRequestHandlerConfig(v)
 	requestHandler := common.NewRequestHandler(config)
+
+	healthcheck.StartHealthCheckServer(9090)
 
 	// Set up graceful shutdown
 	if err := runWithGracefulShutdown(requestHandler); err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/op/go-logging"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -43,6 +44,7 @@ type clientState struct {
 }
 
 func NewResponseBuilder(config ResponseBuilderConfig, factory middleware.QueueFactory) *ResponseBuilder {
+	healthcheck.InitHealthChecker()
 	return &ResponseBuilder{
 		Config:       config,
 		listener:     nil,

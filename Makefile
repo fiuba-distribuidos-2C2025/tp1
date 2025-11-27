@@ -36,6 +36,7 @@ docker-image:
 	docker build -f ./response_builder/Dockerfile -t "response_builder:latest" .
 	docker build -f ./worker/Dockerfile -t "worker:latest" .
 	docker build -f ./proxy/Dockerfile -t "proxy:latest" .
+	docker build -f ./watcher/Dockerfile -t "watcher:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you
 	# want to avoid rebuilding client image every time the docker-compose-up command
@@ -45,16 +46,9 @@ docker-image:
 
 docker-compose-up: docker-image
 	docker compose -f docker-compose-dev.yaml up -d --build
-	nohup python3 watcher.py > /dev/null 2>&1 & echo $$! > $(WATCHER_PID_FILE)
-	@echo "Watcher started in background (PID: $$(cat $(WATCHER_PID_FILE)))"
 .PHONY: docker-compose-up
 
 docker-compose-down:
-	@if [ -f $(WATCHER_PID_FILE) ]; then \
-		kill $$(cat $(WATCHER_PID_FILE)) 2>/dev/null || true; \
-		rm $(WATCHER_PID_FILE); \
-		echo "Watcher stopped"; \
-	fi
 	docker compose -f docker-compose-dev.yaml stop -t 10
 	docker compose -f docker-compose-dev.yaml down -v
 .PHONY: docker-compose-down

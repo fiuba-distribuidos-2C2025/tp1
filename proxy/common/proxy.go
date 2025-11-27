@@ -15,22 +15,22 @@ var proxyLog = logging.MustGetLogger("log")
 
 // ProxyConfig holds configuration for the proxy
 type ProxyConfig struct {
-	Port             string   // Port to listen on for client connections
-	IP               string   // IP to bind to
-	RequestHandlers  []string // List of request handler addresses (IP:Port)
+	Port                string        // Port to listen on for client connections
+	IP                  string        // IP to bind to
+	RequestHandlers     []string      // List of request handler addresses (IP:Port)
 	HealthCheckInterval time.Duration // How often to check handler health
-	BufferSize       int      // Buffer size for client connections
+	BufferSize          int           // Buffer size for client connections
 }
 
 // Proxy acts as a load balancer for request handlers
 type Proxy struct {
-	Config           ProxyConfig
-	listener         net.Listener
-	shutdown         chan struct{}
-	currentHandler   uint32 // Atomic counter for round-robin
-	healthyHandlers  []string
-	handlersMutex    sync.RWMutex
-	wg               sync.WaitGroup
+	Config          ProxyConfig
+	listener        net.Listener
+	shutdown        chan struct{}
+	currentHandler  uint32 // Atomic counter for round-robin
+	healthyHandlers []string
+	handlersMutex   sync.RWMutex
+	wg              sync.WaitGroup
 }
 
 // NewProxy creates a new Proxy instance
@@ -174,20 +174,20 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 }
 
 func (p *Proxy) getNextHandler() string {
-    p.handlersMutex.RLock()
-    numHandlers := len(p.healthyHandlers)
-    if numHandlers == 0 {
-        p.handlersMutex.RUnlock()
-        return ""
-    }
+	p.handlersMutex.RLock()
+	numHandlers := len(p.healthyHandlers)
+	if numHandlers == 0 {
+		p.handlersMutex.RUnlock()
+		return ""
+	}
 
-    // Atomically get and increment, then calculate index
-    counter := atomic.AddUint32(&p.currentHandler, 1)
-    idx := (counter - 1) % uint32(numHandlers)
-    handler := p.healthyHandlers[idx]
-    p.handlersMutex.RUnlock()
+	// Atomically get and increment, then calculate index
+	counter := atomic.AddUint32(&p.currentHandler, 1)
+	idx := (counter - 1) % uint32(numHandlers)
+	handler := p.healthyHandlers[idx]
+	p.handlersMutex.RUnlock()
 
-    return handler
+	return handler
 }
 
 // healthCheckLoop periodically checks handler health

@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/proxy/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
-	"github.com/fiuba-distribuidos-2C2025/tp1/proxy/common"
 )
 
 var log = logging.MustGetLogger("log")
@@ -92,12 +92,12 @@ func initLogger(logLevel string) error {
 func buildProxyConfig(v *viper.Viper) common.ProxyConfig {
 	requestHandlers := v.GetString("requesthandlers.addresses")
 	requestHandlersList := strings.Split(requestHandlers, ",")
-	return common.ProxyConfig {
-		Port:                           v.GetString("proxy.port"),
-		IP:                             v.GetString("proxy.ip"),
-		BufferSize:                     v.GetInt("proxy.buffer_size_mb") * 1024 * 1024,
-		HealthCheckInterval:            time.Duration(v.GetInt("proxy.health_check_interval")) * time.Second,
-		RequestHandlers: 				requestHandlersList,
+	return common.ProxyConfig{
+		Port:                v.GetString("proxy.port"),
+		IP:                  v.GetString("proxy.ip"),
+		BufferSize:          v.GetInt("proxy.buffer_size_mb") * 1024 * 1024,
+		HealthCheckInterval: time.Duration(v.GetInt("proxy.health_check_interval")) * time.Second,
+		RequestHandlers:     requestHandlersList,
 	}
 }
 

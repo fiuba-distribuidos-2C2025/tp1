@@ -42,12 +42,27 @@ services:
         retries: 25
         start_period: 500ms
 
+  watcher:
+    container_name: watcher
+    image: watcher:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./watcher/watcher_config.json:/app/watcher_config.json
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - testing_net
+
   response_builder:
     container_name: response_builder
     image: response_builder:latest
     entrypoint: /response_builder
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
+    labels:
+      - "monitored=true"
     environment:
       - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
@@ -88,6 +103,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
       rabbit:
         condition: service_healthy
+    labels:
+      - "monitored=true"
     networks:
       - testing_net
     environment:
@@ -144,6 +161,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -168,6 +187,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -192,6 +213,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -226,6 +249,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -247,6 +272,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -271,6 +298,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -296,6 +325,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -327,6 +358,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -351,6 +384,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -375,6 +410,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -406,6 +443,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -430,6 +469,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -454,6 +495,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -478,6 +521,8 @@ cat >> "$OUTPUT_FILE" <<EOL
       - ./worker/config.yaml:/config.yaml
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy

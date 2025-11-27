@@ -56,6 +56,8 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
@@ -100,8 +102,6 @@ cat >> "$OUTPUT_FILE" <<EOL
             condition: service_healthy
         request_handler:
             condition: service_started
-    labels:
-      - "monitored=true"
     networks:
         - testing_net
     environment:

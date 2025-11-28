@@ -1,7 +1,8 @@
 SHELL := /bin/bash
 PWD := $(shell pwd)
 
-CLIENT?=1
+CLIENT?=alice
+EXPECTED_CLIENT_RESULTS?=multiclient_1
 CHAOS_INTERVAL?=30s
 NUM_TO_KILL?=1
 
@@ -54,6 +55,9 @@ docker-compose-logs:
 	docker compose -f docker-compose-dev.yaml logs -f
 .PHONY: docker-compose-logs
 
+clean_results:
+	rm -rf ./results/*
+
 middleware_tests:
 	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
@@ -67,11 +71,8 @@ compare_reduced_results:
 compare_full_results:
 	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/full
 
-compare_results_multiclient_1:
-	python3 scripts/compare_results.py ./results/client_1 ./expected_results/multiclient_1
-
-compare_results_multiclient_2:
-	python3 scripts/compare_results.py ./results/client_2 ./expected_results/multiclient_2
+compare_results_multiclient:
+	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/$(EXPECTED_CLIENT_RESULTS)
 
 download_reduced_dataset:
 	./scripts/load_dataset.sh 1 0
@@ -82,14 +83,14 @@ download_full_dataset:
 download_multiclient_dataset:
 	./scripts/load_dataset.sh 0 1
 
-run_multiclient_test: docker-image
+run_multiclient_test: docker-image clean_results
 	docker compose -f docker-compose-multiclient-test.yaml up -d --build
 
 stop_multiclient_test:
 	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
 	docker compose -f  docker-compose-multiclient-test.yaml down -v
 
-run_client:
+run_client: clean_results
 	docker run -d \
       --name client${CLIENT} \
       --network tp1_testing_net \

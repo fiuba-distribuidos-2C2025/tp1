@@ -68,7 +68,7 @@ services:
     networks:
       - testing_net
     environment:
-      - CLIENT_ID=1
+      - CLIENT_ID=alice
 
   client2:
     container_name: client2
@@ -84,7 +84,7 @@ services:
     networks:
       - testing_net
     environment:
-      - CLIENT_ID=2
+      - CLIENT_ID=bob
 
   # ==============================================================================
   # First Query

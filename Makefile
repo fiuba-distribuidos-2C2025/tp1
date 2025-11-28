@@ -3,6 +3,8 @@ PWD := $(shell pwd)
 
 CLIENT?=alice
 EXPECTED_CLIENT_RESULTS?=multiclient_1
+CHAOS_INTERVAL?=30s
+NUM_TO_KILL?=1
 
 default: build
 
@@ -105,3 +107,7 @@ integration_test:
 	cd tests && go test
 
 .PHONY: integration_test
+
+chaos:
+	./scripts/chaos.sh ${CHAOS_INTERVAL} 'aggregator\|joiner\|grouper\|filter' ${NUM_TO_KILL}
+.PHONY: chaos

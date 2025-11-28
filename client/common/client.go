@@ -8,8 +8,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
@@ -18,7 +18,8 @@ import (
 var log = logging.MustGetLogger("log")
 
 const (
-	expectedResultCount = 4
+	queryCount      = 4
+	resultsWaitTime = 5 * time.Second
 )
 
 // ClientConfig holds configuration for the client
@@ -31,10 +32,12 @@ type ClientConfig struct {
 
 // Client manages connection to the server and file transfers
 type Client struct {
-	config   ClientConfig
-	shutdown chan struct{}
-	conn     net.Conn
-	protocol *protocol.Protocol
+	config         ClientConfig
+	shutdown       chan struct{}
+	conn           net.Conn
+	protocol       *protocol.Protocol
+	queryID        string
+	pendingResults []int
 }
 
 // fileMetadata holds metadata about the file being transferred
@@ -46,8 +49,9 @@ type fileMetadata struct {
 // NewClient creates a new Client instance
 func NewClient(config ClientConfig) *Client {
 	return &Client{
-		config:   config,
-		shutdown: make(chan struct{}),
+		config:         config,
+		shutdown:       make(chan struct{}),
+		pendingResults: []int{1, 2, 3, 4},
 	}
 }
 
@@ -55,6 +59,12 @@ func NewClient(config ClientConfig) *Client {
 func (c *Client) Start() error {
 	if err := c.connectToServer(); err != nil {
 		log.Errorf("Failed to connect to server: %v", err)
+		return err
+	}
+
+	// Send message to server signaling the start of a query request
+	if err := c.protocol.SendQueryRequest(); err != nil {
+		log.Errorf("Failed to send query request: %v", err)
 		return err
 	}
 
@@ -69,17 +79,25 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	// Wait for ACK
-	if err := c.waitForACK(); err != nil {
-		log.Errorf("Failed to receive final EOF ACK: %v", err)
+	// Wait for Query Id
+	if err := c.waitForQueryId(); err != nil {
+		log.Errorf("Failed to receive QueryId: %v", err)
 		return err
 	}
 
-	log.Info("All operations completed successfully")
+	log.Info("Transfered all files succesfully, closing connection")
+	c.stopServerConn()
 
-	if err := c.readResults(); err != nil {
-		log.Errorf("Failed to read results: %v", err)
-		return err
+	for {
+		if err := c.tryReadResults(); err != nil {
+			log.Errorf("Failed to read results: %v", err)
+			return err
+		}
+
+		if len(c.pendingResults) == 0 {
+			log.Infof("All %d results received successfully", queryCount)
+			break
+		}
 	}
 
 	<-c.shutdown
@@ -253,13 +271,14 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				csvRows[i] = joinCSVRow(row)
 			}
 
-			clientID, err := strconv.ParseUint(c.config.ID, 10, 16)
+			// Convert client ID string to [8]byte
+			clientID, err := protocol.ClientIDFromString(c.config.ID)
 			if err != nil {
 				return fmt.Errorf("invalid client ID: %w", err)
 			}
 
 			batchMsg := &protocol.BatchMessage{
-				ClientID:     uint16(clientID),
+				ClientID:     clientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
 				TotalChunks:  metadata.totalChunks,
@@ -351,6 +370,15 @@ func (c *Client) connectToServer() error {
 	return nil
 }
 
+// stopServerConn stops connection with the server
+func (c *Client) stopServerConn() {
+	if conn := c.conn; conn != nil {
+		conn.Close()
+		c.conn = nil
+	}
+	c.protocol = nil
+}
+
 // waitForACK waits for an acknowledgment from the server
 func (c *Client) waitForACK() error {
 	msgType, _, err := c.protocol.ReceiveMessage()
@@ -365,6 +393,78 @@ func (c *Client) waitForACK() error {
 	return nil
 }
 
+// waitForQueryId waits for an acknowledgment from the server
+func (c *Client) waitForQueryId() error {
+	msgType, data, err := c.protocol.ReceiveMessage()
+	if err != nil {
+		return fmt.Errorf("failed to receive message: %w", err)
+	}
+
+	switch msgType {
+	case protocol.MessageTypeQueryId:
+		queryID := data.(*protocol.QueryIdMessage).QueryID
+		log.Infof("Received query ID: %s", queryID)
+		c.queryID = queryID
+	default:
+		return fmt.Errorf("expected QueryId, got message type: 0x%02x", msgType)
+	}
+	return nil
+}
+
+// tryReadResults stablished connection with the server
+// and reads the results from it
+func (c *Client) tryReadResults() error {
+	for {
+		// Establish connection with the server
+		log.Info("Connecting with server to request results...")
+		if err := c.connectToServer(); err != nil {
+			log.Errorf("Failed to connect to server: %v", err)
+			// TODO: consider `continue` here
+			// with a max number of retries
+			return err
+		}
+
+		// Send results request with queryId
+		if err := c.protocol.SendResultsRequest(c.queryID, c.pendingResults); err != nil {
+			log.Errorf("Failed to send results request: %v", err)
+			// TODO: consider `continue` here
+			// with a max number of retries
+			return err
+		}
+		log.Debugf("Sent results request for pending results: ", c.pendingResults)
+
+		msgType, _, err := c.protocol.ReceiveMessage()
+		if err != nil {
+			return fmt.Errorf("failed to receive message: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MessageTypeResultsPending:
+			log.Info("Request handler is still processing results")
+			c.stopServerConn()
+			time.Sleep(resultsWaitTime)
+			continue
+		case protocol.MessageTypeResultsReady:
+			log.Info("Request handler ready to send results")
+		default:
+			// Something went wrong with the client, abort connection
+			c.stopServerConn()
+			return fmt.Errorf("unexpected message type while reading results: 0x%02x", msgType)
+		}
+
+		err = c.readResults()
+		if err != nil {
+			log.Errorf("failed to read results: %w", err)
+			if c.conn != nil {
+				c.stopServerConn()
+			}
+			// TODO: implement max retries to prevent infinite loop
+		}
+		c.stopServerConn()
+		return nil
+	}
+}
+
 // readResults reads and processes results from the server
 func (c *Client) readResults() error {
 	if c.conn == nil {
@@ -376,7 +476,7 @@ func (c *Client) readResults() error {
 	resultsReceived := 0
 	resultBuffers := make(map[int32][]byte)
 
-	for resultsReceived < expectedResultCount {
+	for resultsReceived < len(c.pendingResults) {
 		msgType, data, err := c.protocol.ReceiveMessage()
 		if err != nil {
 			return fmt.Errorf("failed to receive message: %w", err)
@@ -397,13 +497,20 @@ func (c *Client) readResults() error {
 
 			if result, ok := resultBuffers[eofMsg.QueueID]; ok {
 				log.Infof("Result %d/%d received from queue %d - Total size: %d bytes",
-					resultsReceived, expectedResultCount, eofMsg.QueueID, len(result))
+					resultsReceived, queryCount, eofMsg.QueueID, len(result))
 
 				if err := c.processResult(eofMsg.QueueID, result); err != nil {
 					log.Errorf("Failed to process result from queue %d: %v", eofMsg.QueueID, err)
 				}
-				// Process result here (save to file, print, etc.)
-				c.processResult(eofMsg.QueueID, result)
+
+				// Remove queue from pending results
+				for i, v := range c.pendingResults {
+					if v == int(eofMsg.QueueID) {
+						c.pendingResults = append(c.pendingResults[:i], c.pendingResults[i+1:]...)
+						break
+					}
+				}
+
 				delete(resultBuffers, eofMsg.QueueID)
 			}
 
@@ -412,7 +519,6 @@ func (c *Client) readResults() error {
 		}
 	}
 
-	log.Infof("All %d results received successfully", expectedResultCount)
 	return nil
 }
 

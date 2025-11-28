@@ -18,7 +18,7 @@ cp -rf ~/Downloads/stores/* ./data/stores/ 2>/dev/null || true
 cp -rf ~/Downloads/menu_items/* ./data/menu_items/ 2>/dev/null || true
 
 # Clean up the Downloads directory
-rm -rf ~/Downloads/vouchers ~/Downloads/payment_methods ~/Downloads/transactions ~/Downloads/transaction_items ~/Downloads/users ~/Downloads/stores ~/Downloads/menu_items
+rm -rf ~/Downloads/g-coffee-shop-transaction-202307-to-202506.zip ~/Downloads/vouchers ~/Downloads/payment_methods ~/Downloads/transactions ~/Downloads/transaction_items ~/Downloads/users ~/Downloads/stores ~/Downloads/menu_items
 
 if [ "$REDUCED" -eq 1 ]; then
   echo "Creating reduced dataset..."

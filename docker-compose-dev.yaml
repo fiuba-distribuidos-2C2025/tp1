@@ -90,42 +90,6 @@ services:
     environment:
         - CLIENT_ID=2
 
-  client3:
-    container_name: client3
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        request_handler:
-            condition: service_started
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=3
-
-  client4:
-    container_name: client4
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        request_handler:
-            condition: service_started
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=4
-
 # ==============================================================================
 # First Query
 # ==============================================================================

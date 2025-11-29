@@ -19,7 +19,7 @@ func resendClientMessages(clientMessages map[string]map[string]string, clientEof
 			// Send all messages for this client
 			clientMessagesData := processClientMessages(clientMessages, clientID)
 
-			outChan <- clientID + clientMessagesData
+			outChan <- clientID + "\n" + clientMessagesData
 			// remove the client entry from the map
 			delete(clientEofs, clientID)
 			delete(clientMessages, clientID)
@@ -55,7 +55,7 @@ func processClientMessages(clientMessages map[string]map[string]string, clientID
 		builder.WriteString(items)
 		builder.WriteString("\n")
 	}
-	return builder.String()
+	return strings.TrimSuffix(builder.String(), "\n")
 }
 
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {

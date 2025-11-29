@@ -137,7 +137,6 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 						delete(clientEofs, clientID)
 						delete(neededUsers, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
-						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}

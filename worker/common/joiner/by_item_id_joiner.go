@@ -140,7 +140,6 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 						delete(clientEofs, clientID)
 						delete(processedMenuItems, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
-						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 					}
 					continue
 				}

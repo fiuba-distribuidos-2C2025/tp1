@@ -141,7 +141,6 @@ func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, messageSentNot
 						delete(clientEofs, clientID)
 						delete(processedStores, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
-						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 
 					}
 					continue

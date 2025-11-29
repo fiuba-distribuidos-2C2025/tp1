@@ -54,9 +54,8 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, messageSentNotif
 					msg.Ack(false)
 					if _, exists := clientEofs[clientID]; !exists {
 						clientEofs[clientID] = make(map[string]string)
-					} else {
-						clientEofs[clientID][msgID] = ""
 					}
+					clientEofs[clientID][msgID] = ""
 
 					eofs := clientEofs[clientID]
 					eofCount := len(eofs)

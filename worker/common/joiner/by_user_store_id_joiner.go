@@ -104,9 +104,8 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 					msg.Ack(false)
 					if _, exists := clientEofs[clientID]; !exists {
 						clientEofs[clientID] = make(map[string]string)
-					} else {
-						clientEofs[clientID][msgID] = ""
 					}
+					clientEofs[clientID][msgID] = ""
 
 					eofs := clientEofs[clientID]
 					eofCount := len(eofs)

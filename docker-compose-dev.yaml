@@ -9,14 +9,14 @@ services:
     networks:
       - testing_net
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+        RABBITMQ_DEFAULT_USER: guest
+        RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 1s
-      timeout: 1s
-      retries: 25
-      start_period: 500ms
+        test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+        interval: 1s
+        timeout: 1s
+        retries: 25
+        start_period: 500ms
 
   watcher:
     container_name: watcher
@@ -25,8 +25,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./watcher/watcher_config.json:/app/watcher_config.json
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     restart: unless-stopped
     networks:
       - testing_net
@@ -38,10 +38,12 @@ services:
     volumes:
       - ./request_handler/config.yaml:/config/config.yaml
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -62,8 +64,8 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     networks:
@@ -74,44 +76,40 @@ services:
     image: client:latest
     entrypoint: /client
     volumes:
-      - ./client:/config
-      - ./data:/data
-      - ./results:/results
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
     depends_on:
-      rabbit:
-        condition: service_healthy
-      request_handler:
-        condition: service_started
-    labels:
-      - "monitored=true"
+        rabbit:
+            condition: service_healthy
+        request_handler:
+            condition: service_started
     networks:
-      - testing_net
+        - testing_net
     environment:
-      - CLIENT_ID=1
+        - CLIENT_ID=1
 
   client2:
     container_name: client2
     image: client:latest
     entrypoint: /client
     volumes:
-      - ./client:/config
-      - ./data:/data
-      - ./results:/results
+        - ./client:/config
+        - ./data:/data
+        - ./results:/results
     depends_on:
-      rabbit:
-        condition: service_healthy
-      request_handler:
-        condition: service_started
-    labels:
-      - "monitored=true"
+        rabbit:
+            condition: service_healthy
+        request_handler:
+            condition: service_started
     networks:
-      - testing_net
+        - testing_net
     environment:
-      - CLIENT_ID=2
+        - CLIENT_ID=2
 
-  # ==============================================================================
-  # First Query
-  # ==============================================================================
+# ==============================================================================
+# First Query
+# ==============================================================================
 
   filter_by_year_worker1:
     container_name: filter_by_year_worker1
@@ -123,8 +121,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -146,8 +144,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -169,8 +167,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -192,8 +190,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -215,8 +213,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -238,8 +236,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -251,9 +249,9 @@ services:
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
-  # ==============================================================================
-  # Second Query
-  # ==============================================================================
+# ==============================================================================
+# Second Query
+# ==============================================================================
 
   filter_by_year_items_worker1:
     container_name: filter_by_year_items_worker1
@@ -265,8 +263,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -288,8 +286,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -311,8 +309,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -334,8 +332,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -357,8 +355,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -380,8 +378,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -403,8 +401,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -426,8 +424,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -449,8 +447,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -472,8 +470,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -485,9 +483,9 @@ services:
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
-  # ==============================================================================
-  # Third Query
-  # ==============================================================================
+# ==============================================================================
+# Third Query
+# ==============================================================================
 
   grouper_by_semester_worker1:
     container_name: grouper_by_semester_worker1
@@ -499,8 +497,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -522,8 +520,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -545,8 +543,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -568,8 +566,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -591,8 +589,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -614,8 +612,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -637,8 +635,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -660,8 +658,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -683,8 +681,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -696,9 +694,9 @@ services:
       - WORKER_ID=3
       - WORKER_BASEDIR=/base_dir
 
-  # ==============================================================================
-  # Fourth Query
-  # ==============================================================================
+# ==============================================================================
+# Fourth Query
+# ==============================================================================
 
   grouper_by_store_user_worker1:
     container_name: grouper_by_store_user_worker1
@@ -710,8 +708,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -733,8 +731,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -756,8 +754,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -779,8 +777,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -802,8 +800,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -825,8 +823,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -848,8 +846,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -871,8 +869,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -894,8 +892,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -917,8 +915,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -940,8 +938,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:
@@ -963,8 +961,8 @@ services:
     networks:
       - testing_net
     depends_on:
-      rabbit:
-        condition: service_healthy
+        rabbit:
+            condition: service_healthy
     labels:
       - "monitored=true"
     environment:

@@ -66,11 +66,15 @@ func StoreMessageWithChecksum(baseDir string, clientID, msgID, body string) erro
 // Returns a map of msgID for all stored EOFs for a client.
 func getEofs(baseDir, clientID string) (map[string]string, error) {
 	eofDir := filepath.Join(baseDir, clientID, "eof")
+	eofs := make(map[string]string)
 	entries, err := os.ReadDir(eofDir)
 	if err != nil {
+		// If the directory does not exist, return empty map
+		if os.IsNotExist(err) {
+			return eofs, nil
+		}
 		return nil, err
 	}
-	eofs := make(map[string]string)
 	for _, e := range entries {
 		if e.IsDir() {
 			continue

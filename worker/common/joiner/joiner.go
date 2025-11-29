@@ -63,7 +63,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		// Load existing clients EOF in case of worker restart
 		clientEofs, err := utils.LoadClientsEofs(baseDir)
 		if err != nil {
-			log.Errorf("Error loading clients EOF count: %v", err)
+			log.Errorf("Error loading clients EOF: %v", err)
 			return
 		}
 
@@ -120,7 +120,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 						// Send all messages for this client
 						clientMessagesData := processClientMessages(clientMessages, clientID)
 
-						outChan <- clientID + clientMessagesData
+						outChan <- clientID + "\n" + clientMessagesData
 						// remove the client entry from the map
 						delete(clientEofs, clientID)
 						delete(clientMessages, clientID)

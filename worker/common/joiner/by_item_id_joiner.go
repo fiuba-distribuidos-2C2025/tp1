@@ -57,15 +57,15 @@ func processMenuItems(menuItemLines []string) map[string]string {
 }
 
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Load existing clients EOF in case of worker restart
-	clientEofs, err := utils.LoadClientsEofs(baseDir)
-	if err != nil {
-		log.Errorf("Error loading clients EOF count: %v", err)
-		return nil
-	}
-	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
-	processedMenuItems := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Load existing clients EOF in case of worker restart
+		clientEofs, err := utils.LoadClientsEofs(baseDir)
+		if err != nil {
+			log.Errorf("Error loading clients EOF count: %v", err)
+			return
+		}
+		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+		processedMenuItems := make(map[string]map[string]string)
 		log.Infof("Waiting for messages...")
 
 		var outBuilder strings.Builder

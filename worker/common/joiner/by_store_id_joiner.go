@@ -58,15 +58,15 @@ func ProcessStoreIds(storesDataLines []string) map[string]string {
 }
 
 func CreateByStoreIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Load existing clients EOF count in case of worker restart
-	clientEofs, err := utils.LoadClientsEofs(baseDir)
-	if err != nil {
-		log.Errorf("Error loading clients EOF count: %v", err)
-		return nil
-	}
-	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
-	processedStores := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Load existing clients EOF count in case of worker restart
+		clientEofs, err := utils.LoadClientsEofs(baseDir)
+		if err != nil {
+			log.Errorf("Error loading clients EOF count: %v", err)
+			return
+		}
+		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+		processedStores := make(map[string]map[string]string)
 		log.Infof("Waiting for messages...")
 
 		var outBuilder strings.Builder

@@ -62,15 +62,15 @@ func processNeededUsers(top3Lines []string) map[string]string {
 }
 
 func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, top3PerStoreRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Load existing clients EOF count in case of worker restart
-	clientEofs, err := utils.LoadClientsEofs(baseDir)
-	if err != nil {
-		log.Errorf("Error loading clients EOF count: %v", err)
-		return nil
-	}
-	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
-	neededUsers := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Load existing clients EOF count in case of worker restart
+		clientEofs, err := utils.LoadClientsEofs(baseDir)
+		if err != nil {
+			log.Errorf("Error loading clients EOF count: %v", err)
+			return
+		}
+		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+		neededUsers := make(map[string]map[string]string)
 		log.Infof("Waiting for messages...")
 
 		for {

@@ -57,13 +57,13 @@ func processMenuItems(menuItemLines []string) map[string]string {
 }
 
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	// Load existing clients EOF in case of worker restart
+	clientEofs, err := utils.LoadClientsEofs(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	processedMenuItems := make(map[string]map[string]string)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
@@ -122,13 +122,14 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 					utils.StoreEOF(baseDir, clientID, msgID)
 					// Acknowledge message
 					msg.Ack(false)
-					if _, exists := clientsEofCount[clientID]; !exists {
-						clientsEofCount[clientID] = 1
+					if _, exists := clientEofs[clientID]; !exists {
+						clientEofs[clientID] = make(map[string]string)
 					} else {
-						clientsEofCount[clientID]++
+						clientEofs[clientID][msgID] = ""
 					}
 
-					eofCount := clientsEofCount[clientID]
+					eofs := clientEofs[clientID]
+					eofCount := len(eofs)
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
 						// Use the workerID as msgID for the EOF
@@ -137,7 +138,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 						// Here we just block until we are notified that the message was sent
 						<-messageSentNotificationChan
 						// clear accumulator memory
-						delete(clientsEofCount, clientID)
+						delete(clientEofs, clientID)
 						delete(processedMenuItems, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
 						utils.RemoveClientDir(baseDir+"/secondary", clientID)

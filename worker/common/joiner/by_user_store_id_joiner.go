@@ -36,12 +36,12 @@ func concatBirthdatesWithStoresData(transaction string, storesData map[string]st
 
 func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, storeIdRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	clientEofs, err := utils.LoadClientsEofs(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	ResendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	processedStores := make(map[string]map[string]string)
 	// processedStores := ProcessStoreIds(storeIdRows)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
@@ -102,13 +102,14 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 					utils.StoreEOF(baseDir, clientID, msgID)
 					// Acknowledge message
 					msg.Ack(false)
-					if _, exists := clientsEofCount[clientID]; !exists {
-						clientsEofCount[clientID] = 1
+					if _, exists := clientEofs[clientID]; !exists {
+						clientEofs[clientID] = make(map[string]string)
 					} else {
-						clientsEofCount[clientID]++
+						clientEofs[clientID][msgID] = ""
 					}
 
-					eofCount := clientsEofCount[clientID]
+					eofs := clientEofs[clientID]
+					eofCount := len(eofs)
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
 						// Use the workerID as msgID for the EOF
@@ -117,7 +118,7 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 						// Here we just block until we are notified that the message was sent
 						<-messageSentNotificationChan
 						// clear accumulator memory
-						delete(clientsEofCount, clientID)
+						delete(clientEofs, clientID)
 						delete(processedStores, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
 						utils.RemoveClientDir(baseDir+"/secondary", clientID)

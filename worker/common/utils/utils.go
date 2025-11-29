@@ -226,7 +226,7 @@ func LoadAllClientsMessagesWithChecksums(baseDir string) (map[string]map[string]
 		}
 
 		clientID := e.Name()
-		clientMessages, err := loadClientMessagesWithChecksums(baseDir, clientID, allClientMessages)
+		clientMessages, err := LoadClientMessagesWithChecksums(baseDir, clientID)
 		if err != nil {
 			return nil, err
 		}

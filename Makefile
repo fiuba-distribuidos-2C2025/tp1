@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 CLIENT?=alice
 EXPECTED_CLIENT_RESULTS?=multiclient_1
-CHAOS_INTERVAL?=3s
+CHAOS_INTERVAL?=2s
 NUM_TO_KILL?=1
 
 default: build

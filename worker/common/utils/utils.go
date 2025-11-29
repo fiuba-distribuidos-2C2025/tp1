@@ -174,15 +174,50 @@ func LoadClientsEofs(baseDir string) (map[string]map[string]string, error) {
 	return clientEofs, nil
 }
 
-func LoadClientsMessagesWithChecksums(baseDir string) (map[string]map[string]string, error) {
-	clientMessages := make(map[string]map[string]string)
+func LoadClientMessagesWithChecksums(baseDir, clientID string) (map[string]string, error) {
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
+	messageEntries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		return nil, err
+	}
+	clientMessages := make(map[string]string)
+
+	for _, me := range messageEntries {
+		if me.IsDir() {
+			continue
+		}
+		msgID := me.Name()
+		data, err := os.ReadFile(filepath.Join(messagesDir, msgID))
+		if err != nil {
+			continue
+		}
+		split := strings.SplitN(string(data), "\n", 2)
+		checksum, err := strconv.Atoi(split[0])
+		if err != nil {
+			// We just ignore messages with invalid checksum
+			// They will be resent by the queue
+			continue
+		}
+		body := split[1]
+		if checksum != len(body) {
+			// We just ignore messages with invalid checksum
+			// They will be resent by the queue
+			continue
+		}
+		clientMessages[msgID] = body
+	}
+	return clientMessages, nil
+}
+
+func LoadAllClientsMessagesWithChecksums(baseDir string) (map[string]map[string]string, error) {
+	allClientMessages := make(map[string]map[string]string)
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages yet, nothing to do.
-			return clientMessages, nil
+			return allClientMessages, nil
 		}
-		return clientMessages, err
+		return allClientMessages, err
 	}
 
 	for _, e := range entries {
@@ -191,39 +226,14 @@ func LoadClientsMessagesWithChecksums(baseDir string) (map[string]map[string]str
 		}
 
 		clientID := e.Name()
-		messagesDir := filepath.Join(baseDir, clientID, "messages")
-		messageEntries, err := os.ReadDir(messagesDir)
+		clientMessages, err := loadClientMessagesWithChecksums(baseDir, clientID, allClientMessages)
 		if err != nil {
-			continue
+			return nil, err
 		}
+		allClientMessages[clientID] = clientMessages
 
-		clientMessages[clientID] = make(map[string]string)
-		for _, me := range messageEntries {
-			if me.IsDir() {
-				continue
-			}
-			msgID := me.Name()
-			data, err := os.ReadFile(filepath.Join(messagesDir, msgID))
-			if err != nil {
-				continue
-			}
-			split := strings.SplitN(string(data), "\n", 2)
-			checksum, err := strconv.Atoi(split[0])
-			if err != nil {
-				// We just ignore messages with invalid checksum
-				// They will be resent by the queue
-				continue
-			}
-			body := split[1]
-			if checksum != len(body) {
-				// We just ignore messages with invalid checksum
-				// They will be resent by the queue
-				continue
-			}
-			clientMessages[clientID][msgID] = body
-		}
 	}
-	return clientMessages, nil
+	return allClientMessages, nil
 }
 
 func eofAlreadyExists(baseDir string, clientID string, msgID string) (bool, error) {

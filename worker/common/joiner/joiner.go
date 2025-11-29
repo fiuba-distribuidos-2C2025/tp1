@@ -68,7 +68,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		}
 
 		// Load existing clients messages in case of worker restart
-		clientMessages, err := utils.LoadClientsMessagesWithChecksums(baseDir)
+		clientMessages, err := utils.LoadAllClientsMessagesWithChecksums(baseDir)
 		if err != nil {
 			log.Errorf("Error loading client messages: %v", err)
 			return

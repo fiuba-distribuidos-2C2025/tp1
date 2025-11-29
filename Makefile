@@ -21,6 +21,7 @@ format:
 	gofmt -s -w ./response_builder/
 	gofmt -s -w ./worker/
 	gofmt -s -w ./protocol/
+	gofmt -s -w ./healthcheck/
 .PHONY: format
 
 build: deps
@@ -35,6 +36,7 @@ docker-image:
 	docker build -f ./request_handler/Dockerfile -t "request_handler:latest" .
 	docker build -f ./response_builder/Dockerfile -t "response_builder:latest" .
 	docker build -f ./worker/Dockerfile -t "worker:latest" .
+	docker build -f ./watcher/Dockerfile -t "watcher:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you
 	# want to avoid rebuilding client image every time the docker-compose-up command

@@ -32,6 +32,19 @@ services:
         retries: 25
         start_period: 500ms
 
+  watcher:
+    container_name: watcher
+    image: watcher:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./watcher/watcher_config.json:/app/watcher_config.json
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - testing_net
+
   request_handler:
     container_name: request_handler
     image: request_handler:latest
@@ -43,6 +56,8 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
@@ -65,6 +80,8 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     networks:
       - testing_net
 
@@ -114,6 +131,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -140,6 +159,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -166,6 +187,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -199,6 +222,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -225,6 +250,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -251,6 +278,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -278,6 +307,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -311,6 +342,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -337,6 +370,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -363,6 +398,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -396,6 +433,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -422,6 +461,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -448,6 +489,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
@@ -474,6 +517,8 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
+    labels:
+      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/response_builder/common"
 	"github.com/op/go-logging"
@@ -90,6 +91,7 @@ func main() {
 		requestBuilder.Start()
 	}()
 
+	healthcheck.StartHealthCheckServer(9090)
 	// Wait for shutdown signal
 	<-stop
 

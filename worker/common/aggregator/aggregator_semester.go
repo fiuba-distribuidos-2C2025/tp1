@@ -1,11 +1,13 @@
 package aggregator
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/grouper"
+	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 // sample string input
@@ -66,74 +68,52 @@ func getSemesterAccumulatorBatches(accumulator map[string]grouper.SemesterStats)
 	return batches
 }
 
-func CreateBySemesterAggregatorCallbackWithOutput(outChan chan string, neededEof int) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	clientEofCount := map[string]int{}
-	accumulator := make(map[string]map[string]grouper.SemesterStats)
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		log.Infof("Waiting for messages...")
+// Function called when EOF threshold is reached for a client
+func ThresholdReachedHandleSemester(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	accumulator := make(map[string]grouper.SemesterStats)
 
-		for {
-			select {
-			// TODO: Something will be wrong and notified here!
-			// case <-done:
-			// log.Info("Shutdown signal received, stopping worker...")
-			// return
+	messagesDir := filepath.Join(baseDir, clientID, "messages")
 
-			case msg, ok := <-*consumeChannel:
-				msg.Ack(false)
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
+	entries, err := os.ReadDir(messagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages, forward EOF and clean up
+			return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+		}
+		return err
+	}
 
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip nested directories
+		}
 
-				// Separate header and the rest
-				clientID := lines[0]
+		filePath := filepath.Join(messagesDir, e.Name())
 
-				// Create accumulator for client
-				if _, exists := accumulator[clientID]; !exists {
-					accumulator[clientID] = make(map[string]grouper.SemesterStats)
-				}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Errorf("failed to read file %s: %v", filePath, err)
+			continue
+		}
 
-				transactions := lines[1:]
-				if transactions[0] == "EOF" {
-					if _, exists := clientEofCount[clientID]; !exists {
-						clientEofCount[clientID] = 1
-					} else {
-						clientEofCount[clientID]++
-					}
+		payload := strings.TrimSpace(string(data))
 
-					eofCount := clientEofCount[clientID]
-					log.Debugf("Received eof (%d/%d) for client %d", eofCount, neededEof, clientID)
-					if eofCount >= neededEof {
-						batches := getSemesterAccumulatorBatches(accumulator[clientID])
-						for _, batch := range batches {
-							if batch != "" {
-								outChan <- clientID + "\n" + batch
-							}
-						}
-						msg := clientID + "\nEOF"
-						outChan <- msg
+		transactions := strings.Split(payload, "\n")
 
-						// clear accumulator memory
-						accumulator[clientID] = nil
-					}
-					continue
-				}
-
-				for _, transaction := range transactions {
-
-					semester_key, sub_month_item_stats := parseSemesterStoreData(transaction)
-					if _, ok := accumulator[clientID][semester_key]; !ok {
-						accumulator[clientID][semester_key] = grouper.SemesterStats{Tpv: 0, Year: sub_month_item_stats.Year, YearHalf: sub_month_item_stats.YearHalf, StoreId: sub_month_item_stats.StoreId}
-					}
-					semesterStat := accumulator[clientID][semester_key]
-					semesterStat.Tpv += sub_month_item_stats.Tpv
-					accumulator[clientID][semester_key] = semesterStat
-				}
+		for _, transaction := range transactions {
+			semester_key, sub_month_item_stats := parseSemesterStoreData(transaction)
+			if _, ok := accumulator[semester_key]; !ok {
+				accumulator[semester_key] = grouper.SemesterStats{Tpv: 0, Year: sub_month_item_stats.Year, YearHalf: sub_month_item_stats.YearHalf, StoreId: sub_month_item_stats.StoreId}
 			}
+			semesterStat := accumulator[semester_key]
+			semesterStat.Tpv += sub_month_item_stats.Tpv
+			accumulator[semester_key] = semesterStat
 		}
 	}
+
+	batches := getSemesterAccumulatorBatches(accumulator)
+
+	SendBatches(outChan, messageSentNotificationChan, clientID, workerID, batches)
+
+	return utils.SendEof(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
 }

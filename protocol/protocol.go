@@ -47,21 +47,47 @@ func (ft FileType) IsValid() bool {
 type MessageType byte
 
 const (
-	MessageTypeBatch       MessageType = 0x01
-	MessageTypeEOF         MessageType = 0x02
-	MessageTypeFinalEOF    MessageType = 0x03
-	MessageTypeACK         MessageType = 0x04
-	MessageTypeResultChunk MessageType = 0x05
-	MessageTypeResultEOF   MessageType = 0x06
+	MessageTypeBatch          MessageType = 0x01
+	MessageTypeEOF            MessageType = 0x02
+	MessageTypeFinalEOF       MessageType = 0x03
+	MessageTypeACK            MessageType = 0x04
+	MessageTypeResultChunk    MessageType = 0x05
+	MessageTypeResultEOF      MessageType = 0x06
+	MessageTypeQueryId        MessageType = 0x07
+	MessageTypeQueryRequest   MessageType = 0x08
+	MessageTypeResultsRequest MessageType = 0x09
+	MessageTypeResultsPending MessageType = 0x0A
+	MessageTypeResultsReady   MessageType = 0x0B
 )
 
 // BatchMessage represents a data batch being transferred
 type BatchMessage struct {
-	ClientID     uint16
+	ClientID     [8]byte
 	FileType     FileType
 	CurrentChunk int32
 	TotalChunks  int32
 	CSVRows      []string
+}
+
+func ClientIDFromString(s string) ([8]byte, error) {
+	var clientID [8]byte
+	idBytes := []byte(s)
+	if len(idBytes) > 8 {
+		return clientID, fmt.Errorf("client ID too long: max 8 bytes, got %d", len(idBytes))
+	}
+	copy(clientID[:], idBytes)
+	return clientID, nil
+}
+
+func ClientIDToString(clientID [8]byte) string {
+	s := string(clientID[:])
+	// Trim trailing null bytes
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0 {
+			return s[:i]
+		}
+	}
+	return s
 }
 
 // EOFMessage represents an end-of-file marker for a specific file type
@@ -80,6 +106,17 @@ type ResultChunkMessage struct {
 // ResultEOFMessage represents the end of results from a specific queue
 type ResultEOFMessage struct {
 	QueueID int32
+}
+
+// QueryIdMessage represents the identifier generated for an specific request
+type QueryIdMessage struct {
+	QueryID string
+}
+
+// ResultRequestMessage represents the identifier generated for an specific request
+type ResultRequestMessage struct {
+	QueryID          string
+	RequestedResults []int
 }
 
 // Protocol handles message serialization and deserialization with proper framing
@@ -137,17 +174,17 @@ func (p *Protocol) SendBatch(msg *BatchMessage) error {
 	// Write message type
 	buf.WriteByte(byte(MessageTypeBatch))
 
-	// Calculate frame size: clientID(2) + fileType(1) + currentChunk(4) + totalChunks(4) + rowCount(4) + payload
-	frameSize := 2 + 1 + 4 + 4 + 4 + len(payloadBytes)
+	// Calculate frame size: clientID(8) + fileType(1) + currentChunk(4) + totalChunks(4) + rowCount(4) + payload
+	frameSize := 8 + 1 + 4 + 4 + 4 + len(payloadBytes)
 
-	// Write frame header (19 bytes)
-	header := make([]byte, 19)
-	binary.BigEndian.PutUint16(header[0:2], uint16(msg.ClientID))
-	binary.BigEndian.PutUint32(header[2:6], uint32(frameSize))
-	header[6] = byte(msg.FileType)
-	binary.BigEndian.PutUint32(header[7:11], uint32(msg.CurrentChunk))
-	binary.BigEndian.PutUint32(header[11:15], uint32(msg.TotalChunks))
-	binary.BigEndian.PutUint32(header[15:19], uint32(len(msg.CSVRows)))
+	// Write frame header (25 bytes)
+	header := make([]byte, 25)
+	copy(header[0:8], msg.ClientID[:])
+	binary.BigEndian.PutUint32(header[8:12], uint32(frameSize))
+	header[12] = byte(msg.FileType)
+	binary.BigEndian.PutUint32(header[13:17], uint32(msg.CurrentChunk))
+	binary.BigEndian.PutUint32(header[17:21], uint32(msg.TotalChunks))
+	binary.BigEndian.PutUint32(header[21:25], uint32(len(msg.CSVRows)))
 	buf.Write(header)
 
 	// Write payload
@@ -159,31 +196,32 @@ func (p *Protocol) SendBatch(msg *BatchMessage) error {
 
 // ReceiveBatch receives a batch message with short-read protection
 func (p *Protocol) ReceiveBatch() (*BatchMessage, error) {
-	// Read frame header (19 bytes) - io.ReadFull handles short reads from bufio.Reader
-	header := make([]byte, 19)
+	// Read frame header (25 bytes) - io.ReadFull handles short reads from bufio.Reader
+	header := make([]byte, 25)
 	if _, err := io.ReadFull(p.reader, header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
-	clientID := uint16(binary.BigEndian.Uint16(header[0:2]))
-	frameSize := binary.BigEndian.Uint32(header[2:6])
-	fileType := FileType(header[6])
-	currentChunk := int32(binary.BigEndian.Uint32(header[7:11]))
-	totalChunks := int32(binary.BigEndian.Uint32(header[11:15]))
-	rowCount := binary.BigEndian.Uint32(header[15:19])
+	var clientID [8]byte
+	copy(clientID[:], header[0:8])
+	frameSize := binary.BigEndian.Uint32(header[8:12])
+	fileType := FileType(header[12])
+	currentChunk := int32(binary.BigEndian.Uint32(header[13:17]))
+	totalChunks := int32(binary.BigEndian.Uint32(header[17:21]))
+	rowCount := binary.BigEndian.Uint32(header[21:25])
 
 	if !fileType.IsValid() {
 		return nil, fmt.Errorf("invalid file type: %d", fileType)
 	}
 
 	// Validate frame size
-	expectedMinSize := 2 + 1 + 4 + 4 + 4
+	expectedMinSize := 8 + 1 + 4 + 4 + 4
 	if frameSize < uint32(expectedMinSize) {
 		return nil, fmt.Errorf("invalid frame size: %d (expected at least %d)", frameSize, expectedMinSize)
 	}
 
 	// Calculate and read payload - io.ReadFull handles short reads
-	payloadSize := frameSize - (2 + 1 + 4 + 4 + 4)
+	payloadSize := frameSize - (8 + 1 + 4 + 4 + 4)
 	payload := make([]byte, payloadSize)
 	if payloadSize > 0 {
 		if _, err := io.ReadFull(p.reader, payload); err != nil {
@@ -309,6 +347,50 @@ func (p *Protocol) SendResultEOF(queueID int32) error {
 	return p.writeFull(buf.Bytes())
 }
 
+// SendQueryId sends the query ID generated for the request
+func (p *Protocol) SendQueryId(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeQueryId))
+	buf.WriteString(queryID)
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendQueryRequest sends the query request marker
+func (p *Protocol) SendQueryRequest() error {
+	return p.writeFull([]byte{byte(MessageTypeQueryRequest)})
+}
+
+// SendResultsRequest sends the query ID for the needed response
+// and the specific results it wants to retrieve
+func (p *Protocol) SendResultsRequest(queryID string, resultIDs []int) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsRequest))
+	buf.WriteString(queryID)
+	binary.Write(&buf, binary.BigEndian, int32(len(resultIDs)))
+	for _, id := range resultIDs {
+		binary.Write(&buf, binary.BigEndian, int32(id))
+	}
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendResultsPending notifies that results are not ready yet
+func (p *Protocol) SendResultsPending() error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsPending))
+
+	return p.writeFull(buf.Bytes())
+}
+
+// SendResultsReady notifies that results are ready to be sent
+func (p *Protocol) SendResultsReady() error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResultsReady))
+
+	return p.writeFull(buf.Bytes())
+}
+
 // ReceiveResultEOF receives the result EOF marker
 func (p *Protocol) ReceiveResultEOF() (*ResultEOFMessage, error) {
 	buf := make([]byte, 4)
@@ -319,6 +401,46 @@ func (p *Protocol) ReceiveResultEOF() (*ResultEOFMessage, error) {
 	queueID := int32(binary.BigEndian.Uint32(buf))
 
 	return &ResultEOFMessage{QueueID: queueID}, nil
+}
+
+// ReceiveQueryId receives the query ID generated for the request
+func (p *Protocol) ReceiveQueryId() (*QueryIdMessage, error) {
+	buf := make([]byte, 8)
+	if _, err := io.ReadFull(p.reader, buf); err != nil {
+		return nil, fmt.Errorf("failed to read query ID: %w", err)
+	}
+
+	queryID := string(buf)
+
+	return &QueryIdMessage{QueryID: queryID}, nil
+}
+
+// ReceiveResultsRequest receives the query ID generated for the request
+func (p *Protocol) ReceiveResultsRequest() (*ResultRequestMessage, error) {
+	buf := make([]byte, 8)
+	if _, err := io.ReadFull(p.reader, buf); err != nil {
+		return nil, fmt.Errorf("failed to read query ID: %w", err)
+	}
+	queryID := string(buf)
+
+	var count int32
+	if err := binary.Read(p.reader, binary.BigEndian, &count); err != nil {
+		return nil, fmt.Errorf("failed to read result count: %w", err)
+	}
+
+	requestedResults := make([]int, int(count))
+	for i := range requestedResults {
+		var v int32
+		if err := binary.Read(p.reader, binary.BigEndian, &v); err != nil {
+			return nil, fmt.Errorf("failed to read result ID: %w", err)
+		}
+		requestedResults[i] = int(v)
+	}
+
+	return &ResultRequestMessage{
+		QueryID:          queryID,
+		RequestedResults: requestedResults,
+	}, nil
 }
 
 // ReceiveMessage receives any message type and returns the type and appropriate data
@@ -352,6 +474,23 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 	case MessageTypeResultEOF:
 		msg, err := p.ReceiveResultEOF()
 		return msgType, msg, err
+
+	case MessageTypeQueryId:
+		msg, err := p.ReceiveQueryId()
+		return msgType, msg, err
+
+	case MessageTypeQueryRequest:
+		return msgType, nil, nil
+
+	case MessageTypeResultsRequest:
+		msg, err := p.ReceiveResultsRequest()
+		return msgType, msg, err
+
+	case MessageTypeResultsPending:
+		return msgType, nil, nil
+
+	case MessageTypeResultsReady:
+		return msgType, nil, nil
 
 	default:
 		return 0, nil, fmt.Errorf("unknown message type: 0x%02x", msgType)

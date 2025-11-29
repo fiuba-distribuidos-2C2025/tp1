@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -71,6 +72,8 @@ func (rb *ResponseBuilder) Start() error {
 	}
 
 	clients := make(map[string]*clientState)
+	// workaround to discard duplicate messages
+	receivedMessages := make(map[string]map[string]map[string]bool)
 	outChan := make(chan ResultMessage, 100)
 	errChan := make(chan error, 4)
 
@@ -95,22 +98,36 @@ func (rb *ResponseBuilder) Start() error {
 			// Continue processing, individual consumers handle their own errors
 
 		case msg := <-outChan:
-			if err := rb.processResult(msg, clients); err != nil {
+			if err := rb.processResult(msg, clients, receivedMessages); err != nil {
 				log.Errorf("Failed to process result: %v", err)
 			}
 		}
 	}
 }
 
-func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState) error {
+func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*clientState, receivedMessages map[string]map[string]map[string]bool) error {
 	// Parse message
-	lines := strings.SplitN(msg.Value, "\n", 2)
-	if len(lines) < 2 {
+	lines := strings.SplitN(msg.Value, "\n", 3)
+	if len(lines) < 3 {
 		return fmt.Errorf("invalid message format: expected clientId\\nmessage")
 	}
 
 	clientId := lines[0]
-	message := lines[1]
+	msgID := lines[1]
+	message := lines[2]
+
+	// Check for duplicate messages
+	if _, exists := receivedMessages[clientId]; !exists {
+		receivedMessages[clientId] = make(map[string]map[string]bool)
+	}
+	if _, exists := receivedMessages[clientId][strconv.Itoa(msg.ID)]; !exists {
+		receivedMessages[clientId][strconv.Itoa(msg.ID)] = make(map[string]bool)
+	}
+	if _, exists := receivedMessages[clientId][strconv.Itoa(msg.ID)][msgID]; exists {
+		log.Infof("Duplicate message received for client %s query %d msg %s, ignoring", clientId, msg.ID, msgID)
+		return nil
+	}
+	receivedMessages[clientId][strconv.Itoa(msg.ID)][msgID] = true
 
 	// Get or create client state
 	state, ok := clients[clientId]

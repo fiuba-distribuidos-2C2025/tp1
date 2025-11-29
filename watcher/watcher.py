@@ -22,6 +22,12 @@ class DockerWatcher:
         self.check_interval = check_interval
         self.health_port = health_port
         self.config_file = config_file
+
+        # Read from environment variable
+        containers_env = os.getenv("TRACKED_CONTAINERS", "")
+        # Split into list, ignoring empty values
+        self.containers: List[str] = [c.strip() for c in containers_env.split(",") if c.strip()]
+
         self.container_status: Dict[str, str] = {}
         self.restart_count: Dict[str, int] = {}
         self.last_config_mtime = None
@@ -40,24 +46,13 @@ class DockerWatcher:
         except Exception as e:
             logger.error(f"Error loading config: {e}")
 
-    def get_containers(self) -> List[docker.models.containers.Container]:
-        try:
-            containers_result = self.client.containers.list(
-                all=True,
-                filters={"label": "monitored=true"}
-            )
-            return containers_result
-        except Exception as e:
-            logger.error(f"Error getting containers: {e}")
-            return []
-
-    def is_container_healthy(self, container: docker.models.containers.Container) -> bool:
+    def is_container_healthy(self, container_name: str) -> bool:
         try:
             # Hit the health endpoint using container name (works on Docker network)
-            health_url = f"http://{container.name}:{self.health_port}/health"
-            logger.info(f"Checking health of {container.name} at {health_url}")
+            health_url = f"http://{container_name}:{self.health_port}/health"
+            logger.info(f"Checking health of {container_name} at {health_url}")
             response = requests.get(health_url, timeout=5)
-            logger.info(f"Received response from {container.name}: {response.status_code}")
+            logger.info(f"Received response from {container_name}: {response.status_code}")
 
             if response.status_code == 200:
                 health_data = response.json()
@@ -67,39 +62,36 @@ class DockerWatcher:
                 return False
 
         except requests.exceptions.RequestException as e:
-            logger.debug(f"Failed to reach health endpoint for {container.name}: {e}")
+            logger.debug(f"Failed to reach health endpoint for {container_name}: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error checking container health {container.name}: {e}")
+            logger.error(f"Error checking container health {container_name}: {e}")
             return False
 
-    def restart_container(self, container: docker.models.containers.Container) -> bool:
+    def restart_container(self, container_name: str) -> bool:
         try:
+            container = self.client.containers.get(container_name)
             logger.info(f"Restarting container: {container.name}")
             container.restart(timeout=10)
             time.sleep(2)  # Give container time to start
             container.reload()
             if container.status == "running":
-                self.restart_count[container.name] = self.restart_count.get(container.name, 0) + 1
-                logger.info(f"Successfully restarted {container.name} (total restarts: {self.restart_count[container.name]})")
+                self.restart_count[container_name] = self.restart_count.get(container_name, 0) + 1
+                logger.info(f"Successfully restarted {container_name} (total restarts: {self.restart_count[container_name]})")
                 return True
             else:
                 logger.warning(f"Container {container.name} did not start properly. Status: {container.status}")
                 return False
         except Exception as e:
-            logger.error(f"Failed to restart container {container.name}: {e}")
+            logger.error(f"Failed to restart container {container_name}: {e}")
             return False
 
     def check_health(self):
-        containers = self.get_containers()
-        if not containers:
-            logger.warning("No containers found to monitor")
-            return
-        for container in containers:
+        for container_name in self.containers:
             # If container is unhealthy, attempt to restart
-            if not self.is_container_healthy(container):
-                logger.warning(f"Container '{container.name}' is not healthy")
-                self.restart_container(container)
+            if not self.is_container_healthy(container_name):
+                logger.warning(f"Container '{container_name}' is not healthy")
+                self.restart_container(container_name)
 
     def start(self):
         logger.info("Docker Watcher Started")

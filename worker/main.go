@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	middleware "github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common"
 	"github.com/op/go-logging"
@@ -126,6 +127,7 @@ func main() {
 		worker.Start()
 	}()
 
+	healthcheck.StartHealthCheckServer(9090)
 	select {
 	case <-stop:
 		worker.Stop()

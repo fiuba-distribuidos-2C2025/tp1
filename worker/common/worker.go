@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/aggregator"
 	filter "github.com/fiuba-distribuidos-2C2025/tp1/worker/common/filterer"
@@ -44,6 +45,7 @@ type Worker struct {
 }
 
 func NewWorker(config WorkerConfig, factory middleware.QueueFactory) (*Worker, error) {
+	var worker *Worker
 	if !config.IsTest {
 		log.Infof("Connecting to RabbitMQ at %s ...", config.MiddlewareUrl)
 
@@ -62,20 +64,22 @@ func NewWorker(config WorkerConfig, factory middleware.QueueFactory) (*Worker, e
 		}
 		log.Infof("RabbitMQ channel opened")
 		factory.SetChannel(ch)
-		return &Worker{
+		worker = &Worker{
 			config:       config,
 			shutdown:     make(chan struct{}, 1),
 			conn:         conn,
 			channel:      ch,
 			queueFactory: factory,
-		}, nil
+		}
 	} else {
-		return &Worker{
+		worker = &Worker{
 			config:       config,
 			shutdown:     make(chan struct{}, 1),
 			queueFactory: factory,
-		}, nil
+		}
 	}
+	healthcheck.InitHealthChecker()
+	return worker, nil
 }
 
 // small retry helper

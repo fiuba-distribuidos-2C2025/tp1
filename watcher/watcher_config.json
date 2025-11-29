@@ -1,0 +1,4 @@
+{
+  "check_interval": 10,
+  "health_port": 9090
+}

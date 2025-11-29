@@ -35,7 +35,7 @@ jobs:
 
       - name: Run with chaos
         run: |
-          make docker-compose-up
+          make run_resilience_setup
           nohup make chaos > chaos.log 2>&1 &
           echo $! > chaos_pid.txt
 

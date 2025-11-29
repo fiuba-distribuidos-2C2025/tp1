@@ -34,7 +34,7 @@ jobs:
         run: make download_multiclient_dataset
 
       - name: Run with multiclient setup
-        run: make run_multiclient_test
+        run: make run_multiclient_setup
 
       - name: Wait for multiclient results
         run: |

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-INTERVAL="${1:-30}"
+INTERVAL_SECS="${1:-30}"
 CONTAINER_PATTERN="${2:-}"
 NUM_TO_KILL="${3:-1}"
 

@@ -88,7 +88,7 @@ func initLogger(logLevel string) error {
 	return nil
 }
 
-// buildRequestHandlerConfig extracts configuration from Viper and builds the config struct
+// buildProxyConfig extracts configuration from Viper and builds the config struct
 func buildProxyConfig(v *viper.Viper) common.ProxyConfig {
 	requestHandlers := v.GetString("requesthandlers.addresses")
 	requestHandlersList := strings.Split(requestHandlers, ",")
@@ -101,16 +101,16 @@ func buildProxyConfig(v *viper.Viper) common.ProxyConfig {
 	}
 }
 
-// runWithGracefulShutdown starts the request handler and handles shutdown signals
+// runWithGracefulShutdown starts the proxy and handles shutdown signals
 func runWithGracefulShutdown(proxy *common.Proxy) error {
 	// Set up signal handling
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start request handler in goroutine
+	// Start proxy in goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		log.Infof("Starting request handler on %s:%s",
+		log.Infof("Starting proxy on %s:%s",
 			proxy.Config.IP,
 			proxy.Config.Port)
 
@@ -126,7 +126,7 @@ func runWithGracefulShutdown(proxy *common.Proxy) error {
 		proxy.Stop()
 		return nil
 	case err := <-errChan:
-		return fmt.Errorf("request handler error: %w", err)
+		return fmt.Errorf("proxy error: %w", err)
 	}
 }
 
@@ -149,7 +149,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and start request handler
+	// Create and start proxy
 	config := buildProxyConfig(v)
 	proxy := common.NewProxy(config)
 

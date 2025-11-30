@@ -47,7 +47,6 @@ func (ft FileType) IsValid() bool {
 type MessageType byte
 
 const (
-	MessageTypeHealthCheck    MessageType = 0x0D // NEW
 	MessageTypeBatch          MessageType = 0x01
 	MessageTypeEOF            MessageType = 0x02
 	MessageTypeFinalEOF       MessageType = 0x03
@@ -60,6 +59,7 @@ const (
 	MessageTypeResultsPending MessageType = 0x0A
 	MessageTypeResultsReady   MessageType = 0x0B
 	MessageTypeResumeRequest  MessageType = 0x0C
+	MessageTypeHealthCheck    MessageType = 0x0D
 )
 
 // BatchMessage represents a data batch being transferred

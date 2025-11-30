@@ -1,8 +1,6 @@
 package joiner
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -12,92 +10,73 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-// Resend stored messages in case of worker restart
-func resendClientMessages(baseDir string, outChan chan string) error {
-	clients, err := os.ReadDir(baseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No messages yet, nothing to do.
-			return nil
-		}
-		return err
-	}
-
-	for _, c := range clients {
-		if !c.IsDir() {
-			continue
-		}
-
-		clientID := c.Name()
-		messagesDir := filepath.Join(baseDir, clientID, "messages")
-		entries, err := os.ReadDir(messagesDir)
-		if err != nil {
-			log.Errorf("Error reading messages dir for client %s: %v", clientID, err)
-			continue
-		}
-
-		for _, e := range entries {
-			if e.IsDir() {
-				continue // skip nested directories
-			}
-
-			filePath := filepath.Join(messagesDir, e.Name())
-
-			data, err := os.ReadFile(filePath)
-			items := string(data)
-
-			if err != nil {
-				log.Errorf("failed to read file %s: %v", filePath, err)
-				continue
-			}
-			if items != "" {
-				log.Info("Resending through secondary channel\n%s", items)
-				outChan <- clientID + "\n" + items
-			}
-
-		}
-	}
-	return nil
-}
-
-func ResendClientEofsToSecondary(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string) {
-	for clientID, eofCount := range clientsEofCount {
+// Resend messages in case of worker restart
+func resendClientMessages(clientMessages map[string]map[string]string, clientEofs map[string]map[string]string, neededEof int, outChan chan string) {
+	// Check which clients have reached the EOF threshold
+	for clientID, eofs := range clientEofs {
+		eofCount := len(eofs)
 		if eofCount >= neededEof {
-			outChan <- clientID + "\nEOF"
-			delete(clientsEofCount, clientID)
+			// Send all messages for this client
+			clientMessagesData := processClientMessages(clientMessages, clientID)
+
+			outChan <- clientID + "\n" + clientMessagesData
+			// remove the client entry from the map
+			delete(clientEofs, clientID)
+			delete(clientMessages, clientID)
+			// Note: We do not remove the stored messages/EOFs from disk here, as they will be removed when the primary queue
+			// finishes processing the client.
 		}
 	}
 }
 
-func ResendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
-	for clientID, eofCount := range clientsEofCount {
-		if eofCount >= neededEof {
-			msgID := workerID
-			outChan <- clientID + "\n" + msgID + "\nEOF"
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-			utils.RemoveClientDir(baseDir, clientID)
-			utils.RemoveClientDir(baseDir+"/secondary", clientID)
-			delete(clientsEofCount, clientID)
-		}
+func messageAlreadyReceived(clientMessages map[string]map[string]string, clientEofs map[string]map[string]string, clientID string, msgID string) bool {
+	// Check if message already received
+	if _, exists := clientMessages[clientID]; !exists {
+		clientMessages[clientID] = make(map[string]string)
 	}
+	if _, exists := clientMessages[clientID][msgID]; exists {
+		return true
+	}
+	// Check if EOF already received
+	if _, exists := clientEofs[clientID]; !exists {
+		clientEofs[clientID] = make(map[string]string)
+	}
+	if _, exists := clientEofs[clientID][msgID]; exists {
+		// Acknowledge duplicate EOF
+		return true
+	}
+	return false
+}
+
+func processClientMessages(clientMessages map[string]map[string]string, clientID string) string {
+	messages := clientMessages[clientID]
+	var builder strings.Builder
+	for _, items := range messages {
+		builder.WriteString(items)
+		builder.WriteString("\n")
+	}
+	return strings.TrimSuffix(builder.String(), "\n")
 }
 
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
-	if err != nil {
-		log.Errorf("Error loading clients EOF count: %v", err)
-		return nil
-	}
-	go func() {
-		// In case of a restart, this may block before we start consuming messages, leading to a deadlock.
-		// Because of that, we run it in a separate goroutine.
-		resendClientMessages(baseDir, outChan)
-		ResendClientEofsToSecondary(clientsEofCount, neededEof, outChan, baseDir)
-	}()
-
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Load existing clients EOF in case of worker restart
+		clientEofs, err := utils.LoadClientsEofs(baseDir)
+		if err != nil {
+			log.Errorf("Error loading clients EOF: %v", err)
+			return
+		}
+
+		// Load existing clients messages in case of worker restart
+		clientMessages, err := utils.LoadClientsMessagesWithChecksums(baseDir)
+		if err != nil {
+			log.Errorf("Error loading client messages: %v", err)
+			return
+		}
+
+		// Resend messages for clients that have already reached the EOF threshold
+		resendClientMessages(clientMessages, clientEofs, neededEof, outChan)
+
 		log.Infof("Waiting for secondary queue messages...")
 		for {
 			select {
@@ -115,13 +94,9 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 				msgID := lines[1]
 				items := lines[2]
 
-				exists, err := utils.MessageAlreadyExists(baseDir, clientID, msgID)
-				if err != nil {
-					log.Errorf("Error checking existing message for client %s msg %s: %v", clientID, msgID, err)
-					continue
-				}
-				if exists {
-					log.Infof("Message for client %s msg %s already processed, skipping", clientID, msgID)
+				// Check if message already received
+				if messageAlreadyReceived(clientMessages, clientEofs, clientID, msgID) {
+					// Acknowledge message
 					msg.Ack(false)
 					continue
 				}
@@ -130,31 +105,34 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 				if lines[2] == "EOF" {
 					utils.StoreEOF(baseDir, clientID, msgID)
 				} else {
-					utils.StoreMessage(baseDir, clientID, msgID, items)
+					utils.StoreMessageWithChecksum(baseDir, clientID, msgID, items)
 				}
 
 				// Acknowledge message
 				msg.Ack(false)
 
 				if items == "EOF" {
-					if _, exists := clientsEofCount[clientID]; !exists {
-						clientsEofCount[clientID] = 1
-					} else {
-						clientsEofCount[clientID]++
-					}
+					// Store EOF in memory
+					clientEofs[clientID][msgID] = ""
 
-					eofCount := clientsEofCount[clientID]
+					eofCount := len(clientEofs[clientID])
 					if eofCount >= neededEof {
-						outChan <- clientID + "\nEOF"
+						// Send all messages for this client
+						clientMessagesData := processClientMessages(clientMessages, clientID)
+
+						outChan <- clientID + "\n" + clientMessagesData
 						// remove the client entry from the map
-						delete(clientsEofCount, clientID)
+						delete(clientEofs, clientID)
+						delete(clientMessages, clientID)
+						// Note: We do not remove the stored messages/EOFs from disk here, as they will be removed when the primary queue
+						// finishes processing the client.
 					}
 					continue
 				}
 
 				if items != "" {
-					log.Info("SENDING THROUGH SECONDARY CHANNEL\n%s", items)
-					outChan <- clientID + "\n" + items + "\n"
+					// Store message in memory
+					clientMessages[clientID][msgID] = items
 				}
 			}
 		}

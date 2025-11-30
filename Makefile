@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 CLIENT?=alice
 EXPECTED_CLIENT_RESULTS?=multiclient_1
-CHAOS_INTERVAL?=30s
+CHAOS_INTERVAL?=3s
 NUM_TO_KILL?=1
 
 default: build
@@ -92,7 +92,7 @@ stop_multiclient_test:
 	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
 	docker compose -f  docker-compose-multiclient-test.yaml down -v
 
-run_client: clean_results
+run_client:
 	docker run -d \
       --name client${CLIENT} \
       --network tp1_testing_net \

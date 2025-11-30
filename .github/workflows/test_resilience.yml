@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  multiclient-test:
+  resilience-test:
     runs-on: ubuntu-latest
 
     steps:

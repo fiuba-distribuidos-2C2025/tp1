@@ -42,6 +42,8 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -75,19 +77,35 @@ services:
     entrypoint: /client
     volumes:
         - ./client:/config
-        - ./data:/data
+        - ./data1:/data
         - ./results:/results
     depends_on:
         rabbit:
             condition: service_healthy
         request_handler:
             condition: service_started
-    labels:
-      - "monitored=true"
     networks:
         - testing_net
     environment:
-        - CLIENT_ID=1
+        - CLIENT_ID=alice
+
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    volumes:
+        - ./client:/config
+        - ./data2:/data
+        - ./results:/results
+    depends_on:
+        rabbit:
+            condition: service_healthy
+        request_handler:
+            condition: service_started
+    networks:
+        - testing_net
+    environment:
+        - CLIENT_ID=bob
 
 # ==============================================================================
 # First Query
@@ -994,7 +1012,6 @@ volumes:
   base_dir_joiner_by_user_store_2:
   base_dir_joiner_by_user_store_3:
   base_dir_joiner_by_user_store_4:
-
 networks:
   testing_net:
     ipam:

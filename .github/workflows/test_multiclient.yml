@@ -70,12 +70,12 @@ jobs:
       - name: Patch client definitions
         run: |
           # Patch client1
-          sed -i '0,/CLIENT_ID=.*/s//CLIENT_ID=alice/' docker-compose-multiclient-setup.yaml
-          sed -i '0,/\.\/data.:\/data/s//.\/data1:\/data/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/CLIENT_ID=1/s//CLIENT_ID=alice/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/\.\\/data:\/data/s|./data:/data|./data1:/data|' docker-compose-multiclient-setup.yaml
 
           # Patch client2
-          sed -i '0,/CLIENT_ID=.*/s//CLIENT_ID=bob/' docker-compose-multiclient-setup.yaml
-          sed -i '0,/\.\/data.:\/data/s//.\/data2:\/data/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/CLIENT_ID=2/s//CLIENT_ID=bob/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/\.\\/data:\/data/s|./data:/data|./data2:/data|' docker-compose-multiclient-setup.yaml
 
           # Print updated docker-compose-multiclient-setup.yaml
           cat docker-compose-multiclient-setup.yaml

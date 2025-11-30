@@ -20,6 +20,8 @@ var log = logging.MustGetLogger("log")
 const (
 	queryCount      = 4
 	resultsWaitTime = 5 * time.Second
+	ackTimeout      = 10 * time.Second
+	maxRetries      = 3
 )
 
 // ClientConfig holds configuration for the client
@@ -68,22 +70,19 @@ func (c *Client) Start() error {
 		return err
 	}
 
+	// Wait for Query Id
+	if err := c.waitForQueryId(); err != nil {
+		log.Errorf("Failed to receive QueryId: %v", err)
+		return err
+	}
+
 	if err := c.TransferDataDirectory("/data"); err != nil {
 		log.Errorf("Failed to transfer data: %v", err)
 		return err
 	}
 
 	// Send final EOF after all directories are transferred
-	if err := c.protocol.SendFinalEOF(); err != nil {
-		log.Errorf("Failed to send final EOF: %v", err)
-		return err
-	}
-
-	// Wait for Query Id
-	if err := c.waitForQueryId(); err != nil {
-		log.Errorf("Failed to receive QueryId: %v", err)
-		return err
-	}
+	c.protocol.SendFinalEOF()
 
 	log.Info("Transfered all files succesfully, closing connection")
 	c.stopServerConn()
@@ -153,13 +152,10 @@ func (c *Client) TransferDataDirectory(dataPath string) error {
 					return err
 				}
 
-				if err := c.protocol.SendEOF(expected.fileType); err != nil {
+				if err := c.sendWithACK(func() error {
+					return c.protocol.SendEOF(expected.fileType)
+				}, fmt.Sprintf("EOF for %s", expected.fileType)); err != nil {
 					log.Errorf("Failed to send EOF for fileType %s: %v", expected.fileType, err)
-					return err
-				}
-
-				if err := c.waitForACK(); err != nil {
-					log.Errorf("Failed to receive EOF ACK for fileType %s: %v", expected.fileType, err)
 					return err
 				}
 
@@ -285,17 +281,14 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				CSVRows:      csvRows,
 			}
 
-			if err := c.protocol.SendBatch(batchMsg); err != nil {
+			if err := c.sendWithACK(func() error {
+				return c.protocol.SendBatch(batchMsg)
+			}, fmt.Sprintf("chunk %d/%d (FileType: %s)", currentChunk, metadata.totalChunks, metadata.fileType)); err != nil {
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
 
 			log.Infof("Sent chunk %d/%d (FileType: %s)",
 				currentChunk, metadata.totalChunks, metadata.fileType)
-
-			// Wait for ACK
-			if err := c.waitForACK(); err != nil {
-				return fmt.Errorf("failed to receive ACK for chunk %d: %w", currentChunk, err)
-			}
 		}
 
 		if isEOF {
@@ -370,6 +363,16 @@ func (c *Client) connectToServer() error {
 	return nil
 }
 
+func (c *Client) reconnect() error {
+	err := c.connectToServer()
+	if err != nil {
+		return err
+	}
+	c.protocol.SendResumeRequest(c.queryID)
+	err = c.waitForACK()
+	return err
+}
+
 // stopServerConn stops connection with the server
 func (c *Client) stopServerConn() {
 	if conn := c.conn; conn != nil {
@@ -377,6 +380,90 @@ func (c *Client) stopServerConn() {
 		c.conn = nil
 	}
 	c.protocol = nil
+}
+
+// sendWithACK sends a message and waits for ACK with retries on timeout or connection failure
+func (c *Client) sendWithACK(sendFunc func() error, msgDesc string) error {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if connection is still valid, reconnect if needed
+		if err := c.ensureConnected(); err != nil {
+			log.Warningf("Connection failed for %s: %v", msgDesc, err)
+			if attempt < maxRetries {
+				log.Infof("Attempting to reconnect (attempt %d/%d)", attempt+1, maxRetries)
+
+				time.Sleep(time.Second)
+				continue
+			}
+			return fmt.Errorf("failed to connect for %s after %d attempts: %w", msgDesc, maxRetries, err)
+		}
+
+		// Send the message
+		if err := sendFunc(); err != nil {
+			log.Warningf("Failed to send %s: %v", msgDesc, err)
+
+			// Connection likely broken, mark for reconnection
+			c.conn = nil
+			c.protocol = nil
+			if attempt < maxRetries {
+				log.Infof("Retrying %s (attempt %d/%d)", msgDesc, attempt+1, maxRetries)
+				time.Sleep(time.Second) // Brief delay before retry
+				continue
+			}
+			return fmt.Errorf("failed to send %s after %d attempts: %w", msgDesc, maxRetries, err)
+		}
+
+		log.Debugf("Sent %s (attempt %d/%d)", msgDesc, attempt, maxRetries)
+
+		// Wait for ACK with timeout
+		ackChan := make(chan error, 1)
+		go func() {
+			ackChan <- c.waitForACK()
+		}()
+
+		select {
+		case err := <-ackChan:
+			if err != nil {
+				log.Warningf("Failed to receive ACK for %s: %v", msgDesc, err)
+				// Connection likely broken, mark for reconnection
+
+				c.protocol = nil
+				c.conn = nil
+				if attempt < maxRetries {
+					log.Infof("Retrying %s (attempt %d/%d)", msgDesc, attempt+1, maxRetries)
+					time.Sleep(time.Second) // Brief delay before retry
+					continue
+				}
+				return fmt.Errorf("failed to receive ACK for %s after %d attempts: %w", msgDesc, maxRetries, err)
+			}
+			log.Debugf("Received ACK for %s", msgDesc)
+			return nil
+
+		case <-time.After(ackTimeout):
+			log.Warningf("ACK timeout for %s (attempt %d/%d)", msgDesc, attempt, maxRetries)
+
+			// Connection likely broken, mark for reconnection
+			c.conn = nil
+			c.protocol = nil
+			if attempt < maxRetries {
+				log.Infof("Retrying %s (attempt %d/%d)", msgDesc, attempt+1, maxRetries)
+				time.Sleep(time.Second) // Brief delay before retry
+				continue
+			}
+			return fmt.Errorf("ACK timeout for %s after %d attempts", msgDesc, maxRetries)
+		}
+	}
+
+	return fmt.Errorf("failed to send %s after %d retries", msgDesc, maxRetries)
+}
+
+// ensureConnected checks if connected, and reconnects if not
+func (c *Client) ensureConnected() error {
+	if c.conn != nil && c.protocol != nil {
+		return nil
+	}
+
+	log.Infof("Reconnecting to server...")
+	return c.reconnect()
 }
 
 // waitForACK waits for an acknowledgment from the server

@@ -47,6 +47,7 @@ func (ft FileType) IsValid() bool {
 type MessageType byte
 
 const (
+	MessageTypeHealthCheck    MessageType = 0x0D // NEW
 	MessageTypeBatch          MessageType = 0x01
 	MessageTypeEOF            MessageType = 0x02
 	MessageTypeFinalEOF       MessageType = 0x03
@@ -58,6 +59,7 @@ const (
 	MessageTypeResultsRequest MessageType = 0x09
 	MessageTypeResultsPending MessageType = 0x0A
 	MessageTypeResultsReady   MessageType = 0x0B
+	MessageTypeResumeRequest  MessageType = 0x0C
 )
 
 // BatchMessage represents a data batch being transferred
@@ -93,6 +95,11 @@ func ClientIDToString(clientID [8]byte) string {
 // EOFMessage represents an end-of-file marker for a specific file type
 type EOFMessage struct {
 	FileType FileType
+}
+
+// ResumeRequestMessage indicates reconnection with existing queryID
+type ResumeRequestMessage struct {
+	QueryID string
 }
 
 // ResultChunkMessage represents a chunk of result data
@@ -492,6 +499,13 @@ func (p *Protocol) ReceiveMessage() (MessageType, interface{}, error) {
 	case MessageTypeResultsReady:
 		return msgType, nil, nil
 
+	case MessageTypeResumeRequest:
+		msg, err := p.ReceiveResumeRequest()
+		return msgType, msg, err
+
+	case MessageTypeHealthCheck:
+		return msgType, nil, nil
+
 	default:
 		return 0, nil, fmt.Errorf("unknown message type: 0x%02x", msgType)
 	}
@@ -512,4 +526,37 @@ func SerializeCSVBatch(fileType int, fileHash string, totalChunks, currentChunk 
 
 	builder.WriteString("\n")
 	return builder.String()
+}
+
+func (p *Protocol) SendResumeRequest(queryID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeResumeRequest))
+	buf.WriteString(queryID)
+	return p.writeFull(buf.Bytes())
+}
+
+func (p *Protocol) ReceiveResumeRequest() (*ResumeRequestMessage, error) {
+	buf := make([]byte, 8) // Changed from 4 to 8 bytes
+	if _, err := io.ReadFull(p.reader, buf); err != nil {
+		return nil, fmt.Errorf("failed to read query ID: %w", err)
+	}
+
+	// Trim null bytes just like in ClientIDToString
+	queryID := string(buf)
+	for i := 0; i < len(queryID); i++ {
+		if queryID[i] == 0 {
+			queryID = queryID[:i]
+			break
+		}
+	}
+
+	return &ResumeRequestMessage{QueryID: queryID}, nil
+}
+
+func (p *Protocol) SendHealthCheck() error {
+	return p.writeFull([]byte{byte(MessageTypeHealthCheck)})
+}
+
+func (p *Protocol) SendHealthCheckResponse() error {
+	return p.writeFull([]byte{byte(MessageTypeACK)})
 }

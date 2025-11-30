@@ -144,6 +144,10 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 	}
 
 	switch msgType {
+	case protocol.MessageTypeHealthCheck: // NEW
+		log.Debugf("Health check from %s", conn.RemoteAddr())
+		proto.SendHealthCheckResponse()
+		return
 	case protocol.MessageTypeQueryRequest:
 		// TODO: handle errors here?
 		handleQueryRequest(proto, cfg, channel)
@@ -152,6 +156,10 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 		requestedResults := data.(*protocol.ResultRequestMessage).RequestedResults
 		// TODO: handle errors here?
 		handleResultsRequest(proto, cfg, channel, queryId, requestedResults, cfg.BufferSize)
+	case protocol.MessageTypeResumeRequest:
+		queryId := data.(*protocol.ResumeRequestMessage).QueryID
+		// TODO: handle errors here?
+		handleResumeRequest(proto, cfg, channel, queryId)
 	default:
 		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
 		return
@@ -166,6 +174,12 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 		bytes[i] = byte(src.Intn(256))
 	}
 	clientId := hex.EncodeToString(bytes)
+
+	// Send Query ID after FINAL_EOF
+	if err := proto.SendQueryId(clientId); err != nil {
+		log.Errorf("Failed to send Queue Id: %v", err)
+		return
+	}
 
 	// Keep processing messages until FINAL_EOF is received
 	for {
@@ -208,13 +222,6 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 		// Handle FINAL_EOF
 		if isFinalEOF {
 			log.Infof("Received FINAL_EOF from client %d after %d files", clientId, filesProcessed)
-
-			// Send Query ID after FINAL_EOF
-			if err := proto.SendQueryId(clientId); err != nil {
-				log.Errorf("Failed to send Queue Id: %v", err)
-				return
-			}
-
 			log.Infof("Successfully processed all files and received FINAL_EOF from client %d", clientId)
 			break
 		}
@@ -245,6 +252,62 @@ func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol
 	}
 
 	return waitForFinalResults(resultChan, errChan, proto, clientId)
+}
+
+// NEW function
+func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) {
+	log.Infof("Resuming query processing for client %s", clientId)
+
+	// Send ACK to confirm we're ready to resume
+	if err := proto.SendACK(); err != nil {
+		log.Errorf("Failed to send resume ACK: %v", err)
+		return
+	}
+
+	// Continue with normal processing - same as handleQueryRequest but skip ID generation
+	filesProcessed := 0
+
+	for {
+		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channel, clientId)
+
+		// ... rest of the logic same as handleQueryRequest
+		if err != nil {
+			if err == io.EOF {
+				log.Infof("Client closed connection after %d files", filesProcessed)
+				return
+			}
+			log.Errorf("Failed to process messages: %v", err)
+			return
+		}
+
+		if fileProcessed {
+			filesProcessed++
+			log.Infof("Successfully processed file %d", filesProcessed)
+		}
+
+		if isFileTypeEOF {
+			log.Infof("Received EOF from client %s after %d files", clientId, filesProcessed)
+			if err := sendEOFForFileType(clientId, fileType, cfg, channel); err != nil {
+				log.Errorf("Failed to send EOF for fileType %s: %v", fileType, err)
+				return
+			}
+			if err := proto.SendACK(); err != nil {
+				log.Errorf("Failed to send EOF ACK for fileType %s: %v", fileType, err)
+				return
+			}
+			log.Infof("Successfully sent EOF to queues from client %s", clientId)
+			continue
+		}
+
+		if isFinalEOF {
+			log.Infof("Received FINAL_EOF from client %s after %d files", clientId, filesProcessed)
+			break
+		}
+	}
+
+	if err := processFinalResults(clientId, channel, proto); err != nil {
+		log.Errorf("Failed to process final results: %v", err)
+	}
 }
 
 // consumeOneResult consumes exactly one message from a queue

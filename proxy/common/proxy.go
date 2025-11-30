@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
 )
 
@@ -104,24 +105,14 @@ func (p *Proxy) acceptConnections() {
 func (p *Proxy) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	// Get next healthy handler using round-robin
-	handlerAddr := p.getNextHandler()
-	if handlerAddr == "" {
-		proxyLog.Error("No healthy request handlers available")
-		return
-	}
-
-	proxyLog.Infof("Forwarding connection from %s to handler %s",
-		clientConn.RemoteAddr(), handlerAddr)
-
-	handlerConn, err := p.dialWithRetry(handlerAddr)
+	handlerConn, err := p.dialWithRetry()
 	if err != nil {
-		proxyLog.Error("Failed to connect to any handler after retries")
+		proxyLog.Errorf("Failed to connect to any handler: %v", err)
 		return
 	}
 
 	defer handlerConn.Close()
-	proxyLog.Infof("Established connection to handler %s", handlerAddr)
+	proxyLog.Infof("Established connection to handler %s", handlerConn.RemoteAddr())
 
 	p.bidirectionalCopy(clientConn, handlerConn)
 	proxyLog.Infof("Connection from %s completed", clientConn.RemoteAddr())
@@ -134,41 +125,62 @@ func (p *Proxy) bidirectionalCopy(clientConn, handlerConn net.Conn) {
 	// Copy from client to handler
 	go func() {
 		defer wg.Done()
-		io.Copy(handlerConn, clientConn)
-		if tcpConn, ok := handlerConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
+		p.copyWithReconnect(handlerConn, clientConn, true)
 	}()
 
 	// Copy from handler to client
 	go func() {
 		defer wg.Done()
-		io.Copy(clientConn, handlerConn)
-		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
+		p.copyWithReconnect(clientConn, handlerConn, false)
 	}()
 
 	wg.Wait()
 }
 
-func (p *Proxy) dialWithRetry(initialAddr string) (net.Conn, error) {
-	handlerAddr := initialAddr
+// copyWithReconnect copies data between connections with automatic reconnection on failure
+func (p *Proxy) copyWithReconnect(dst net.Conn, src net.Conn, isClientToHandler bool) {
+	buffer := make([]byte, p.Config.BufferSize)
 
 	for {
+		n, err := src.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
+				proxyLog.Infof("Connection closed by %s", src.RemoteAddr())
+				if tcpConn, ok := dst.(*net.TCPConn); ok {
+					tcpConn.CloseWrite()
+				}
+				return
+			}
+			proxyLog.Warningf("Error reading from %s: %v", src.RemoteAddr(), err)
+			return
+		}
+
+		_, err = dst.Write(buffer[:n])
+		if err != nil {
+			proxyLog.Errorf("Error writing to %s: %v", dst.RemoteAddr(), err)
+			// Connection failed - request new handler
+			return
+		}
+	}
+}
+
+func (p *Proxy) dialWithRetry() (net.Conn, error) {
+	for attempts := 0; attempts < 10; attempts++ {
+		handlerAddr := p.getNextHandler()
+		if handlerAddr == "" {
+			return nil, fmt.Errorf("no healthy request handlers available")
+		}
+
 		handlerConn, err := net.DialTimeout("tcp", handlerAddr, 5*time.Second)
 		if err == nil {
 			return handlerConn, nil
 		}
 
-		proxyLog.Errorf("Failed to connect to handler %s: %v", handlerAddr, err)
+		proxyLog.Warningf("Failed to connect to handler %s (attempt %d): %v", handlerAddr, attempts+1, err)
 		p.removeUnhealthyHandler(handlerAddr)
-
-		handlerAddr = p.getNextHandler()
-		if handlerAddr == "" {
-			return nil, fmt.Errorf("no healthy request handlers available after retries")
-		}
 	}
+
+	return nil, fmt.Errorf("no healthy request handlers available after retries")
 }
 
 func (p *Proxy) getNextHandler() string {
@@ -225,7 +237,22 @@ func (p *Proxy) isHealthy(addr string) bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	defer conn.Close()
+
+	proto := protocol.NewProtocol(conn)
+
+	// Send health check message
+	if err := proto.SendHealthCheck(); err != nil {
+		return false
+	}
+
+	// Wait for response with timeout
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	msgType, _, err := proto.ReceiveMessage()
+	if err != nil || msgType != protocol.MessageTypeACK {
+		return false
+	}
+
 	return true
 }
 

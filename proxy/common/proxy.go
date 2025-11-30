@@ -125,20 +125,20 @@ func (p *Proxy) bidirectionalCopy(clientConn, handlerConn net.Conn) {
 	// Copy from client to handler
 	go func() {
 		defer wg.Done()
-		p.copyWithReconnect(handlerConn, clientConn, true)
+		p.copyConnection(handlerConn, clientConn)
 	}()
 
 	// Copy from handler to client
 	go func() {
 		defer wg.Done()
-		p.copyWithReconnect(clientConn, handlerConn, false)
+		p.copyConnection(clientConn, handlerConn)
 	}()
 
 	wg.Wait()
 }
 
-// copyWithReconnect copies data between connections with automatic reconnection on failure
-func (p *Proxy) copyWithReconnect(dst net.Conn, src net.Conn, isClientToHandler bool) {
+// copyConnection copies data between connections
+func (p *Proxy) copyConnection(dst net.Conn, src net.Conn) {
 	buffer := make([]byte, p.Config.BufferSize)
 
 	for {
@@ -158,7 +158,7 @@ func (p *Proxy) copyWithReconnect(dst net.Conn, src net.Conn, isClientToHandler 
 		_, err = dst.Write(buffer[:n])
 		if err != nil {
 			proxyLog.Errorf("Error writing to %s: %v", dst.RemoteAddr(), err)
-			// Connection failed - request new handler
+			// request new handler
 			return
 		}
 	}

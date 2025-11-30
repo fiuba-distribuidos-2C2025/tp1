@@ -266,7 +266,6 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 	}
 	clientId := hex.EncodeToString(bytes)
 
-	// Send Query ID after FINAL_EOF
 	if err := proto.SendQueryId(clientId); err != nil {
 		log.Errorf("Failed to send Queue Id: %v", err)
 		return
@@ -378,7 +377,6 @@ func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, cha
 // Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
 func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) (bool, bool, bool, protocol.FileType, error) {
 	var totalChunks int32
-	chunksReceived := int32(0)
 
 	log.Debug("Starting to process new messages")
 
@@ -405,12 +403,11 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 		case protocol.MessageTypeBatch:
 			message := data.(*protocol.BatchMessage)
 
-			chunksReceived++
 			log.Infof("Received batch: chunk %d/%d with %d rows",
 				message.CurrentChunk, message.TotalChunks, len(message.CSVRows))
 
 			// Initialize tracking variables on first chunk
-			if chunksReceived == 1 {
+			if message.CurrentChunk == 1 {
 				totalChunks = message.TotalChunks
 			}
 
@@ -441,8 +438,8 @@ func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel
 			log.Debugf("Sent ACK for chunk %d/%d", message.CurrentChunk, message.TotalChunks)
 
 			// Check if all chunks have been received
-			if chunksReceived >= totalChunks {
-				log.Infof("All %d chunks received", chunksReceived)
+			if message.CurrentChunk >= totalChunks {
+				log.Infof("All %d chunks received", totalChunks)
 				return true, false, false, 0, nil
 			}
 		}

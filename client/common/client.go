@@ -22,7 +22,7 @@ const (
 	resultsWaitTime = 5 * time.Second
 	ackTimeout      = 10 * time.Second
 	maxRetries      = 10
-	retryDelay      = 1 * time.Second
+	retryDelay      = 2 * time.Second
 )
 
 // ClientConfig holds configuration for the client
@@ -66,16 +66,9 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	// Send message to server signaling the start of a query request
-	if err := c.protocol.SendQueryRequest(); err != nil {
-		log.Errorf("Failed to send query request: %v", err)
-		return err
-	}
-
-	// Wait for Query Id
-	if err := c.waitForQueryId(); err != nil {
-		log.Errorf("Failed to receive QueryId: %v", err)
-		return err
+	// Send query request and wait for Query ID with retry logic
+	if err := c.sendQueryRequestWithRetry(); err != nil {
+		return fmt.Errorf("failed to send query request and receive ID: %w", err)
 	}
 
 	if err := c.TransferDataDirectory("/data"); err != nil {
@@ -376,6 +369,38 @@ func (c *Client) disconnect() {
 	}
 }
 
+// sendQueryRequestWithRetry sends a query request and waits for query ID with retry on failure
+func (c *Client) sendQueryRequestWithRetry() error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := c.protocol.SendQueryRequest()
+		if err != nil {
+			lastErr = fmt.Errorf("send query request failed: %w", err)
+			c.disconnect()
+		} else {
+			err = c.receiveQueryIdWithTimeout()
+			if err != nil {
+				lastErr = fmt.Errorf("receive query ID failed: %w", err)
+				c.disconnect()
+			} else {
+				return nil // Success
+			}
+		}
+
+		log.Warningf("Query request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+		if attempt < maxRetries {
+			time.Sleep(retryDelay)
+			if err := c.connectToServer(); err != nil {
+				log.Errorf("Failed to reconnect: %v", err)
+			}
+		}
+	}
+
+	return fmt.Errorf("failed to send query request after %d attempts: %w", maxRetries, lastErr)
+}
+
 // sendBatchWithRetry sends a batch message with automatic retry on failure
 func (c *Client) sendBatchWithRetry(msg *protocol.BatchMessage) error {
 	var lastErr error
@@ -442,6 +467,7 @@ func (c *Client) sendEOFWithRetry(fileType protocol.FileType) error {
 	return fmt.Errorf("failed to send EOF after %d attempts: %w", maxRetries, lastErr)
 }
 
+// receiveACKWithTimeout waits for ACK with a timeout
 func (c *Client) receiveACKWithTimeout() error {
 	ackChan := make(chan error, 1)
 	go func() {
@@ -456,6 +482,22 @@ func (c *Client) receiveACKWithTimeout() error {
 	}
 }
 
+// receiveQueryIdWithTimeout waits for query ID with a timeout
+func (c *Client) receiveQueryIdWithTimeout() error {
+	queryChan := make(chan error, 1)
+	go func() {
+		queryChan <- c.receiveQueryId()
+	}()
+
+	select {
+	case err := <-queryChan:
+		return err
+	case <-time.After(ackTimeout):
+		return fmt.Errorf("query ID timeout")
+	}
+}
+
+// receiveACK waits for an acknowledgment from the server
 func (c *Client) receiveACK() error {
 	msgType, _, err := c.protocol.ReceiveMessage()
 	if err != nil {
@@ -469,8 +511,8 @@ func (c *Client) receiveACK() error {
 	return nil
 }
 
-// waitForQueryId waits for an acknowledgment from the server
-func (c *Client) waitForQueryId() error {
+// receiveQueryId waits for query ID from the server
+func (c *Client) receiveQueryId() error {
 	msgType, data, err := c.protocol.ReceiveMessage()
 	if err != nil {
 		return fmt.Errorf("failed to receive message: %w", err)

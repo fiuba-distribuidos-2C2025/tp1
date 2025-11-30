@@ -118,5 +118,5 @@ integration_test:
 .PHONY: integration_test
 
 chaos:
-	./scripts/chaos.sh ${CHAOS_INTERVAL} 'aggregator\|joiner\|grouper\|filter' ${NUM_TO_KILL}
+	./scripts/chaos.sh ${CHAOS_INTERVAL} 'response_builder' ${NUM_TO_KILL}
 .PHONY: chaos

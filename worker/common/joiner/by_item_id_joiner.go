@@ -56,54 +56,6 @@ func processMenuItems(menuItemLines []string) map[string]string {
 	return menuItemsData
 }
 
-func processPendingMessagesForClient(clientID string, processedMenuItems map[string]map[string]string, clientEofs map[string]map[string]string, outChan chan string, messageSentNotificationChan chan string, baseDir string, workerID string, neededEof int) {
-	// Load client messages from disk
-	clientMessages, err := utils.LoadClientMessagesWithChecksums(baseDir, clientID)
-	if err != nil {
-		log.Errorf("Error loading messages for client %s: %v", clientID, err)
-		return
-	}
-	// Send all messages for this client
-	var outBuilder strings.Builder
-
-	for msgID, msg := range clientMessages {
-		lines := strings.Split(msg, "\n")
-		items := lines[2:]
-		for _, transaction := range items {
-			if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems[clientID]); ok {
-				outBuilder.WriteString(concatenated)
-				outBuilder.WriteByte('\n')
-			}
-		}
-
-		if outBuilder.Len() > 0 {
-			// Reuse the same msgID as it is already unique
-			// and persistent across worker restarts
-			outChan <- clientID + "\n" + msgID + "\n" + strings.TrimSuffix(outBuilder.String(), "\n")
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-			log.Infof("Processed message")
-		}
-		outBuilder.Reset()
-	}
-
-	eofs := clientEofs[clientID]
-	eofCount := len(eofs)
-	if eofCount >= neededEof {
-		// Use the workerID as msgID for the EOF
-		// to ensure uniqueness across workers and restarts
-		outChan <- clientID + "\n" + workerID + "\nEOF"
-		// Here we just block until we are notified that the message was sent
-		<-messageSentNotificationChan
-		// clear accumulator memory
-		delete(clientEofs, clientID)
-		delete(processedMenuItems, clientID)
-		utils.RemoveClientDir(baseDir, clientID)
-		utils.RemoveClientDir(baseDir+"/secondary", clientID)
-	}
-
-}
-
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		// Load existing clients EOF in case of worker restart
@@ -137,7 +89,7 @@ func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 				menuItemRows := rows[1:]
 				processedMenu := processMenuItems(menuItemRows)
 				processedMenuItems[secondaryQueueClientID] = processedMenu
-				processPendingMessagesForClient(secondaryQueueClientID, processedMenuItems, clientEofs, outChan, messageSentNotificationChan, baseDir, workerID, neededEof)
+				processPendingMessagesForClient(secondaryQueueClientID, processedMenuItems, clientEofs, outChan, messageSentNotificationChan, baseDir, workerID, neededEof, concatWithMenuItemsData)
 			case msg, ok := <-*consumeChannel:
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")

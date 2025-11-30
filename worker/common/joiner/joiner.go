@@ -58,6 +58,53 @@ func processClientMessages(clientMessages map[string]map[string]string, clientID
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
+func processPendingMessagesForClient(clientID string, secondaryQueueItems map[string]map[string]string, clientEofs map[string]map[string]string, outChan chan string, messageSentNotificationChan chan string, baseDir string, workerID string, neededEof int, joinCallback func(transaction string, menuItemsData map[string]string) (string, bool)) {
+	// Load client messages from disk
+	clientMessages, err := utils.LoadClientMessagesWithChecksums(baseDir, clientID)
+	if err != nil {
+		log.Errorf("Error loading messages for client %s: %v", clientID, err)
+		return
+	}
+	// Send all messages for this client
+	var outBuilder strings.Builder
+
+	for msgID, msg := range clientMessages {
+		lines := strings.Split(msg, "\n")
+		items := lines[2:]
+		for _, transaction := range items {
+			if concatenated, ok := joinCallback(transaction, secondaryQueueItems[clientID]); ok {
+				outBuilder.WriteString(concatenated)
+				outBuilder.WriteByte('\n')
+			}
+		}
+
+		if outBuilder.Len() > 0 {
+			// Reuse the same msgID as it is already unique
+			// and persistent across worker restarts
+			outChan <- clientID + "\n" + msgID + "\n" + strings.TrimSuffix(outBuilder.String(), "\n")
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			log.Infof("Processed message")
+		}
+		outBuilder.Reset()
+	}
+
+	eofs := clientEofs[clientID]
+	eofCount := len(eofs)
+	if eofCount >= neededEof {
+		// Use the workerID as msgID for the EOF
+		// to ensure uniqueness across workers and restarts
+		outChan <- clientID + "\n" + workerID + "\nEOF"
+		// Here we just block until we are notified that the message was sent
+		<-messageSentNotificationChan
+		// clear accumulator memory
+		delete(clientEofs, clientID)
+		delete(secondaryQueueItems, clientID)
+		utils.RemoveClientDir(baseDir, clientID)
+		utils.RemoveClientDir(baseDir+"/secondary", clientID)
+	}
+}
+
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		// Load existing clients EOF in case of worker restart

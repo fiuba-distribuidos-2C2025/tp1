@@ -42,7 +42,6 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 			log.Errorf("Error loading clients EOF count: %v", err)
 			return
 		}
-		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 		processedStores := make(map[string]map[string]string)
 		log.Infof("Waiting for messages...")
 
@@ -50,6 +49,25 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 
 		for {
 			select {
+			case secondaryQueueNewMessage, ok := <-storeIdRowsChan:
+				if !ok {
+					log.Errorf("Stores data chan closed with error %v", err)
+					return
+				}
+
+				log.Debugf("Received message from secondary queue being inside primary queue:\n%s", secondaryQueueNewMessage)
+				payload := strings.TrimSpace(secondaryQueueNewMessage)
+				rows := strings.Split(payload, "\n")
+				if len(rows) < 2 {
+					log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
+					continue
+				}
+
+				secondaryQueueClientID := rows[0]
+				storeIdRows := rows[1:]
+				processedStoreIds := ProcessStoreIds(storeIdRows)
+				processedStores[secondaryQueueClientID] = processedStoreIds
+				processPendingMessagesForClient(secondaryQueueClientID, processedStores, clientEofs, outChan, messageSentNotificationChan, baseDir, workerID, neededEof, concatBirthdatesWithStoresData)
 			case msg, ok := <-*consumeChannel:
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
@@ -62,6 +80,7 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 				// Separate header and the rest
 				clientID := lines[0]
 				msgID := lines[1]
+				items := lines[2:]
 
 				// Create accumulator for client
 				if _, exists := processedStores[clientID]; !exists {
@@ -71,30 +90,18 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 				// Ensure we have store ids for this client.
 				// This will block until the expected clientID arrives.
 				// TODO: avoid blocking other clients while waiting for one
-				for len(processedStores[clientID]) == 0 {
-					secondaryQueueNewMessage, ok := <-storeIdRowsChan
-					if !ok {
-						log.Errorf("menuItemRowsChan closed while waiting for client %s", clientID)
-						return
+				if len(processedStores[clientID]) == 0 {
+					log.Infof("Stores data not yet available for client %s, storing message...", clientID)
+					if items[0] == "EOF" {
+						utils.StoreEOF(baseDir, clientID, msgID)
+					} else {
+						utils.StoreMessageWithChecksum(baseDir, clientID, msgID, payload)
 					}
-
-					log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
-					payload := strings.TrimSpace(secondaryQueueNewMessage)
-					rows := strings.Split(payload, "\n")
-					if len(rows) < 2 {
-						log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
-						continue
-					}
-
-					secondaryQueueClientID := rows[0]
-					storeIdRows := rows[1:]
-					processedStoreIds := ProcessStoreIds(storeIdRows)
-					processedStores[secondaryQueueClientID] = processedStoreIds
-
-					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
+					// Acknowledge message
+					msg.Ack(false)
+					continue
 				}
 
-				items := lines[2:]
 				if items[0] == "EOF" {
 					// Store EOF on disk as tracking the count in memory is not secure
 					// in case of worker restart

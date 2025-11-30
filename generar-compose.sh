@@ -11,6 +11,8 @@ OUTPUT_FILE="$1"
 CONFIG_FILE="$2"
 source "$CONFIG_FILE"
 
+TRACKED_CONTAINERS="request_handler,response_builder"
+
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
 services:
@@ -32,19 +34,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  watcher:
-    container_name: watcher
-    image: watcher:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./watcher/watcher_config.json:/app/watcher_config.json
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - testing_net
-
   request_handler:
     container_name: request_handler
     image: request_handler:latest
@@ -56,8 +45,6 @@ services:
             condition: service_healthy
     networks:
       - testing_net
-    labels:
-      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
@@ -80,8 +67,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     networks:
       - testing_net
 
@@ -118,6 +103,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_year_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_worker$i:
     container_name: filter_by_year_worker$i
@@ -131,8 +117,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -146,6 +130,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_HOUR; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_hour_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_hour_worker$i:
     container_name: filter_by_hour_worker$i
@@ -159,8 +144,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -174,6 +157,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_AMOUNT; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_amount_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_amount_worker$i:
     container_name: filter_by_amount_worker$i
@@ -187,8 +171,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -209,6 +191,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_year_items_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_items_worker$i:
     container_name: filter_by_year_items_worker$i
@@ -222,8 +205,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -237,6 +218,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_year_month_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_year_month_worker$i:
     container_name: grouper_by_year_month_worker$i
@@ -250,8 +232,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -265,6 +245,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_by_profit_quantity$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_profit_quantity$i:
     container_name: aggregator_by_profit_quantity$i
@@ -278,8 +259,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -294,6 +273,7 @@ done
 
 # TODO ADD JOINERS BY ID with quantity = WORKER_COUNT_FILTER_BY_YEAR_ITEMS
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_ITEM_ID; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_item_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_item_id$i:
     container_name: joiner_by_item_id$i
@@ -307,8 +287,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -329,6 +307,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_semester_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_semester_worker$i:
     container_name: grouper_by_semester_worker$i
@@ -342,8 +321,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -357,6 +334,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_SEMESTER; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_semester_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_semester_worker$i:
     container_name: aggregator_semester_worker$i
@@ -370,8 +348,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -385,6 +361,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_store_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_store_id$i:
     container_name: joiner_by_store_id$i
@@ -398,8 +375,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -420,6 +395,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_STORE_USER; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_store_user_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_store_user_worker$i:
     container_name: grouper_by_store_user_worker$i
@@ -433,8 +409,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -448,6 +422,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_by_store_user$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_store_user$i:
     container_name: aggregator_by_store_user$i
@@ -461,8 +436,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -476,6 +449,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_ID; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_user_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_user_id$i:
     container_name: joiner_by_user_id$i
@@ -489,8 +463,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
@@ -504,6 +476,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
+TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_user_store$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_user_store$i:
     container_name: joiner_by_user_store$i
@@ -517,8 +490,6 @@ cat >> "$OUTPUT_FILE" <<EOL
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -531,8 +502,35 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+cat >> "$OUTPUT_FILE" <<EOL
+# ==============================================================================
+# Watcher
+# ==============================================================================
+
+  watcher:
+    container_name: watcher
+    image: watcher:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./watcher/watcher_config.json:/app/watcher_config.json
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - testing_net
+    environment:
+      - TRACKED_CONTAINERS=$TRACKED_CONTAINERS
+
+EOL
+
+
 # Declaración de todos los volúmenes para /base_dir
 cat >> "$OUTPUT_FILE" <<EOL
+# ==============================================================================
+# Volumes
+# ==============================================================================
+
 volumes:
 EOL
 
@@ -597,6 +595,11 @@ for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
 done
 
 cat >> "$OUTPUT_FILE" <<EOL
+
+# ==============================================================================
+# Network
+# ==============================================================================
+
 networks:
   testing_net:
     ipam:

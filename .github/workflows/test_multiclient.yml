@@ -77,9 +77,6 @@ jobs:
           sed -i '0,/CLIENT_ID=2/s/CLIENT_ID=2/CLIENT_ID=bob/' docker-compose-multiclient-setup.yaml
           sed -i '0,/\.\/data:\/data/s|./data:/data|./data2:/data|' docker-compose-multiclient-setup.yaml
 
-          # Print updated file
-          cat docker-compose-multiclient-setup.yaml
-
       - name: Run with multiclient setup
         run: make run_multiclient_setup
 

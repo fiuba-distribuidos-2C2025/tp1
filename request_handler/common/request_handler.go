@@ -460,7 +460,7 @@ func sendToQueue(message *protocol.BatchMessage, receiverID int, cfg RequestHand
 	clientIdStr := protocol.ClientIDToString(internalUUID)
 	payload.WriteString(clientIdStr)
 	payload.WriteString("\n")
-	msgID := fmt.Sprintf("%d", rand.Int63())
+	msgID := fmt.Sprintf("%d", message.MsgID)
 	payload.WriteString(msgID)
 	payload.WriteString("\n")
 	payload.WriteString(strings.Join(message.CSVRows, "\n"))

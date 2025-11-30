@@ -31,6 +31,7 @@ type ClientConfig struct {
 	ServerIP   string
 	ID         string
 	BufferSize int
+	MsgID      int32
 }
 
 // Client manages connection to the server and file transfers
@@ -260,6 +261,7 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 			}
 
 			batchMsg := &protocol.BatchMessage{
+				MsgID:        c.config.MsgID,
 				ClientID:     clientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
@@ -271,6 +273,7 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
 
+			c.config.MsgID++
 			log.Debugf("Sent chunk %d/%d (FileType: %s)",
 				currentChunk, metadata.totalChunks, metadata.fileType)
 		}

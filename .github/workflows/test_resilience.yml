@@ -49,13 +49,19 @@ jobs:
           for i in {1..60}; do
 
             if [ -d "./results/client_1" ]; then
+              all_present=true
+
               for f in "${FILES[@]}"; do
                 if [ ! -f "./results/client_1/$f" ]; then
-                  first_client_ready=false
+                  all_present=false
                   break
                 fi
               done
-              exit 0
+
+              if [ "$all_present" = true ]; then
+                echo "All result files found."
+                exit 0
+              fi
             fi
 
             echo "Not ready yet... ($i)"

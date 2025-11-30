@@ -42,37 +42,29 @@ jobs:
 
           FILES=("query_1.csv" "query_2.csv" "query_3.csv" "query_4.csv")
 
+          check_client() {
+            local client_dir="./results/$1"
+            local files=("${FILES[@]}")
+
+            # Client directory must exist
+            if [ ! -d "$client_dir" ]; then
+              return 1
+            fi
+
+            # All files must exist
+            for f in "${files[@]}"; do
+              if [ ! -f "$client_dir/$f" ]; then
+                return 1
+              fi
+            done
+
+            return 0
+          }
+
           # Wait up to 60 * 5s = 300 seconds
           for i in {1..60}; do
-            alice_ready=true
-            bob_ready=true
 
-            # Check Alice
-            if [ -d "./results/client_alice" ]; then
-              for f in "${FILES[@]}"; do
-                if [ ! -f "./results/client_alice/$f" ]; then
-                  alice_ready=false
-                  break
-                fi
-              done
-            else
-              alice_ready=false
-            fi
-
-            # Check Bob
-            if [ -d "./results/client_bob" ]; then
-              for f in "${FILES[@]}"; do
-                if [ ! -f "./results/client_bob/$f" ]; then
-                  bob_ready=false
-                  break
-                fi
-              done
-            else
-              bob_ready=false
-            fi
-
-            # If both are ready → continue
-            if [ "$alice_ready" = true ] && [ "$bob_ready" = true ]; then
+            if check_client "client_alice" && check_client "client_bob"; then
               echo "All expected result files found for both clients."
               exit 0
             fi

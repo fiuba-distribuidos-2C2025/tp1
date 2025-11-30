@@ -88,12 +88,19 @@ download_full_dataset:
 download_multiclient_dataset:
 	./scripts/load_dataset.sh 0 1
 
-run_multiclient_test: docker-image clean_results
-	docker compose -f docker-compose-multiclient-test.yaml up -d --build
+run_multiclient_setup: docker-image clean_results
+	docker compose -f docker-compose-multiclient-setup.yaml up -d --build
 
-stop_multiclient_test:
-	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
-	docker compose -f  docker-compose-multiclient-test.yaml down -v
+stop_multiclient_setup:
+	docker compose -f  docker-compose-multiclient-setup.yaml stop -t 10
+	docker compose -f  docker-compose-multiclient-setup.yaml down -v
+
+run_resilience_setup: docker-image clean_results
+	docker compose -f docker-compose-resilience-setup.yaml up -d --build
+
+stop_resilience_setup:
+	docker compose -f  docker-compose-resilience-setup.yaml stop -t 10
+	docker compose -f  docker-compose-resilience-setup.yaml down -v
 
 run_client:
 	docker run -d \
@@ -106,7 +113,7 @@ run_client:
       -e CLIENT_ID=${CLIENT} \
       client:latest
 
-.PHONY: run_multiclient_test
+.PHONY: run_multiclient_setup run_resilience_setup
 
 integration_test:
 	cd tests && go test

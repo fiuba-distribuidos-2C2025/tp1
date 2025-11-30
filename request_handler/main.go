@@ -103,6 +103,7 @@ func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
 		MenuItemsReceiversCount:        v.GetInt("middleware.receivers.menuitemscount"),
 		UsersReceiversCount:            v.GetInt("middleware.receivers.userscount"),
 		BufferSize:                     v.GetInt("request_handler.buffer_size_mb") * 1024 * 1024,
+		ID:                             v.GetInt("id"),
 	}
 }
 

@@ -23,6 +23,7 @@ type ResponseBuilderConfig struct {
 	WorkerResultsTwoCount   int
 	WorkerResultsThreeCount int
 	WorkerResultsFourCount  int
+	WorkerResultsReceiver   int
 	IsTest                  bool
 }
 
@@ -154,12 +155,15 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 		if totalEOFs == expectedEof {
 			log.Infof("All EOFs received for client %s query %d, sending final result", clientId, msg.ID)
 
-			// Send final results
-			finalQueueName := fmt.Sprintf("final_results_%s_%d", clientId, msg.ID)
-			finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
+			// Send final results to all request handlers
+			for i := 1; i <= rb.Config.WorkerResultsReceiver; i++ {
+				finalQueueName := fmt.Sprintf("final_results_%d_%d", i, msg.ID)
+				finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
 
-			finalResult := strings.Join(state.results[msg.ID], "\n")
-			finalResultsQueue.Send([]byte(finalResult))
+				finalResult := strings.Join(state.results[msg.ID], "\n")
+				finalResult = fmt.Sprintf("%s\n%s", clientId, finalResult)
+				finalResultsQueue.Send([]byte(finalResult))
+			}
 
 			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {

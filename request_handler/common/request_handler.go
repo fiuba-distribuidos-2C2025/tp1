@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
@@ -21,20 +22,18 @@ import (
 
 var log = logging.MustGetLogger("log")
 
-const (
-	expectedResultCount = 4 // Number of final result queues
-)
-
 // ResultMessage contains a result and which queue it came from
 type ResultMessage struct {
-	QueueID int
-	Data    string
+	ClientID string
+	QueueID  int
+	Data     string
 }
 
 // RequestHandlerConfig holds configuration for the request handler
 type RequestHandlerConfig struct {
 	Port                           string
 	IP                             string
+	ID                             int
 	MiddlewareURL                  string
 	TransactionsReceiversCount     int
 	TransactionItemsReceiversCount int
@@ -51,6 +50,16 @@ type RequestHandler struct {
 	listener   net.Listener
 	shutdown   chan struct{}
 	Connection *amqp.Connection
+}
+
+// ResultListener manages listening to a specific result queue
+type ResultListener struct {
+	queueID   int
+	handlerID int
+	channel   *amqp.Channel
+	queue     *middleware.MessageMiddlewareQueue
+	shutdown  chan struct{}
+	mu        sync.Mutex
 }
 
 // NewRequestHandler creates a new RequestHandler instance
@@ -77,15 +86,98 @@ func (rh *RequestHandler) Start() error {
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rh.Config.MiddlewareURL)
 	if err != nil {
-		rh.listener.Close()
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 	rh.Connection = conn
 	log.Infof("Connected to RabbitMQ at %s", rh.Config.MiddlewareURL)
 
+	go rh.startResultListeners()
+	defer rh.listener.Close()
+
 	go rh.acceptConnections()
 	<-rh.shutdown
 	return nil
+}
+
+func (rh *RequestHandler) startResultListeners() error {
+	log.Infof("Starting %d result queue listeners", 4)
+
+	for i := 1; i <= 4; i++ {
+		channel, err := rh.Connection.Channel()
+		if err != nil {
+			return fmt.Errorf("failed to create channel for result listener %d: %w", i, err)
+		}
+
+		queueName := fmt.Sprintf("final_results_%d_%d", rh.Config.ID, i)
+		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
+
+		listener := &ResultListener{
+			queueID:   i,
+			handlerID: rh.Config.ID,
+			channel:   channel,
+			queue:     queue,
+			shutdown:  make(chan struct{}),
+		}
+
+		listener.startListening()
+		log.Infof("Started background listener for %s", queueName)
+	}
+
+	return nil
+}
+
+// startListening continuously listens for results on this queue
+func (rl *ResultListener) startListening() {
+	queueName := fmt.Sprintf("final_results_%d_%d", rl.handlerID, rl.queueID)
+	log.Infof("Result listener %d started consuming from %s", rl.queueID, queueName)
+
+	rl.queue.StartConsuming(func(consumeChannel middleware.ConsumeChannel, doneCh chan error) {
+		for {
+			select {
+			case <-rl.shutdown:
+				log.Infof("Result listener %d shutting down", rl.queueID)
+				return
+
+			case msg, ok := <-*consumeChannel:
+				if !ok {
+					log.Errorf("Channel closed for result queue %d", rl.queueID)
+					return
+				}
+
+				parsedMsg := strings.SplitN(string(msg.Body), "\n", 2)
+				clientID := parsedMsg[0]
+				data := parsedMsg[1]
+
+				if err := rl.processResult(clientID, data); err != nil {
+					log.Errorf("Failed to process result from queue %d for client %s: %v",
+						rl.queueID, clientID, err)
+					continue
+				}
+
+				if err := msg.Ack(false); err != nil {
+					log.Errorf("Failed to ack message from queue %d: %v", rl.queueID, err)
+				}
+
+				log.Infof("Successfully processed result from queue %d for client %s",
+					rl.queueID, clientID)
+
+			case err := <-doneCh:
+				if err != nil {
+					log.Errorf("Error in result listener %d: %v", rl.queueID, err)
+				}
+				return
+			}
+		}
+	})
+}
+
+// processResult saves the result to disk
+func (rl *ResultListener) processResult(clientID string, data string) error {
+	list := strings.Split(data, "\n")
+	slices.Sort(list)
+	finalResult := strings.Join(list, "\n")
+
+	return saveResponse(clientID, int32(rl.queueID), []byte(finalResult))
 }
 
 // Stop gracefully shuts down the request handler
@@ -146,21 +238,18 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 	}
 
 	switch msgType {
-	case protocol.MessageTypeHealthCheck: // NEW
-		log.Debugf("Health check from %s", conn.RemoteAddr())
+	case protocol.MessageTypeHealthCheck:
+		log.Debugf("Health check from proxy")
 		proto.SendHealthCheckResponse()
 		return
 	case protocol.MessageTypeQueryRequest:
-		// TODO: handle errors here?
 		handleQueryRequest(proto, cfg, channel)
 	case protocol.MessageTypeResultsRequest:
 		queryId := data.(*protocol.ResultRequestMessage).QueryID
 		requestedResults := data.(*protocol.ResultRequestMessage).RequestedResults
-		// TODO: handle errors here?
 		handleResultsRequest(proto, cfg, channel, queryId, requestedResults, cfg.BufferSize)
 	case protocol.MessageTypeResumeRequest:
 		queryId := data.(*protocol.ResumeRequestMessage).QueryID
-		// TODO: handle errors here?
 		handleResumeRequest(proto, cfg, channel, queryId)
 	default:
 		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
@@ -203,7 +292,7 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 
 		// Handle EOF for specific fileType
 		if isFileTypeEOF {
-			log.Infof("Received EOF from client %d after %d files", clientId, filesProcessed)
+			log.Infof("Received EOF from client %s after %d files", clientId, filesProcessed)
 
 			// Send EOF to the appropriate RabbitMQ queues for this fileType
 			if err := sendEOFForFileType(clientId, fileType, cfg, channel); err != nil {
@@ -217,46 +306,22 @@ func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, chan
 				return
 			}
 
-			log.Infof("Successfully sent EOF to queues from client %d", clientId)
+			log.Infof("Successfully sent EOF to queues from client %s", clientId)
 			continue
 		}
 
 		// Handle FINAL_EOF
 		if isFinalEOF {
-			log.Infof("Received FINAL_EOF from client %d after %d files", clientId, filesProcessed)
-			log.Infof("Successfully processed all files and received FINAL_EOF from client %d", clientId)
+			log.Infof("Successfully processed all files and received FINAL_EOF from client %s", clientId)
 			break
 		}
 	}
 
-	// Process final results with proper cleanup
-	if err := processFinalResults(clientId, channel, proto); err != nil {
-		log.Errorf("Failed to process final results: %v", err)
-	}
+	// Results are now being processed in the background by result listeners
+	// No need to wait for them here
+	log.Infof("Query %s submitted successfully. Results will be available when processing completes.", clientId)
 }
 
-// processFinalResults handles consuming and sending final results
-func processFinalResults(clientId string, channel *amqp.Channel, proto *protocol.Protocol) error {
-	log.Infof("Starting to process final results for client %s", clientId)
-	resultChan := make(chan ResultMessage, expectedResultCount)
-	errChan := make(chan error, expectedResultCount)
-
-	// Start consuming from all final result queues
-	for i := 1; i <= expectedResultCount; i++ {
-		queueName := fmt.Sprintf("final_results_%s_%d", clientId, i)
-		queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
-
-		go func(qID int, q *middleware.MessageMiddlewareQueue) {
-			consumeOneResult(q, qID, resultChan, errChan)
-		}(i, queue)
-
-		log.Infof("Client %s: Started consuming from %s", clientId, queueName)
-	}
-
-	return waitForFinalResults(resultChan, errChan, proto, clientId)
-}
-
-// NEW function
 func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) {
 	log.Infof("Resuming query processing for client %s", clientId)
 
@@ -272,7 +337,6 @@ func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, cha
 	for {
 		fileProcessed, isFileTypeEOF, isFinalEOF, fileType, err := processMessages(proto, cfg, channel, clientId)
 
-		// ... rest of the logic same as handleQueryRequest
 		if err != nil {
 			if err == io.EOF {
 				log.Infof("Client closed connection after %d files", filesProcessed)
@@ -307,38 +371,11 @@ func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, cha
 		}
 	}
 
-	if err := processFinalResults(clientId, channel, proto); err != nil {
-		log.Errorf("Failed to process final results: %v", err)
-	}
-}
-
-// consumeOneResult consumes exactly one message from a queue
-func consumeOneResult(queue *middleware.MessageMiddlewareQueue, queueID int, resultChan chan ResultMessage, errChan chan error) {
-	queue.StartConsuming(func(consumeChannel middleware.ConsumeChannel, doneCh chan error) {
-		select {
-		case msg, ok := <-*consumeChannel:
-			if !ok {
-				errChan <- fmt.Errorf("channel closed unexpectedly for queue %d", queueID)
-				return
-			}
-
-			if err := msg.Ack(false); err != nil {
-				log.Errorf("Failed to ack message from queue %d: %v", queueID, err)
-			}
-
-			resultChan <- ResultMessage{
-				QueueID: queueID,
-				Data:    string(msg.Body),
-			}
-
-		case err := <-doneCh:
-			errChan <- err
-		}
-	})
+	log.Infof("Resumed query %s submitted successfully. Results will be available when processing completes.", clientId)
 }
 
 // processMessages handles incoming messages until a file is complete or EOF is received
-// Returns (clientId, fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
+// Returns (fileProcessed, isFileTypeEOF, isFinalEOF, fileType, error)
 func processMessages(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) (bool, bool, bool, protocol.FileType, error) {
 	var totalChunks int32
 	chunksReceived := int32(0)
@@ -541,39 +578,6 @@ func sendEOFForFileType(clientId string, fileType protocol.FileType, cfg Request
 		queue.Send(payloadBytes)
 		log.Infof("Successfully sent EOF to %s for client %s", queueName, clientId)
 	}
-	return nil
-}
-
-// waitForFinalResults waits for results from multiple queues
-func waitForFinalResults(resultChan chan ResultMessage, errChan chan error, proto *protocol.Protocol, clientId string) error {
-	resultsReceived := 0
-
-	for resultsReceived < expectedResultCount {
-		select {
-		case result, ok := <-resultChan:
-			if !ok {
-				return fmt.Errorf("result channel closed unexpectedly")
-			}
-			resultsReceived++
-
-			list := strings.Split(result.Data, "\n")
-			slices.Sort(list)
-			finalResult := strings.Join(list, "\n")
-
-			// Persist result to disk
-			if err := saveResponse(clientId, int32(result.QueueID), []byte(finalResult)); err != nil {
-				return fmt.Errorf("failed to save response from queue %d: %w", result.QueueID, err)
-			}
-
-			log.Infof("Successfully saved result %d/%d (final_results_%d)",
-				resultsReceived, expectedResultCount, result.QueueID)
-
-		case err := <-errChan:
-			return fmt.Errorf("error while waiting for results: %w", err)
-		}
-	}
-
-	log.Infof("All %d results persisted", resultsReceived)
 	return nil
 }
 

@@ -31,27 +31,6 @@ services:
     networks:
       - testing_net
 
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler/config.yaml:/config/config.yaml
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-    labels:
-      - "monitored=true"
-    environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
-      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest
@@ -63,6 +42,7 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
+      - RESPONSE_MIDDLEWARE_RECEIVER=2
     depends_on:
         rabbit:
             condition: service_healthy
@@ -98,6 +78,8 @@ services:
         condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -107,7 +89,7 @@ services:
       - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
       - REQUEST_IP=request_handler1
       - REQUEST_PORT=8901
-      - ID=1
+      - REQUEST_ID=1
 
   request_handler2:
     container_name: request_handler2
@@ -120,6 +102,8 @@ services:
         condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -129,7 +113,7 @@ services:
       - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
       - REQUEST_IP=request_handler2
       - REQUEST_PORT=8902
-      - ID=2
+      - REQUEST_ID=2
 
   client1:
     container_name: client1

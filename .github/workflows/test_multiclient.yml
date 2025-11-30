@@ -74,7 +74,7 @@ jobs:
           sed -i '0,/\.\/data.:\/data/s//.\/data1:\/data/' docker-compose-multiclient-setup.yaml
 
           # Patch client2
-          sed -i '0,/CLIENT_ID=.*/s//CLIENT_ID=bob/' docker-compose-multiclient-setup.yml
+          sed -i '0,/CLIENT_ID=.*/s//CLIENT_ID=bob/' docker-compose-multiclient-setup.yaml
           sed -i '0,/\.\/data.:\/data/s//.\/data2:\/data/' docker-compose-multiclient-setup.yaml
 
       - name: Run with multiclient setup

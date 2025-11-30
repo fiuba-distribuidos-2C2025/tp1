@@ -177,10 +177,14 @@ func LoadClientsEofs(baseDir string) (map[string]map[string]string, error) {
 func LoadClientMessagesWithChecksums(baseDir, clientID string) (map[string]string, error) {
 	messagesDir := filepath.Join(baseDir, clientID, "messages")
 	messageEntries, err := os.ReadDir(messagesDir)
+	clientMessages := make(map[string]string)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return clientMessages, nil
+		}
 		return nil, err
 	}
-	clientMessages := make(map[string]string)
 
 	for _, me := range messageEntries {
 		if me.IsDir() {

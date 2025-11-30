@@ -65,6 +65,9 @@ func processPendingMessagesForClient(clientID string, secondaryQueueItems map[st
 		log.Errorf("Error loading messages for client %s: %v", clientID, err)
 		return
 	}
+
+	log.Infof("Found %d pending messages for client %s to process", len(clientMessages), clientID)
+
 	// Send all messages for this client
 	var outBuilder strings.Builder
 
@@ -92,6 +95,7 @@ func processPendingMessagesForClient(clientID string, secondaryQueueItems map[st
 	eofs := clientEofs[clientID]
 	eofCount := len(eofs)
 	if eofCount >= neededEof {
+		log.Infof("Reached needed EOFs (%d/%d) for client %s", eofCount, neededEof, clientID)
 		// Use the workerID as msgID for the EOF
 		// to ensure uniqueness across workers and restarts
 		outChan <- clientID + "\n" + workerID + "\nEOF"

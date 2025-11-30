@@ -94,6 +94,10 @@ func CreateByUserStoreIdJoinerCallbackWithOutput(outChan chan string, messageSen
 					log.Infof("Stores data not yet available for client %s, storing message...", clientID)
 					if items[0] == "EOF" {
 						utils.StoreEOF(baseDir, clientID, msgID)
+						if _, exists := clientEofs[clientID]; !exists {
+							clientEofs[clientID] = make(map[string]string)
+						}
+						clientEofs[clientID][msgID] = ""
 					} else {
 						utils.StoreMessageWithChecksum(baseDir, clientID, msgID, payload)
 					}

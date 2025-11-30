@@ -33,14 +33,10 @@ jobs:
       - name: Run dataset download
         run: make download_full_dataset
 
-      - name: Run with chaos
+      - name: Run with chaos and wait for results
         run: |
+          make chaos &
           make run_resilience_setup
-          nohup make chaos > chaos.log 2>&1 &
-          echo $! > chaos_pid.txt
-
-      - name: Wait for client results
-        run: |
           echo "Waiting for result files..."
 
           FILES=("query_1.csv" "query_2.csv" "query_3.csv" "query_4.csv")

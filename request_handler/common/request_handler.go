@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
@@ -54,6 +55,7 @@ type RequestHandler struct {
 
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
+	healthcheck.InitHealthChecker()
 	return &RequestHandler{
 		Config:   config,
 		shutdown: make(chan struct{}),

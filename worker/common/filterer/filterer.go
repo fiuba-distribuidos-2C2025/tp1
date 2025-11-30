@@ -13,29 +13,16 @@ var log = logging.MustGetLogger("log")
 // FilterFunc represents a function that filters and potentially transforms a transaction
 type FilterFunc func(transaction string) (string, bool)
 
-func resendClientEofs(clientsEofCount map[string]int, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
-	for clientID, eofCount := range clientsEofCount {
-		if eofCount >= neededEof {
-			msgID := workerID
-			outChan <- clientID + "\n" + msgID + "\nEOF"
-			// Here we just block until we are notified that the message was sent
-			<-messageSentNotificationChan
-			utils.RemoveClientDir(baseDir, clientID)
-			delete(clientsEofCount, clientID)
-		}
-	}
-}
-
 // Generic filter callback that handles the common message processing pattern
 // All specific filters follow the same structure, only differing in the filter function used
 func CreateGenericFilterCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, filterFunc FilterFunc, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	// Load existing clients EOF count in case of worker restart
-	clientsEofCount, err := utils.LoadClientsEofCount(baseDir)
+	clientEofs, err := utils.LoadClientsEofs(baseDir)
 	if err != nil {
 		log.Errorf("Error loading clients EOF count: %v", err)
 		return nil
 	}
-	resendClientEofs(clientsEofCount, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
+	utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Waiting for messages...")
 
@@ -65,13 +52,13 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, messageSentNotif
 					utils.StoreEOF(baseDir, clientID, msgID)
 					// Acknowledge message
 					msg.Ack(false)
-					if _, exists := clientsEofCount[clientID]; !exists {
-						clientsEofCount[clientID] = 1
-					} else {
-						clientsEofCount[clientID]++
+					if _, exists := clientEofs[clientID]; !exists {
+						clientEofs[clientID] = make(map[string]string)
 					}
+					clientEofs[clientID][msgID] = ""
 
-					eofCount := clientsEofCount[clientID]
+					eofs := clientEofs[clientID]
+					eofCount := len(eofs)
 					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
 					if eofCount >= neededEof {
 						// We use the workerID as msgID for the EOF
@@ -80,7 +67,7 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, messageSentNotif
 						outChan <- clientID + "\n" + msgID + "\nEOF"
 						<-messageSentNotificationChan
 						// clear accumulator memory
-						delete(clientsEofCount, clientID)
+						delete(clientEofs, clientID)
 						utils.RemoveClientDir(baseDir, clientID)
 					}
 					continue

@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 CLIENT?=alice
 EXPECTED_CLIENT_RESULTS?=multiclient_1
-CHAOS_INTERVAL?=30s
+CHAOS_INTERVAL?=3s
 NUM_TO_KILL?=1
 
 default: build
@@ -22,6 +22,7 @@ format:
 	gofmt -s -w ./worker/
 	gofmt -s -w ./protocol/
 	gofmt -s -w ./proxy/
+	gofmt -s -w ./healthcheck/
 .PHONY: format
 
 build: deps
@@ -38,6 +39,7 @@ docker-image:
 	docker build -f ./response_builder/Dockerfile -t "response_builder:latest" .
 	docker build -f ./worker/Dockerfile -t "worker:latest" .
 	docker build -f ./proxy/Dockerfile -t "proxy:latest" .
+	docker build -f ./watcher/Dockerfile -t "watcher:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you
 	# want to avoid rebuilding client image every time the docker-compose-up command
@@ -93,7 +95,7 @@ stop_multiclient_test:
 	docker compose -f  docker-compose-multiclient-test.yaml stop -t 10
 	docker compose -f  docker-compose-multiclient-test.yaml down -v
 
-run_client: clean_results
+run_client:
 	docker run -d \
       --name client${CLIENT} \
       --network tp1_testing_net \

@@ -1,8 +1,7 @@
-client:
+proxy:
   port: 12345
   ip: "proxy"
   buffer_size_mb: 10
+  health_check_interval: 20
 log:
   level: "DEBUG"
-middleware:
-  url: "amqp://guest:guest@rabbit:5672/"

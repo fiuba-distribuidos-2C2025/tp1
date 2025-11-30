@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
-	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
-	"github.com/fiuba-distribuidos-2C2025/tp1/request_handler/common"
+	"github.com/fiuba-distribuidos-2C2025/tp1/proxy/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 )
@@ -17,7 +17,7 @@ var log = logging.MustGetLogger("log")
 
 const (
 	defaultConfigPath = "/config/config.yaml"
-	envPrefix         = "request"
+	envPrefix         = "proxy"
 	defaultLogLevel   = "info"
 )
 
@@ -32,11 +32,10 @@ func initConfig() (*viper.Viper, error) {
 
 	// Bind specific environment variables
 	configKeys := []string{
-		"request_handler.port",
-		"request_handler.ip",
-		"request_handler.url",
+		"proxy.port",
+		"proxy.ip",
 		"log.level",
-		"request_handler.buffer_size_mb",
+		"proxy.buffer_size_mb",
 	}
 
 	for _, key := range configKeys {
@@ -47,9 +46,8 @@ func initConfig() (*viper.Viper, error) {
 
 	// Set defaults
 	v.SetDefault("log.level", defaultLogLevel)
-	v.SetDefault("request_handler.port", "8080")
-	v.SetDefault("request_handler.ip", "0.0.0.0")
-	v.SetDefault("rabbit.url", "amqp://guest:guest@localhost:5672/")
+	v.SetDefault("proxy.port", "12345")
+	v.SetDefault("proxy.ip", "0.0.0.0")
 
 	// Try to read config file (optional)
 	v.SetConfigFile(defaultConfigPath)
@@ -90,37 +88,33 @@ func initLogger(logLevel string) error {
 	return nil
 }
 
-// buildRequestHandlerConfig extracts configuration from Viper and builds the config struct
-func buildRequestHandlerConfig(v *viper.Viper) common.RequestHandlerConfig {
-	return common.RequestHandlerConfig{
-		Port:                           v.GetString("port"),
-		IP:                             v.GetString("ip"),
-		MiddlewareURL:                  v.GetString("rabbit.url"),
-		TransactionsReceiversCount:     v.GetInt("middleware.receivers.transactionscount"),
-		TransactionItemsReceiversCount: v.GetInt("middleware.receivers.transactionitemscount"),
-		StoresQ3ReceiversCount:         v.GetInt("middleware.receivers.storesq3count"),
-		StoresQ4ReceiversCount:         v.GetInt("middleware.receivers.storesq4count"),
-		MenuItemsReceiversCount:        v.GetInt("middleware.receivers.menuitemscount"),
-		UsersReceiversCount:            v.GetInt("middleware.receivers.userscount"),
-		BufferSize:                     v.GetInt("request_handler.buffer_size_mb") * 1024 * 1024,
-		ID:                             v.GetInt("id"),
+// buildProxyConfig extracts configuration from Viper and builds the config struct
+func buildProxyConfig(v *viper.Viper) common.ProxyConfig {
+	requestHandlers := v.GetString("requesthandlers.addresses")
+	requestHandlersList := strings.Split(requestHandlers, ",")
+	return common.ProxyConfig{
+		Port:                v.GetString("proxy.port"),
+		IP:                  v.GetString("proxy.ip"),
+		BufferSize:          v.GetInt("proxy.buffer_size_mb") * 1024 * 1024,
+		HealthCheckInterval: time.Duration(v.GetInt("proxy.health_check_interval")) * time.Second,
+		RequestHandlers:     requestHandlersList,
 	}
 }
 
-// runWithGracefulShutdown starts the request handler and handles shutdown signals
-func runWithGracefulShutdown(requestHandler *common.RequestHandler) error {
+// runWithGracefulShutdown starts the proxy and handles shutdown signals
+func runWithGracefulShutdown(proxy *common.Proxy) error {
 	// Set up signal handling
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start request handler in goroutine
+	// Start proxy in goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		log.Infof("Starting request handler on %s:%s",
-			requestHandler.Config.IP,
-			requestHandler.Config.Port)
+		log.Infof("Starting proxy on %s:%s",
+			proxy.Config.IP,
+			proxy.Config.Port)
 
-		if err := requestHandler.Start(); err != nil {
+		if err := proxy.Start(); err != nil {
 			errChan <- err
 		}
 	}()
@@ -129,10 +123,10 @@ func runWithGracefulShutdown(requestHandler *common.RequestHandler) error {
 	select {
 	case sig := <-signalChan:
 		log.Infof("Received signal: %v, initiating graceful shutdown", sig)
-		requestHandler.Stop()
+		proxy.Stop()
 		return nil
 	case err := <-errChan:
-		return fmt.Errorf("request handler error: %w", err)
+		return fmt.Errorf("proxy error: %w", err)
 	}
 }
 
@@ -155,17 +149,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and start request handler
-	config := buildRequestHandlerConfig(v)
-	requestHandler := common.NewRequestHandler(config)
-
-	healthcheck.StartHealthCheckServer(9090)
+	// Create and start proxy
+	config := buildProxyConfig(v)
+	proxy := common.NewProxy(config)
 
 	// Set up graceful shutdown
-	if err := runWithGracefulShutdown(requestHandler); err != nil {
-		log.Criticalf("Request handler error: %v", err)
+	if err := runWithGracefulShutdown(proxy); err != nil {
+		log.Criticalf("Proxy error: %v", err)
 		os.Exit(1)
 	}
 
-	log.Info("Request handler shut down gracefully")
+	log.Info("Proxy shut down gracefully")
 }

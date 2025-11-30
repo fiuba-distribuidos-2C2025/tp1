@@ -21,6 +21,7 @@ format:
 	gofmt -s -w ./response_builder/
 	gofmt -s -w ./worker/
 	gofmt -s -w ./protocol/
+	gofmt -s -w ./proxy/
 	gofmt -s -w ./healthcheck/
 .PHONY: format
 
@@ -29,6 +30,7 @@ build: deps
 	GOOS=linux go build -o bin/request_handler ./request_handler/main.go
 	GOOS=linux go build -o bin/response_builder ./response_builder/main.go
 	GOOS=linux go build -o bin/worker ./worker/main.go
+	GOOS=linux go build -o bin/proxy ./proxy/main.go
 .PHONY: build
 
 docker-image:
@@ -36,6 +38,7 @@ docker-image:
 	docker build -f ./request_handler/Dockerfile -t "request_handler:latest" .
 	docker build -f ./response_builder/Dockerfile -t "response_builder:latest" .
 	docker build -f ./worker/Dockerfile -t "worker:latest" .
+	docker build -f ./proxy/Dockerfile -t "proxy:latest" .
 	docker build -f ./watcher/Dockerfile -t "watcher:latest" .
 	# Execute this command from time to time to clean up intermediate stages generated
 	# during client build (your hard drive will like this :) ). Don't left uncommented if you

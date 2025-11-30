@@ -536,7 +536,7 @@ func (p *Protocol) SendResumeRequest(queryID string) error {
 }
 
 func (p *Protocol) ReceiveResumeRequest() (*ResumeRequestMessage, error) {
-	buf := make([]byte, 8) // Changed from 4 to 8 bytes
+	buf := make([]byte, 8)
 	if _, err := io.ReadFull(p.reader, buf); err != nil {
 		return nil, fmt.Errorf("failed to read query ID: %w", err)
 	}

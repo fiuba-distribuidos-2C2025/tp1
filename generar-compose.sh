@@ -55,27 +55,6 @@ services:
     networks:
       - testing_net
 
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler/config.yaml:/config/config.yaml
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-    labels:
-      - "monitored=true"
-    environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
-      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
-      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=$WORKER_COUNT_JOINER_BY_USER_ID
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest
@@ -87,6 +66,7 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
+      - RESPONSE_MIDDLEWARE_RECEIVER=$REQUEST_CONTROLLER_COUNT
     depends_on:
         rabbit:
             condition: service_healthy
@@ -126,6 +106,8 @@ cat >> "$OUTPUT_FILE" <<EOL
         condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=$WORKER_COUNT_FILTER_BY_YEAR_ITEMS
@@ -135,7 +117,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=$WORKER_COUNT_JOINER_BY_USER_ID
       - REQUEST_IP=request_handler$i
       - REQUEST_PORT=890$i
-      - ID=$i
+      - REQUEST_ID=$i
 
 EOL
 done

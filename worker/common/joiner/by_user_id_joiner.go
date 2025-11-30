@@ -7,40 +7,37 @@ import (
 	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
-func concatTop3WithBirthdates(users []string, neededUsers map[string]string) string {
-	var sb strings.Builder
-
-	for _, user := range users {
-		// user_id,gender,birthdate,registered_at
-		// 2018392,male,1992-12-27,2025-06-01 09:56:51
-		fields := strings.Split(user, ",")
-		if len(fields) < 4 {
-			log.Errorf("Invalid user format: %s", user)
-			continue
-		}
-		userId := fields[0] + ".0" // TODO: datasets show userId in different formats
-		birthdate := fields[2]
-		if _, needed := neededUsers[userId]; needed {
-			top3line := neededUsers[userId]
-			elements := strings.Split(top3line, ",")
-			if len(elements) < 3 {
-				continue
-			}
-			// storeId,userId,PurchaseQty:
-			// 1,1,10
-			storeId := elements[0]
-			// userId := elements[1]
-			purchaseQty := elements[2]
-			sb.WriteString(storeId)
-			sb.WriteByte(',')
-			sb.WriteString(birthdate)
-			sb.WriteByte(',')
-			sb.WriteString(purchaseQty)
-			sb.WriteByte('\n')
-		}
+func concatTop3WithBirthdates(user string, neededUsers map[string]string) (string, bool) {
+	// user_id,gender,birthdate,registered_at
+	// 2018392,male,1992-12-27,2025-06-01 09:56:51
+	fields := strings.Split(user, ",")
+	if len(fields) < 4 {
+		log.Errorf("Invalid user format: %s", user)
+		return "", false
 	}
-
-	return sb.String()
+	userId := fields[0] + ".0" // TODO: datasets show userId in different formats
+	birthdate := fields[2]
+	var sb strings.Builder
+	if _, needed := neededUsers[userId]; needed {
+		top3line := neededUsers[userId]
+		elements := strings.Split(top3line, ",")
+		if len(elements) < 3 {
+			return "", false
+		}
+		// storeId,userId,PurchaseQty:
+		// 1,1,10
+		storeId := elements[0]
+		// userId := elements[1]
+		purchaseQty := elements[2]
+		sb.WriteString(storeId)
+		sb.WriteByte(',')
+		sb.WriteString(birthdate)
+		sb.WriteByte(',')
+		sb.WriteString(purchaseQty)
+	} else {
+		return "", false
+	}
+	return sb.String(), true
 }
 
 // example store ids data input
@@ -69,12 +66,31 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 			log.Errorf("Error loading clients EOF count: %v", err)
 			return
 		}
-		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
 		neededUsers := make(map[string]map[string]string)
 		log.Infof("Waiting for messages...")
 
+		var outBuilder strings.Builder
+
 		for {
 			select {
+			case secondaryQueueNewMessage, ok := <-top3PerStoreRowsChan:
+				if !ok {
+					log.Errorf("top3PerStoreRowsChan closed with error %v", err)
+					return
+				}
+
+				log.Debugf("Received message from secondary queue being inside primary queue:\n%s", secondaryQueueNewMessage)
+				payload := strings.TrimSpace(secondaryQueueNewMessage)
+				rows := strings.Split(payload, "\n")
+				if len(rows) < 2 {
+					log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
+					continue
+				}
+				secondaryQueueClientID := rows[0]
+				clientTop3PerStoreArray := rows[1:]
+				clientNeededUsers := processNeededUsers(clientTop3PerStoreArray)
+				neededUsers[secondaryQueueClientID] = clientNeededUsers
+				processPendingMessagesForClient(secondaryQueueClientID, neededUsers, clientEofs, outChan, messageSentNotificationChan, baseDir, workerID, neededEof, concatTop3WithBirthdates)
 			case msg, ok := <-*consumeChannel:
 				if !ok {
 					log.Infof("Deliveries channel closed; shutting down")
@@ -86,34 +102,29 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 				// Separate header and the rest
 				clientID := lines[0]
 				msgID := lines[1]
+				items := lines[2:]
+
+				// Create accumulator for client
+				if _, exists := neededUsers[clientID]; !exists {
+					neededUsers[clientID] = make(map[string]string)
+				}
 
 				// Ensure we have the needed users for this client.
 				// This will block until the expected clientID arrives.
 				// TODO: avoid blocking other clients while waiting for one
-				for len(neededUsers[clientID]) == 0 {
-					secondaryQueueNewMessage, ok := <-top3PerStoreRowsChan
-					if !ok {
-						log.Errorf("top3PerStoreRowsChan closed while waiting for client %s", clientID)
-						return
+				if len(neededUsers[clientID]) == 0 {
+					log.Infof("Needed users not yet available for client %s, storing message...", clientID)
+					if items[0] == "EOF" {
+						utils.StoreEOF(baseDir, clientID, msgID)
+					} else {
+						utils.StoreMessageWithChecksum(baseDir, clientID, msgID, payload)
 					}
-
-					log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
-					payload := strings.TrimSpace(secondaryQueueNewMessage)
-					rows := strings.Split(payload, "\n")
-					if len(rows) < 2 {
-						log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
-						continue
-					}
-
-					secondaryQueueClientID := rows[0]
-					clientTop3PerStoreArray := rows[1:]
-					clientNeededUsers := processNeededUsers(clientTop3PerStoreArray)
-					neededUsers[secondaryQueueClientID] = clientNeededUsers
-					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
+					// Acknowledge message
+					msg.Ack(false)
+					continue
 				}
 
-				users := lines[2:]
-				if users[0] == "EOF" {
+				if items[0] == "EOF" {
 					// Store EOF on disk as tracking the count in memory is not secure
 					// in case of worker restart
 					utils.StoreEOF(baseDir, clientID, msgID)
@@ -142,17 +153,27 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 					continue
 				}
 
-				top3WithBirthdates := concatTop3WithBirthdates(users, neededUsers[clientID])
-				if top3WithBirthdates != "" {
-					// Reuse the same msgID as it is already unique
-					// and persistent across worker restarts
-					outChan <- clientID + "\n" + msgID + "\n" + top3WithBirthdates
-					// Here we just block until we are notified that the message was sent
-					<-messageSentNotificationChan
+				// Reset builder for reuse
+				outBuilder.Reset()
+
+				for _, transaction := range items {
+					if concatenated, ok := concatBirthdatesWithStoresData(transaction, neededUsers[clientID]); ok {
+						outBuilder.WriteString(concatenated)
+						outBuilder.WriteByte('\n')
+					}
 				}
 
+				if outBuilder.Len() > 0 {
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + strings.TrimSuffix(outBuilder.String(), "\n")
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
+					log.Infof("Processed message")
+				}
 				// Acknowledge message
 				msg.Ack(false)
+				log.Infof("Processed message")
 
 			}
 		}

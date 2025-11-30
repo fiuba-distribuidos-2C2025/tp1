@@ -157,7 +157,7 @@ func CreateByUserIdJoinerCallbackWithOutput(outChan chan string, messageSentNoti
 				outBuilder.Reset()
 
 				for _, transaction := range items {
-					if concatenated, ok := concatBirthdatesWithStoresData(transaction, neededUsers[clientID]); ok {
+					if concatenated, ok := concatTop3WithBirthdates(transaction, neededUsers[clientID]); ok {
 						outBuilder.WriteString(concatenated)
 						outBuilder.WriteByte('\n')
 					}

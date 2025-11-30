@@ -1,0 +1,144 @@
+name: Resilience Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  resilience-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Create Downloads directory
+        run: mkdir -p ~/Downloads
+
+      - name: Run dataset download
+        run: make download_full_dataset
+
+      - name: Create resilience setup file
+        run: |
+          cat << 'EOF' > resilience.dev
+          CLIENT_COUNT=1
+
+          REQUEST_CONTROLLER_COUNT=1
+
+          # First query
+          WORKER_COUNT_FILTER_BY_YEAR=2
+          WORKER_COUNT_FILTER_BY_HOUR=2
+          WORKER_COUNT_FILTER_BY_AMOUNT=2
+
+          # Second query
+          WORKER_COUNT_GROUPER_BY_YEAR_MONTH=2
+          WORKER_COUNT_FILTER_BY_YEAR_ITEMS=2
+          WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=4
+          WORKER_COUNT_JOINER_BY_ITEM_ID=2
+
+          # Third query
+          WORKER_COUNT_GROUPER_BY_SEMESTER=2
+          WORKER_COUNT_AGGREGATOR_BY_SEMESTER=4
+          WORKER_COUNT_JOINER_BY_STORE_ID=3
+
+          # Fourth query
+          WORKER_COUNT_GROUPER_BY_STORE_USER=2
+          WORKER_COUNT_JOINER_BY_USER_ID=2
+          WORKER_COUNT_JOINER_BY_USER_STORE=4
+          WORKER_COUNT_AGGREGATOR_BY_STORE_USER=4
+          EOF
+
+      - name: Generate resilience compose
+        run: |
+          ./generar-compose.sh docker-compose-resilience-setup.yaml resilience.dev
+
+      - name: Run with chaos and wait for results
+        run: |
+          make chaos &
+          make run_resilience_setup
+          echo "Waiting for result files..."
+
+          FILES=("query_1.csv" "query_2.csv" "query_3.csv" "query_4.csv")
+
+          # Wait up to 60 * 30s = 30 minutes
+          for i in {1..60}; do
+
+            if [ -d "./results/client_1" ]; then
+              all_present=true
+
+              for f in "${FILES[@]}"; do
+                if [ ! -f "./results/client_1/$f" ]; then
+                  all_present=false
+                  break
+                fi
+              done
+
+              if [ "$all_present" = true ]; then
+                echo "All result files found."
+                break
+              fi
+            fi
+
+            echo "Not ready yet... ($i)"
+            sleep 30
+          done
+
+          if ! [ "$all_present" = true ]; then
+            echo "Timeout waiting for client_1 full result sets!"
+            echo "Existing files in ./results:"
+            find ./results || true
+            exit 1
+          fi
+
+          # Run a second client
+          make run_client CLIENT=2
+
+          # Wait up to 60 * 30s = 30 minutes
+          for i in {1..60}; do
+
+            if [ -d "./results/client_2" ]; then
+              all_present=true
+
+              for f in "${FILES[@]}"; do
+                if [ ! -f "./results/client_2/$f" ]; then
+                  all_present=false
+                  break
+                fi
+              done
+
+              if [ "$all_present" = true ]; then
+                echo "All result files found."
+                break
+              fi
+            fi
+
+            echo "Not ready yet... ($i)"
+            sleep 30
+          done
+
+          if ! [ "$all_present" = true ]; then
+            echo "Timeout waiting for client_2 full result sets!"
+            echo "Existing files in ./results:"
+            find ./results || true
+            exit 1
+          fi
+
+      - name: Compare results
+        run: |
+          make compare_full_results CLIENT=1
+          make compare_full_results CLIENT=2

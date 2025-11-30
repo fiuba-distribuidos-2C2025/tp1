@@ -15,6 +15,11 @@ func resendClientMessages(clientMessages map[string]map[string]string, clientEof
 	// Check which clients have reached the EOF threshold
 	for clientID, eofs := range clientEofs {
 		eofCount := len(eofs)
+// Resend messages in case of worker restart
+func resendClientMessages(clientMessages map[string]map[string]string, clientEofs map[string]map[string]string, neededEof int, outChan chan string) {
+	// Check which clients have reached the EOF threshold
+	for clientID, eofs := range clientEofs {
+		eofCount := len(eofs)
 		if eofCount >= neededEof {
 			// Send all messages for this client
 			clientMessagesData := processClientMessages(clientMessages, clientID)

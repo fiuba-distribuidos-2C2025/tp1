@@ -33,8 +33,52 @@ jobs:
       - name: Run dataset download
         run: make download_multiclient_dataset
 
+      - name: Create multiclient setup file
+        run: |
+          cat << 'EOF' > multiclient.dev
+          CLIENT_COUNT=2
+
+          REQUEST_CONTROLLER_COUNT=1
+
+          # First query
+          WORKER_COUNT_FILTER_BY_YEAR=2
+          WORKER_COUNT_FILTER_BY_HOUR=2
+          WORKER_COUNT_FILTER_BY_AMOUNT=2
+
+          # Second query
+          WORKER_COUNT_GROUPER_BY_YEAR_MONTH=2
+          WORKER_COUNT_FILTER_BY_YEAR_ITEMS=2
+          WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=4
+          WORKER_COUNT_JOINER_BY_ITEM_ID=2
+
+          # Third query
+          WORKER_COUNT_GROUPER_BY_SEMESTER=2
+          WORKER_COUNT_AGGREGATOR_BY_SEMESTER=4
+          WORKER_COUNT_JOINER_BY_STORE_ID=3
+
+          # Fourth query
+          WORKER_COUNT_GROUPER_BY_STORE_USER=2
+          WORKER_COUNT_JOINER_BY_USER_ID=2
+          WORKER_COUNT_JOINER_BY_USER_STORE=4
+          WORKER_COUNT_AGGREGATOR_BY_STORE_USER=4
+          EOF
+
+      - name: Generate multiclient compose
+        run: |
+          ./generar-compose.sh docker-compose-multiclient-setup.yaml multiclient.dev
+
+      - name: Patch client definitions
+        run: |
+          # Patch client1
+          sed -i '0,/CLIENT_ID=1/s/CLIENT_ID=1/CLIENT_ID=alice/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/\.\/data:\/data/s|./data:/data|./data1:/data|' docker-compose-multiclient-setup.yaml
+
+          # Patch client2
+          sed -i '0,/CLIENT_ID=2/s/CLIENT_ID=2/CLIENT_ID=bob/' docker-compose-multiclient-setup.yaml
+          sed -i '0,/\.\/data:\/data/s|./data:/data|./data2:/data|' docker-compose-multiclient-setup.yaml
+
       - name: Run with multiclient setup
-        run: make run_multiclient_test
+        run: make run_multiclient_setup
 
       - name: Wait for multiclient results
         run: |
@@ -42,37 +86,29 @@ jobs:
 
           FILES=("query_1.csv" "query_2.csv" "query_3.csv" "query_4.csv")
 
+          check_client() {
+            local client_dir="./results/$1"
+            local files=("${FILES[@]}")
+
+            # Client directory must exist
+            if [ ! -d "$client_dir" ]; then
+              return 1
+            fi
+
+            # All files must exist
+            for f in "${files[@]}"; do
+              if [ ! -f "$client_dir/$f" ]; then
+                return 1
+              fi
+            done
+
+            return 0
+          }
+
           # Wait up to 60 * 5s = 300 seconds
           for i in {1..60}; do
-            alice_ready=true
-            bob_ready=true
 
-            # Check Alice
-            if [ -d "./results/client_alice" ]; then
-              for f in "${FILES[@]}"; do
-                if [ ! -f "./results/client_alice/$f" ]; then
-                  alice_ready=false
-                  break
-                fi
-              done
-            else
-              alice_ready=false
-            fi
-
-            # Check Bob
-            if [ -d "./results/client_bob" ]; then
-              for f in "${FILES[@]}"; do
-                if [ ! -f "./results/client_bob/$f" ]; then
-                  bob_ready=false
-                  break
-                fi
-              done
-            else
-              bob_ready=false
-            fi
-
-            # If both are ready → continue
-            if [ "$alice_ready" = true ] && [ "$bob_ready" = true ]; then
+            if check_client "client_alice" && check_client "client_bob"; then
               echo "All expected result files found for both clients."
               exit 0
             fi

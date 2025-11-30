@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Stores normal message (overwrites on same msgID).
@@ -12,7 +14,7 @@ func StoreMessage(baseDir string, clientID, msgID, body string) error {
 	if err := os.MkdirAll(clientDir, 0o755); err != nil {
 		return err
 	}
-	path := filepath.Join(clientDir, msgID+".txt")
+	path := filepath.Join(clientDir, msgID)
 	return os.WriteFile(path, []byte(body), 0o644)
 }
 
@@ -24,12 +26,63 @@ func StoreEOF(baseDir string, clientID, msgID string) error {
 	}
 
 	// One file per EOF message, keyed by msgID (idempotent on redelivery).
-	path := filepath.Join(eofDir, msgID+".eof")
+	path := filepath.Join(eofDir, msgID)
 	if err := os.WriteFile(path, []byte("EOF\n"), 0o644); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func ResendClientEofs(clientEofs map[string]map[string]string, neededEof int, outChan chan string, baseDir string, workerID string, messageSentNotificationChan chan string) {
+	for clientID, eofs := range clientEofs {
+		if len(eofs) >= neededEof {
+			msgID := workerID
+			outChan <- clientID + "\n" + msgID + "\nEOF"
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			RemoveClientDir(baseDir, clientID)
+			delete(clientEofs, clientID)
+		}
+	}
+}
+
+// Stores normal message with checksum(overwrites on same msgID).
+func StoreMessageWithChecksum(baseDir string, clientID, msgID, body string) error {
+	clientDir := filepath.Join(baseDir, clientID, "messages")
+	if err := os.MkdirAll(clientDir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(clientDir, msgID)
+	checksum := len(body)
+	var builder strings.Builder
+	builder.WriteString(strconv.Itoa(checksum))
+	builder.WriteString("\n")
+	builder.WriteString(body)
+	data := builder.String()
+	return os.WriteFile(path, []byte(data), 0o644)
+}
+
+// Returns a map of msgID for all stored EOFs for a client.
+func getEofs(baseDir, clientID string) (map[string]string, error) {
+	eofDir := filepath.Join(baseDir, clientID, "eof")
+	eofs := make(map[string]string)
+	entries, err := os.ReadDir(eofDir)
+	if err != nil {
+		// If the directory does not exist, return empty map
+		if os.IsNotExist(err) {
+			return eofs, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		msgID := e.Name()
+		eofs[msgID] = ""
+	}
+	return eofs, nil
 }
 
 // Returns the number of stored EOF messages for a client.
@@ -94,15 +147,15 @@ func RemoveClientDir(baseDir string, clientID string) error {
 	return nil
 }
 
-func LoadClientsEofCount(baseDir string) (map[string]int, error) {
-	clientsEofCount := make(map[string]int)
+func LoadClientsEofs(baseDir string) (map[string]map[string]string, error) {
+	clientEofs := make(map[string]map[string]string)
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No messages yet, nothing to do.
-			return clientsEofCount, nil
+			return clientEofs, nil
 		}
-		return clientsEofCount, err
+		return clientEofs, err
 	}
 
 	for _, e := range entries {
@@ -111,14 +164,66 @@ func LoadClientsEofCount(baseDir string) (map[string]int, error) {
 		}
 
 		clientID := e.Name()
-		eofCount, err := GetEOFCount(baseDir, clientID)
+		eofs, err := getEofs(baseDir, clientID)
 		if err != nil {
-			return clientsEofCount, err
+			return clientEofs, err
 		}
-		clientsEofCount[clientID] = eofCount
+		clientEofs[clientID] = eofs
 
 	}
-	return clientsEofCount, nil
+	return clientEofs, nil
+}
+
+func LoadClientsMessagesWithChecksums(baseDir string) (map[string]map[string]string, error) {
+	clientMessages := make(map[string]map[string]string)
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No messages yet, nothing to do.
+			return clientMessages, nil
+		}
+		return clientMessages, err
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		clientID := e.Name()
+		messagesDir := filepath.Join(baseDir, clientID, "messages")
+		messageEntries, err := os.ReadDir(messagesDir)
+		if err != nil {
+			continue
+		}
+
+		clientMessages[clientID] = make(map[string]string)
+		for _, me := range messageEntries {
+			if me.IsDir() {
+				continue
+			}
+			msgID := me.Name()
+			data, err := os.ReadFile(filepath.Join(messagesDir, msgID))
+			if err != nil {
+				continue
+			}
+			split := strings.SplitN(string(data), "\n", 2)
+			checksum, err := strconv.Atoi(split[0])
+			if err != nil {
+				// We just ignore messages with invalid checksum
+				// They will be resent by the queue
+				continue
+			}
+			body := split[1]
+			if checksum != len(body) {
+				// We just ignore messages with invalid checksum
+				// They will be resent by the queue
+				continue
+			}
+			clientMessages[clientID][msgID] = body
+		}
+	}
+	return clientMessages, nil
 }
 
 func eofAlreadyExists(baseDir string, clientID string, msgID string) (bool, error) {

@@ -42,6 +42,8 @@ services:
             condition: service_healthy
     networks:
       - testing_net
+    labels:
+      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -82,8 +84,6 @@ services:
             condition: service_healthy
         request_handler:
             condition: service_started
-    labels:
-      - "monitored=true"
     networks:
         - testing_net
     environment:
@@ -102,52 +102,10 @@ services:
             condition: service_healthy
         request_handler:
             condition: service_started
-    labels:
-      - "monitored=true"
     networks:
         - testing_net
     environment:
         - CLIENT_ID=2
-
-  client3:
-    container_name: client3
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        request_handler:
-            condition: service_started
-    labels:
-      - "monitored=true"
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=3
-
-  client4:
-    container_name: client4
-    image: client:latest
-    entrypoint: /client
-    volumes:
-        - ./client:/config
-        - ./data:/data
-        - ./results:/results
-    depends_on:
-        rabbit:
-            condition: service_healthy
-        request_handler:
-            condition: service_started
-    labels:
-      - "monitored=true"
-    networks:
-        - testing_net
-    environment:
-        - CLIENT_ID=4
 
 # ==============================================================================
 # First Query

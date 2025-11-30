@@ -111,10 +111,8 @@ func (w *Worker) Start() error {
 	// var secondaryQueueMessages string
 	secondaryQueueMessagesChan := make(chan string)
 	if hasSecondaryQueue(w.config.WorkerJob) {
-		go func() {
-			log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
-			w.listenToSecondaryQueue(secondaryQueueMessagesChan)
-		}()
+		log.Debugf("Worker has secondary %s, reading it", w.config.InputQueue[SECONDARY_QUEUE]+"_"+strconv.Itoa(w.config.ID))
+		w.listenToSecondaryQueue(secondaryQueueMessagesChan)
 	}
 
 	inQueueResponseChan := make(chan string)
@@ -219,42 +217,13 @@ func hasSecondaryQueue(workerJob string) bool {
 }
 
 func (w *Worker) listenToSecondaryQueue(secondaryQueueMessagesChan chan string) {
-	inQueueResponseChan := make(chan string)
 	inQueue := w.queueFactory.CreateQueue(w.config.InputQueue[SECONDARY_QUEUE] + "_" + strconv.Itoa(w.config.ID))
 	neededEof, err := strconv.Atoi(w.config.InputSenders[SECONDARY_QUEUE])
 	if err != nil {
 		return // TODO: should return error
 	}
 	// All joiners use the same callback.
-	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(inQueueResponseChan, neededEof, w.config.BaseDir+"/secondary"))
-
-	clientMessages := make(map[string]string)
-	for {
-		select {
-		case <-w.shutdown:
-			log.Info("Shutdown signal received, stopping secondary queue message listening...")
-			return
-
-		case msg := <-inQueueResponseChan:
-			lines := strings.SplitN(msg, "\n", 2)
-			clientId := lines[0]
-			payload := lines[1]
-
-			if payload == "EOF" {
-				secondaryQueueMessagesChan <- clientId + "\n" + clientMessages[clientId]
-				// Clear stored messages for client
-				delete(clientMessages, clientId)
-				continue
-			}
-
-			// Normal message: append to buffer for this client
-			if existing, ok := clientMessages[clientId]; ok {
-				clientMessages[clientId] = existing + "\n" + payload
-			} else {
-				clientMessages[clientId] = payload
-			}
-		}
-	}
+	inQueue.StartConsuming(joiner.CreateSecondQueueCallbackWithOutput(secondaryQueueMessagesChan, neededEof, w.config.BaseDir+"/secondary"))
 }
 
 func (w *Worker) listenToPrimaryQueue(inQueueResponseChan chan string, messageSentNotificationChan chan string, secondaryQueueMessagesChan chan string) error {

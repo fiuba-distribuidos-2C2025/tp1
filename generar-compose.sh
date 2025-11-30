@@ -72,6 +72,7 @@ services:
     entrypoint: /response_builder
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
+      - base_dir_response_builder:/base_dir
     environment:
       - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
@@ -595,6 +596,8 @@ done
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
   echo "  base_dir_joiner_by_user_store_$i:" >> "$OUTPUT_FILE"
 done
+
+echo "  base_dir_response_builder:" >> "$OUTPUT_FILE"
 
 cat >> "$OUTPUT_FILE" <<EOL
 networks:

@@ -3,8 +3,6 @@ PWD := $(shell pwd)
 
 CLIENT?=alice
 EXPECTED_CLIENT_RESULTS?=multiclient_1
-CHAOS_INTERVAL?=3s
-NUM_TO_KILL?=1
 
 default: build
 
@@ -116,6 +114,9 @@ integration_test:
 	cd tests && go test
 
 .PHONY: integration_test
+
+CHAOS_INTERVAL?=3s
+NUM_TO_KILL?=1
 
 chaos:
 	./scripts/chaos.sh ${CHAOS_INTERVAL} 'response_builder' ${NUM_TO_KILL}

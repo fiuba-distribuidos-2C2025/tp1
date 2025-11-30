@@ -1,9 +1,11 @@
 package common
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -24,6 +26,7 @@ type ResponseBuilderConfig struct {
 	WorkerResultsThreeCount int
 	WorkerResultsFourCount  int
 	IsTest                  bool
+	BaseDir                 string
 }
 
 type ResponseBuilder struct {
@@ -85,7 +88,7 @@ func (rb *ResponseBuilder) Start() error {
 		log.Infof("Listening on queue %s", queueName)
 
 		resultsQueue := rb.queueFactory.CreateQueue(queueName)
-		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest))
+		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest, rb.Config.BaseDir, queueName))
 	}
 
 	// Main processing loop
@@ -193,12 +196,22 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 	}
 }
 
-func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool) func(middleware.ConsumeChannel, chan error) {
+func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool, baseDir string, queueName string) func(middleware.ConsumeChannel, chan error) {
+	// Check previous result messages before starting consumption of new ones.
+	// This ensures that if the response builder restarts, it sends the previously
+	// collected messages though the channel.
+	err := loadPreviousMessages(resultChan, baseDir, queueName, resultID)
+	if err != nil {
+		log.Errorf("Error checking existing messagess: %v", err)
+	}
+
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
 			if !isTest {
+				storeResultMessage(baseDir, queueName, resultID, string(msg.Body))
+
 				if err := msg.Ack(false); err != nil {
 					log.Errorf("Failed to acknowledge message: %v", err)
 					errChan <- fmt.Errorf("failed to ack message: %w", err)
@@ -222,4 +235,53 @@ func (rb *ResponseBuilder) Shutdown() {
 	log.Info("Initiating shutdown")
 	rb.shutdown <- os.Interrupt
 	close(rb.shutdown)
+}
+
+// Reads previously received messages, and sends them through the channel.
+func loadPreviousMessages(resultChan chan ResultMessage, baseDir string, queueName string, resultID int) error {
+	path := filepath.Join(baseDir, "results", queueName, fmt.Sprintf("%d", resultID))
+
+	f, err := os.Open(path)
+	if err != nil {
+		// If the file does not exist, that's not an error — just nothing to load.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer f.Close()
+
+	log.Debugf("Found previously existing messages for results with id: %d", resultID)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		resultChan <- ResultMessage{
+			Value: line,
+			ID:    resultID,
+		}
+	}
+
+	return scanner.Err()
+}
+
+// Stores received message (appends if the file already exists).
+func storeResultMessage(baseDir string, queueName string, resultId int, body string) error {
+	path := filepath.Join(baseDir, "results", queueName, fmt.Sprintf("%d", resultId))
+
+	f, err := os.OpenFile(
+		path,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0o644,
+	)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Always end with a newline
+	if _, err := f.WriteString(body + "\n"); err != nil {
+		return err
+	}
+
+	return nil
 }

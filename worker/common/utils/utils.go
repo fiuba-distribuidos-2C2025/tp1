@@ -15,7 +15,6 @@ func StoreMessage(baseDir string, clientID, msgID, body string) error {
 		return err
 	}
 	path := filepath.Join(clientDir, msgID)
-	path := filepath.Join(clientDir, msgID)
 	return os.WriteFile(path, []byte(body), 0o644)
 }
 

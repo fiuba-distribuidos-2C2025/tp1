@@ -1,13 +1,13 @@
 package common
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -164,6 +164,9 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 			finalResult := strings.Join(state.results[msg.ID], "\n")
 			finalResultsQueue.Send([]byte(finalResult))
 
+			// Remove stored messages
+			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_1", msg.ID), clientId)
+
 			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {
 			log.Warningf("Received more EOFs than expected for client %s query %d: %d > %d",
@@ -210,7 +213,7 @@ func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID
 
 		for msg := range *consumeChannel {
 			if !isTest {
-				storeResultMessage(baseDir, queueName, resultID, string(msg.Body))
+				storeResultMessage(baseDir, queueName, string(msg.Body))
 
 				if err := msg.Ack(false); err != nil {
 					log.Errorf("Failed to acknowledge message: %v", err)
@@ -218,7 +221,7 @@ func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID
 					continue
 				}
 			}
-			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
+			// log.Debugf("Received message for query %d: %s", resultID, string(msg.Body)
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),
 				ID:    resultID,
@@ -239,49 +242,70 @@ func (rb *ResponseBuilder) Shutdown() {
 
 // Reads previously received messages, and sends them through the channel.
 func loadPreviousMessages(resultChan chan ResultMessage, baseDir string, queueName string, resultID int) error {
-	path := filepath.Join(baseDir, "results", queueName, fmt.Sprintf("%d", resultID))
+	resultsDir := filepath.Join(baseDir, queueName)
 
-	f, err := os.Open(path)
-	if err != nil {
-		// If the file does not exist, that's not an error — just nothing to load.
+	// If directory doesn't exist, nothing to load — return nil (no error).
+	if _, err := os.Stat(resultsDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
-	defer f.Close()
-
-	log.Debugf("Found previously existing messages for results with id: %d", resultID)
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		resultChan <- ResultMessage{
-			Value: line,
-			ID:    resultID,
-		}
-	}
-
-	return scanner.Err()
-}
-
-// Stores received message (appends if the file already exists).
-func storeResultMessage(baseDir string, queueName string, resultId int, body string) error {
-	path := filepath.Join(baseDir, "results", queueName, fmt.Sprintf("%d", resultId))
-
-	f, err := os.OpenFile(
-		path,
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0o644,
-	)
+	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	// Always end with a newline
-	if _, err := f.WriteString(body + "\n"); err != nil {
-		return err
+	for _, entry := range entries {
+		entryPath := filepath.Join(resultsDir, entry.Name())
+		if entry.IsDir() {
+			subEntries, err := os.ReadDir(entryPath)
+			if err != nil {
+				return err
+			}
+			for _, sub := range subEntries {
+				// skip nested directories (if any)
+				if sub.IsDir() {
+					continue
+				}
+				filePath := filepath.Join(entryPath, sub.Name())
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
+				resultChan <- ResultMessage{
+					Value: string(data),
+					ID:    resultID,
+				}
+			}
+			continue
+		}
 	}
 
 	return nil
+}
+
+// Stores received message (appends if the file already exists).
+func storeResultMessage(baseDir, queueName, body string) error {
+	lines := strings.SplitN(body, "\n", 2)
+	if len(lines) == 0 {
+		return fmt.Errorf("body is empty, cannot extract clientId")
+	}
+	clientId := strings.TrimSpace(lines[0])
+
+	resultsDir := filepath.Join(baseDir, queueName, clientId)
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		return err
+	}
+
+	fileName := fmt.Sprintf("%d", time.Now().UnixNano())
+	path := filepath.Join(resultsDir, fileName)
+
+	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+func removeResultsDir(baseDir, queueName, clientId string) error {
+	resultsDir := filepath.Join(baseDir, queueName, clientId)
+	log.Debugf("Removing results directory %s", resultsDir)
+	return os.RemoveAll(resultsDir)
 }

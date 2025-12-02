@@ -83,6 +83,8 @@ services:
       - ./proxy/config.yaml:/config/config.yaml
     environment:
       - PROXY_REQUESTHANDLERS_ADDRESSES=$PROXY_REQUESTHANDLERS_ADDRESSES
+    labels:
+      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy

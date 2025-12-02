@@ -100,6 +100,7 @@ func main() {
 
 	go func() {
 		client.Start()
+		stop <- os.Interrupt
 	}()
 
 	select {

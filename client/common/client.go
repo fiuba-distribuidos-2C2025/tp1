@@ -68,7 +68,8 @@ func (c *Client) Start() error {
 
 	// Send query request and wait for Query ID with retry logic
 	if err := c.sendQueryRequestWithRetry(); err != nil {
-		return fmt.Errorf("failed to send query request and receive ID: %w", err)
+		fmt.Errorf("failed to send query request and receive ID: %w", err)
+		return err
 	}
 
 	if err := c.TransferDataDirectory("/data"); err != nil {
@@ -374,6 +375,22 @@ func (c *Client) sendQueryRequestWithRetry() error {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Query request failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
+
 		err := c.protocol.SendQueryRequest()
 		if err != nil {
 			lastErr = fmt.Errorf("send query request failed: %w", err)
@@ -391,7 +408,9 @@ func (c *Client) sendQueryRequestWithRetry() error {
 		log.Warningf("Query request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
 
 		if attempt < maxRetries {
-			time.Sleep(retryDelay)
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Query request failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
 			if err := c.connectToServer(); err != nil {
 				log.Errorf("Failed to reconnect: %v", err)
 			}
@@ -406,6 +425,21 @@ func (c *Client) sendBatchWithRetry(msg *protocol.BatchMessage) error {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
+
 		// Try to send and receive ACK
 		err := c.protocol.SendBatch(msg)
 		if err != nil {
@@ -424,7 +458,9 @@ func (c *Client) sendBatchWithRetry(msg *protocol.BatchMessage) error {
 		log.Warningf("Batch send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
 
 		if attempt < maxRetries {
-			time.Sleep(retryDelay)
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Sending batch failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
 			if err := c.reconnect(); err != nil {
 				log.Errorf("Failed to reconnect: %v", err)
 			}
@@ -439,6 +475,21 @@ func (c *Client) sendEOFWithRetry(fileType protocol.FileType) error {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Sending EOF failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
 		// Try to send and receive ACK
 		err := c.protocol.SendEOF(fileType)
 		if err != nil {
@@ -457,7 +508,9 @@ func (c *Client) sendEOFWithRetry(fileType protocol.FileType) error {
 		log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
 
 		if attempt < maxRetries {
-			time.Sleep(retryDelay)
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Sending EOF failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
 			if err := c.reconnect(); err != nil {
 				log.Errorf("Failed to reconnect: %v", err)
 			}

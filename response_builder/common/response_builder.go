@@ -221,7 +221,6 @@ func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID
 					continue
 				}
 			}
-			// log.Debugf("Received message for query %d: %s", resultID, string(msg.Body)
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),
 				ID:    resultID,

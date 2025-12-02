@@ -11,7 +11,7 @@ OUTPUT_FILE="$1"
 CONFIG_FILE="$2"
 source "$CONFIG_FILE"
 
-TRACKED_CONTAINERS="request_handler,response_builder"
+WORKER_ADDRESSES="request_handler,response_builder"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -103,7 +103,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_year_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,filter_by_year_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_worker$i:
     container_name: filter_by_year_worker$i
@@ -130,7 +130,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_HOUR; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_hour_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,filter_by_hour_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_hour_worker$i:
     container_name: filter_by_hour_worker$i
@@ -157,7 +157,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_AMOUNT; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_amount_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,filter_by_amount_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_amount_worker$i:
     container_name: filter_by_amount_worker$i
@@ -191,7 +191,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_FILTER_BY_YEAR_ITEMS; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,filter_by_year_items_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,filter_by_year_items_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   filter_by_year_items_worker$i:
     container_name: filter_by_year_items_worker$i
@@ -218,7 +218,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_YEAR_MONTH; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_year_month_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,grouper_by_year_month_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_year_month_worker$i:
     container_name: grouper_by_year_month_worker$i
@@ -245,7 +245,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_by_profit_quantity$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,aggregator_by_profit_quantity$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_profit_quantity$i:
     container_name: aggregator_by_profit_quantity$i
@@ -273,7 +273,7 @@ done
 
 # TODO ADD JOINERS BY ID with quantity = WORKER_COUNT_FILTER_BY_YEAR_ITEMS
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_ITEM_ID; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_item_id$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,joiner_by_item_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_item_id$i:
     container_name: joiner_by_item_id$i
@@ -307,7 +307,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_SEMESTER; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_semester_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,grouper_by_semester_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_semester_worker$i:
     container_name: grouper_by_semester_worker$i
@@ -334,7 +334,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_SEMESTER; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_semester_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,aggregator_semester_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_semester_worker$i:
     container_name: aggregator_semester_worker$i
@@ -361,7 +361,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_STORE_ID; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_store_id$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,joiner_by_store_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_store_id$i:
     container_name: joiner_by_store_id$i
@@ -395,7 +395,7 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 
 for ((i=1; i<=WORKER_COUNT_GROUPER_BY_STORE_USER; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,grouper_by_store_user_worker$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,grouper_by_store_user_worker$i"
 cat >> "$OUTPUT_FILE" <<EOL
   grouper_by_store_user_worker$i:
     container_name: grouper_by_store_user_worker$i
@@ -422,7 +422,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_AGGREGATOR_BY_STORE_USER; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,aggregator_by_store_user$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,aggregator_by_store_user$i"
 cat >> "$OUTPUT_FILE" <<EOL
   aggregator_by_store_user$i:
     container_name: aggregator_by_store_user$i
@@ -449,7 +449,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_ID; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_user_id$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,joiner_by_user_id$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_user_id$i:
     container_name: joiner_by_user_id$i
@@ -476,7 +476,7 @@ EOL
 done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
-TRACKED_CONTAINERS="$TRACKED_CONTAINERS,joiner_by_user_store$i"
+WORKER_ADDRESSES="$WORKER_ADDRESSES,joiner_by_user_store$i"
 cat >> "$OUTPUT_FILE" <<EOL
   joiner_by_user_store$i:
     container_name: joiner_by_user_store$i
@@ -520,7 +520,7 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     environment:
-      - TRACKED_CONTAINERS=$TRACKED_CONTAINERS
+      - WORKER_ADDRESSES=$WORKER_ADDRESSES
 
 EOL
 

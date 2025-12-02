@@ -24,7 +24,7 @@ class DockerWatcher:
         self.config_file = config_file
 
         # Read from environment variable
-        containers_env = os.getenv("TRACKED_CONTAINERS", "")
+        containers_env = os.getenv("WORKER_ADDRESSES", "")
         # Split into list, ignoring empty values
         self.containers: List[str] = [c.strip() for c in containers_env.split(",") if c.strip()]
 

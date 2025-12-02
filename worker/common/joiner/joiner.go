@@ -58,6 +58,180 @@ func processClientMessages(clientMessages map[string]map[string]string, clientID
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
+func processPendingMessagesForClient(clientID string, secondaryQueueItems map[string]map[string]string, clientEofs map[string]map[string]string, outChan chan string, messageSentNotificationChan chan string, baseDir string, workerID string, neededEof int, joinCallback func(transaction string, menuItemsData map[string]string) (string, bool)) {
+	// Load client messages from disk
+	clientMessages, err := utils.LoadClientMessagesWithChecksums(baseDir, clientID)
+	if err != nil {
+		log.Errorf("Error loading messages for client %s: %v", clientID, err)
+		return
+	}
+
+	log.Infof("Found %d pending messages for client %s to process", len(clientMessages), clientID)
+
+	// Send all messages for this client
+	var outBuilder strings.Builder
+
+	for msgID, msg := range clientMessages {
+		lines := strings.Split(msg, "\n")
+		items := lines[2:]
+		for _, transaction := range items {
+			if concatenated, ok := joinCallback(transaction, secondaryQueueItems[clientID]); ok {
+				outBuilder.WriteString(concatenated)
+				outBuilder.WriteByte('\n')
+			}
+		}
+
+		if outBuilder.Len() > 0 {
+			// Reuse the same msgID as it is already unique
+			// and persistent across worker restarts
+			outChan <- clientID + "\n" + msgID + "\n" + strings.TrimSuffix(outBuilder.String(), "\n")
+			// Here we just block until we are notified that the message was sent
+			<-messageSentNotificationChan
+			log.Infof("Processed message")
+		}
+		outBuilder.Reset()
+	}
+
+	eofs := clientEofs[clientID]
+	eofCount := len(eofs)
+	if eofCount >= neededEof {
+		log.Infof("Reached needed EOFs (%d/%d) for client %s", eofCount, neededEof, clientID)
+		// Use the workerID as msgID for the EOF
+		// to ensure uniqueness across workers and restarts
+		outChan <- clientID + "\n" + workerID + "\nEOF"
+		// Here we just block until we are notified that the message was sent
+		<-messageSentNotificationChan
+		// clear accumulator memory
+		delete(clientEofs, clientID)
+		delete(secondaryQueueItems, clientID)
+		utils.RemoveClientDir(baseDir, clientID)
+		utils.RemoveClientDir(baseDir+"/secondary", clientID)
+	}
+}
+
+func CreatePrimaryQueueCallbackWithOutput(outChan chan string, secondaryQueueChannel chan string, processSecondaryQueueRows func([]string) map[string]string, neededEof int, baseDir string, workerID string, messageSentNotificationChan chan string, joinCallback func(transaction string, menuItemsData map[string]string) (string, bool)) func(consumeChannel middleware.ConsumeChannel, done chan error) {
+	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Load existing clients EOF count in case of worker restart
+		clientEofs, err := utils.LoadClientsEofs(baseDir)
+		if err != nil {
+			log.Errorf("Error loading clients EOF count: %v", err)
+			return
+		}
+		processedSecondaryQueueItems := make(map[string]map[string]string)
+		log.Infof("Waiting for messages...")
+
+		var outBuilder strings.Builder
+
+		for {
+			select {
+			case secondaryQueueNewMessage, ok := <-secondaryQueueChannel:
+				if !ok {
+					log.Errorf("SecondaryQueue data chan closed with error %v", err)
+					return
+				}
+
+				log.Debugf("Received message from secondary queue being inside primary queue:\n%s", secondaryQueueNewMessage)
+				payload := strings.TrimSpace(secondaryQueueNewMessage)
+				rows := strings.Split(payload, "\n")
+				if len(rows) < 2 {
+					log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
+					continue
+				}
+
+				secondaryQueueClientID := rows[0]
+				secondaryQueueRows := rows[1:]
+				processedItems := processSecondaryQueueRows(secondaryQueueRows)
+				processedSecondaryQueueItems[secondaryQueueClientID] = processedItems
+				processPendingMessagesForClient(secondaryQueueClientID, processedSecondaryQueueItems, clientEofs, outChan, messageSentNotificationChan, baseDir, workerID, neededEof, joinCallback)
+			case msg, ok := <-*consumeChannel:
+				if !ok {
+					log.Infof("Deliveries channel closed; shutting down")
+					return
+				}
+
+				payload := strings.TrimSpace(string(msg.Body))
+				lines := strings.Split(payload, "\n")
+
+				// Separate header and the rest
+				clientID := lines[0]
+				msgID := lines[1]
+				items := lines[2:]
+
+				// Create accumulator for client
+				if _, exists := processedSecondaryQueueItems[clientID]; !exists {
+					processedSecondaryQueueItems[clientID] = make(map[string]string)
+				}
+
+				if len(processedSecondaryQueueItems[clientID]) == 0 {
+					log.Infof("Secondary queue data not yet available for client %s, storing message...", clientID)
+					if items[0] == "EOF" {
+						utils.StoreEOF(baseDir, clientID, msgID)
+						if _, exists := clientEofs[clientID]; !exists {
+							clientEofs[clientID] = make(map[string]string)
+						}
+						clientEofs[clientID][msgID] = ""
+					} else {
+						utils.StoreMessageWithChecksum(baseDir, clientID, msgID, payload)
+					}
+					// Acknowledge message
+					msg.Ack(false)
+					continue
+				}
+
+				if items[0] == "EOF" {
+					// Store EOF on disk as tracking the count in memory is not secure
+					// in case of worker restart
+					utils.StoreEOF(baseDir, clientID, msgID)
+					// Acknowledge message
+					msg.Ack(false)
+					if _, exists := clientEofs[clientID]; !exists {
+						clientEofs[clientID] = make(map[string]string)
+					}
+					clientEofs[clientID][msgID] = ""
+
+					eofs := clientEofs[clientID]
+					eofCount := len(eofs)
+					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
+					if eofCount >= neededEof {
+						// Use the workerID as msgID for the EOF
+						// to ensure uniqueness across workers and restarts
+						outChan <- clientID + "\n" + workerID + "\nEOF"
+						// Here we just block until we are notified that the message was sent
+						<-messageSentNotificationChan
+						// clear accumulator memory
+						delete(clientEofs, clientID)
+						delete(processedSecondaryQueueItems, clientID)
+						utils.RemoveClientDir(baseDir, clientID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
+
+					}
+					continue
+				}
+
+				// Reset builder for reuse
+				outBuilder.Reset()
+				for _, transaction := range items {
+					if concatenated, ok := joinCallback(transaction, processedSecondaryQueueItems[clientID]); ok {
+						outBuilder.WriteString(concatenated)
+						outBuilder.WriteByte('\n')
+					}
+				}
+
+				if outBuilder.Len() > 0 {
+					// Reuse the same msgID as it is already unique
+					// and persistent across worker restarts
+					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
+					// Here we just block until we are notified that the message was sent
+					<-messageSentNotificationChan
+				}
+				// Acknowledge message
+				msg.Ack(false)
+				log.Infof("Processed message")
+			}
+		}
+	}
+}
+
 func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, baseDir string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
 		// Load existing clients EOF in case of worker restart
@@ -68,7 +242,7 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 		}
 
 		// Load existing clients messages in case of worker restart
-		clientMessages, err := utils.LoadClientsMessagesWithChecksums(baseDir)
+		clientMessages, err := utils.LoadAllClientsMessagesWithChecksums(baseDir)
 		if err != nil {
 			log.Errorf("Error loading client messages: %v", err)
 			return

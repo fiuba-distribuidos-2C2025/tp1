@@ -287,18 +287,37 @@ func loadPreviousMessages(resultChan chan ResultMessage, baseDir string, queueNa
 
 // Stores received message (appends if the file already exists).
 func storeResultMessage(baseDir, queueName, body string) error {
-	lines := strings.SplitN(body, "\n", 2)
+	lines := strings.SplitN(body, "\n", 3)
 	if len(lines) == 0 {
 		return fmt.Errorf("body is empty, cannot extract clientId")
 	}
 	clientId := strings.TrimSpace(lines[0])
+	msgId := strings.TrimSpace(lines[1])
 
 	resultsDir := filepath.Join(baseDir, queueName, clientId)
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		return err
 	}
 
-	fileName := fmt.Sprintf("%d", time.Now().UnixNano())
+	entries, err := os.ReadDir(resultsDir)
+	if err != nil {
+		return err
+	}
+
+	// If any entry contains the substring msgId, remove it
+	// as it is a duplicate message.
+	// Prevents possibly contaminated entries
+	for _, e := range entries {
+		name := e.Name()
+		if strings.Contains(name, msgId) {
+			fullPath := filepath.Join(resultsDir, name)
+			if err := os.Remove(fullPath); err != nil {
+				return fmt.Errorf("failed to remove %s: %w", fullPath, err)
+			}
+		}
+	}
+
+	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), msgId)
 	path := filepath.Join(resultsDir, fileName)
 
 	return os.WriteFile(path, []byte(body), 0o644)

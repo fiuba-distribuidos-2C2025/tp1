@@ -93,12 +93,17 @@ func main() {
 		ServerIP:   v.GetString("client.ip"),
 		ID:         v.GetString("id"),
 		BufferSize: v.GetInt("client.buffer_size_mb") * 1024 * 1024,
+		MsgID:      int32(1),
 	}
 
 	client := common.NewClient(clientConfig)
 
 	go func() {
-		client.Start()
+		err := client.Start()
+		if err != nil {
+			log.Errorf("Client ended with error, terminating: %s", err)
+		}
+		stop <- os.Interrupt
 	}()
 
 	select {

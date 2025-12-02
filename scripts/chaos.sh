@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-INTERVAL_SECS="${1:-30}"
+CHAOS_INTERVAL="${1:-30}"
 CONTAINER_PATTERN="${2:-}"
 NUM_TO_KILL="${3:-1}"
 
 echo -e "Starting chaos tool in 5 seconds..."
 echo ""
-echo -e "Interval: ${INTERVAL}s"
+echo -e "Interval: ${CHAOS_INTERVAL}s"
 echo -e "Target pattern: ${CONTAINER_PATTERN}"
 echo -e "Containers to kill per interval: ${NUM_TO_KILL}"
 sleep 5
@@ -20,5 +20,5 @@ while true; do
         docker kill "$CONTAINER" >/dev/null 2>&1
     done
 
-    sleep "$INTERVAL_SECS"
+    sleep "$CHAOS_INTERVAL"
 done

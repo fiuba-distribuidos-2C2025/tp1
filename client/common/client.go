@@ -91,7 +91,6 @@ func (c *Client) Start() error {
 	}
 
 	log.Infof("All %d results received successfully", queryCount)
-	<-c.shutdown
 	return nil
 }
 
@@ -581,47 +580,95 @@ func (c *Client) receiveQueryId() error {
 	return nil
 }
 
-// tryReadResults stablished connection with the server
-// and reads the results from it
+// tryReadResults establishes connection with the server
+// and reads the results from it with retry logic
 func (c *Client) tryReadResults() error {
-	// Establish connection with the server
-	log.Info("Connecting with server to request results...")
-	if err := c.connectToServer(); err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			// Establish connection with the server
+			log.Info("Connecting with server to request results...")
+			if err := c.connectToServer(); err != nil {
+				lastErr = fmt.Errorf("failed to connect to server: %w", err)
+				log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+				if attempt < maxRetries {
+					retryTime := retryDelay * time.Duration(attempt)
+					log.Infof("Connection failed, retrying in: %v", retryTime)
+					time.Sleep(retryTime)
+				}
+				continue
+			}
+		}
+
+		// Send results request with queryId
+		if err := c.protocol.SendResultsRequest(c.queryID, c.pendingResults); err != nil {
+			lastErr = fmt.Errorf("failed to send results request: %w", err)
+			c.disconnect()
+			log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Sending results request failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+			}
+			continue
+		}
+
+		msgType, _, err := c.protocol.ReceiveMessage()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to receive message: %w", err)
+			c.disconnect()
+			log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Receiving response failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+			}
+			continue
+		}
+
+		switch msgType {
+		case protocol.MessageTypeResultsPending:
+			log.Info("Request handler is still processing results")
+			c.disconnect()
+			time.Sleep(resultsWaitTime)
+			return nil
+
+		case protocol.MessageTypeResultsReady:
+			log.Info("Results ready, receiving...")
+			err := c.readResults()
+			c.disconnect()
+
+			// Check if error is due to connection loss during streaming
+			if err != nil {
+				lastErr = err
+				log.Warningf("Results streaming attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+				if attempt < maxRetries {
+					retryTime := retryDelay * time.Duration(attempt)
+					log.Infof("Connection lost during streaming, retrying in: %v", retryTime)
+					time.Sleep(retryTime)
+					continue
+				}
+				return fmt.Errorf("failed to stream results after %d attempts: %w", maxRetries, lastErr)
+			}
+
+			return err
+
+		default:
+			c.disconnect()
+			return fmt.Errorf("unexpected message type: 0x%02x", msgType)
+		}
 	}
 
-	// Send results request with queryId
-	if err := c.protocol.SendResultsRequest(c.queryID, c.pendingResults); err != nil {
-		c.disconnect()
-		return fmt.Errorf("failed to send results request: %w", err)
-	}
-
-	msgType, _, err := c.protocol.ReceiveMessage()
-	if err != nil {
-		c.disconnect()
-		return fmt.Errorf("failed to receive message: %w", err)
-	}
-
-	switch msgType {
-	case protocol.MessageTypeResultsPending:
-		log.Info("Request handler is still processing results")
-		c.disconnect()
-		time.Sleep(resultsWaitTime)
-		return nil
-
-	case protocol.MessageTypeResultsReady:
-		log.Info("Results ready, receiving...")
-		err := c.readResults()
-		c.disconnect()
-		return err
-
-	default:
-		c.disconnect()
-		return fmt.Errorf("unexpected message type: 0x%02x", msgType)
-	}
+	return fmt.Errorf("failed to request results after %d attempts: %w", maxRetries, lastErr)
 }
 
-// readResults reads and processes results from the server
+// readResults reads and processes results from the server with retry logic
 func (c *Client) readResults() error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected to server")
@@ -635,7 +682,9 @@ func (c *Client) readResults() error {
 	for resultsReceived < len(c.pendingResults) {
 		msgType, data, err := c.protocol.ReceiveMessage()
 		if err != nil {
-			return fmt.Errorf("failed to receive message: %w", err)
+			log.Warningf("Connection lost while reading results: %v", err)
+			c.disconnect()
+			return fmt.Errorf("connection lost during result streaming: %w", err)
 		}
 
 		switch msgType {

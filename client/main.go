@@ -99,7 +99,10 @@ func main() {
 	client := common.NewClient(clientConfig)
 
 	go func() {
-		client.Start()
+		err := client.Start()
+		if err != nil {
+			log.Errorf("Client ended with error, terminating: %s", err)
+		}
 		stop <- os.Interrupt
 	}()
 

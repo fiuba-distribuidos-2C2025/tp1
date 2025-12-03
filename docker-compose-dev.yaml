@@ -44,8 +44,6 @@ services:
       - ./proxy/config.yaml:/config/config.yaml
     environment:
       - PROXY_REQUESTHANDLERS_ADDRESSES=request_handler1:8901,request_handler2:8901
-    labels:
-      - "monitored=true"
     depends_on:
         rabbit:
             condition: service_healthy
@@ -65,8 +63,6 @@ services:
         condition: service_healthy
     networks:
       - testing_net
-    labels:
-      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
@@ -89,8 +85,6 @@ services:
         condition: service_healthy
     networks:
       - testing_net
-    labels:
-      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2

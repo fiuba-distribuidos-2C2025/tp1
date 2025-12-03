@@ -63,8 +63,6 @@ services:
         condition: service_healthy
     networks:
       - testing_net
-    labels:
-      - "monitored=true"
     environment:
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
       - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2

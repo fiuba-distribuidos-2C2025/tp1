@@ -21,7 +21,7 @@ for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
     fi
 done
 
-WORKER_ADDRESSES="response_builder"
+WORKER_ADDRESSES="response_builder,proxy"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1

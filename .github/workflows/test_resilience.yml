@@ -34,7 +34,7 @@ jobs:
         run: make download_full_dataset
 
       - name: Generate resilience compose file
-        run: generar-compose-resilience
+        run: make generar-compose-resilience
 
       - name: Run with chaos and wait for results
         run: |

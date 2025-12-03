@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
-	"github.com/fiuba-distribuidos-2C2025/tp1/worker/common/utils"
 )
 
 // Validates if a transaction final amount is greater than the target amount.
@@ -57,116 +56,5 @@ func processMenuItems(menuItemLines []string) map[string]string {
 }
 
 func CreateByItemIdJoinerCallbackWithOutput(outChan chan string, messageSentNotificationChan chan string, neededEof int, menuItemRowsChan chan string, baseDir string, workerID string) func(consumeChannel middleware.ConsumeChannel, done chan error) {
-	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
-		// Load existing clients EOF in case of worker restart
-		clientEofs, err := utils.LoadClientsEofs(baseDir)
-		if err != nil {
-			log.Errorf("Error loading clients EOF count: %v", err)
-			return
-		}
-		utils.ResendClientEofs(clientEofs, neededEof, outChan, baseDir, workerID, messageSentNotificationChan)
-		processedMenuItems := make(map[string]map[string]string)
-		log.Infof("Waiting for messages...")
-
-		var outBuilder strings.Builder
-
-		for {
-			select {
-			case msg, ok := <-*consumeChannel:
-				if !ok {
-					log.Infof("Deliveries channel closed; shutting down")
-					return
-				}
-				payload := strings.TrimSpace(string(msg.Body))
-				lines := strings.Split(payload, "\n")
-
-				// Separate header and the rest
-				clientID := lines[0]
-				msgID := lines[1]
-
-				// Create accumulator for client
-				if _, exists := processedMenuItems[clientID]; !exists {
-					processedMenuItems[clientID] = make(map[string]string)
-				}
-
-				// Ensure we have menu items for this client.
-				// This will block until the expected clientID arrives.
-				// TODO: avoid blocking other clients while waiting for one
-				for len(processedMenuItems[clientID]) == 0 {
-					secondaryQueueNewMessage, ok := <-menuItemRowsChan
-					if !ok {
-						log.Errorf("menuItemRowsChan closed while waiting for client %s", clientID)
-						return
-					}
-
-					log.Debugf("RECEIVED MSG FROM SECONDARY QUEUE, BEING INSIDE PRIMARY QUEUE:\n%s", secondaryQueueNewMessage)
-					payload := strings.TrimSpace(secondaryQueueNewMessage)
-					rows := strings.Split(payload, "\n")
-					if len(rows) < 2 {
-						log.Errorf("Invalid secondary queue payload (need header + at least one row): %q", payload)
-						continue
-					}
-
-					secondaryQueueClientID := rows[0]
-					menuItemRows := rows[1:]
-					processedMenu := processMenuItems(menuItemRows)
-					processedMenuItems[secondaryQueueClientID] = processedMenu
-
-					log.Warningf("Filled secondary queue data expected %s, got %s", clientID, secondaryQueueClientID)
-				}
-
-				items := lines[2:]
-				if items[0] == "EOF" {
-					// Store EOF on disk as tracking the count in memory is not secure
-					// in case of worker restart
-					utils.StoreEOF(baseDir, clientID, msgID)
-					// Acknowledge message
-					msg.Ack(false)
-					if _, exists := clientEofs[clientID]; !exists {
-						clientEofs[clientID] = make(map[string]string)
-					}
-					clientEofs[clientID][msgID] = ""
-
-					eofs := clientEofs[clientID]
-					eofCount := len(eofs)
-					log.Debugf("Received eof (%d/%d) from client %s", eofCount, neededEof, clientID)
-					if eofCount >= neededEof {
-						// Use the workerID as msgID for the EOF
-						// to ensure uniqueness across workers and restarts
-						outChan <- clientID + "\n" + workerID + "\nEOF"
-						// Here we just block until we are notified that the message was sent
-						<-messageSentNotificationChan
-						// clear accumulator memory
-						delete(clientEofs, clientID)
-						delete(processedMenuItems, clientID)
-						utils.RemoveClientDir(baseDir, clientID)
-						utils.RemoveClientDir(baseDir+"/secondary", clientID)
-					}
-					continue
-				}
-
-				// Reset builder for reuse
-				outBuilder.Reset()
-
-				for _, transaction := range items {
-					if concatenated, ok := concatWithMenuItemsData(transaction, processedMenuItems[clientID]); ok {
-						outBuilder.WriteString(concatenated)
-						outBuilder.WriteByte('\n')
-					}
-				}
-
-				if outBuilder.Len() > 0 {
-					// Reuse the same msgID as it is already unique
-					// and persistent across worker restarts
-					outChan <- clientID + "\n" + msgID + "\n" + outBuilder.String()
-					// Here we just block until we are notified that the message was sent
-					<-messageSentNotificationChan
-					log.Infof("Processed message")
-				}
-				// Acknowledge message
-				msg.Ack(false)
-				log.Infof("Processed message")
-			}
-		}
-	}
+	return CreatePrimaryQueueCallbackWithOutput(outChan, menuItemRowsChan, processMenuItems, neededEof, baseDir, workerID, messageSentNotificationChan, concatWithMenuItemsData)
 }

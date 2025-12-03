@@ -90,7 +90,7 @@ jobs:
 
               if [ "$all_present" = true ]; then
                 echo "All result files found."
-                exit 0
+                break
               fi
             fi
 
@@ -98,10 +98,47 @@ jobs:
             sleep 30
           done
 
-          echo "Timeout waiting for full result sets!"
-          echo "Existing files in ./results:"
-          find ./results || true
-          exit 1
+          if ! [ "$all_present" = true ]; then
+            echo "Timeout waiting for client_1 full result sets!"
+            echo "Existing files in ./results:"
+            find ./results || true
+            exit 1
+          fi
+
+          # Run a second client
+          make run_client CLIENT=2
+
+          # Wait up to 60 * 30s = 30 minutes
+          for i in {1..60}; do
+
+            if [ -d "./results/client_2" ]; then
+              all_present=true
+
+              for f in "${FILES[@]}"; do
+                if [ ! -f "./results/client_2/$f" ]; then
+                  all_present=false
+                  break
+                fi
+              done
+
+              if [ "$all_present" = true ]; then
+                echo "All result files found."
+                break
+              fi
+            fi
+
+            echo "Not ready yet... ($i)"
+            sleep 30
+          done
+
+          if ! [ "$all_present" = true ]; then
+            echo "Timeout waiting for client_2 full result sets!"
+            echo "Existing files in ./results:"
+            find ./results || true
+            exit 1
+          fi
 
       - name: Compare results
-        run: make compare_full_results CLIENT=1
+        run: |
+          make compare_full_results CLIENT=1
+          make compare_full_results CLIENT=2

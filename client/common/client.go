@@ -20,6 +20,9 @@ var log = logging.MustGetLogger("log")
 const (
 	queryCount      = 4
 	resultsWaitTime = 5 * time.Second
+	ackTimeout      = 10 * time.Second
+	maxRetries      = 10
+	retryDelay      = 2 * time.Second
 )
 
 // ClientConfig holds configuration for the client
@@ -28,6 +31,7 @@ type ClientConfig struct {
 	ServerIP   string
 	ID         string
 	BufferSize int
+	MsgID      int32
 }
 
 // Client manages connection to the server and file transfers
@@ -62,9 +66,9 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	// Send message to server signaling the start of a query request
-	if err := c.protocol.SendQueryRequest(); err != nil {
-		log.Errorf("Failed to send query request: %v", err)
+	// Send query request and wait for Query ID with retry logic
+	if err := c.sendQueryRequestWithRetry(); err != nil {
+		fmt.Errorf("failed to send query request and receive ID: %w", err)
 		return err
 	}
 
@@ -74,47 +78,26 @@ func (c *Client) Start() error {
 	}
 
 	// Send final EOF after all directories are transferred
-	if err := c.protocol.SendFinalEOF(); err != nil {
-		log.Errorf("Failed to send final EOF: %v", err)
-		return err
-	}
-
-	// Wait for Query Id
-	if err := c.waitForQueryId(); err != nil {
-		log.Errorf("Failed to receive QueryId: %v", err)
-		return err
-	}
+	c.protocol.SendFinalEOF()
 
 	log.Info("Transfered all files succesfully, closing connection")
-	c.stopServerConn()
+	c.disconnect()
 
-	for {
+	// Poll for results until all are received
+	for len(c.pendingResults) > 0 {
 		if err := c.tryReadResults(); err != nil {
-			log.Errorf("Failed to read results: %v", err)
-			return err
-		}
-
-		if len(c.pendingResults) == 0 {
-			log.Infof("All %d results received successfully", queryCount)
-			break
+			return fmt.Errorf("failed to read results: %w", err)
 		}
 	}
 
-	<-c.shutdown
+	log.Infof("All %d results received successfully", queryCount)
 	return nil
 }
 
 // Stop gracefully shuts down the client
 func (c *Client) Stop() {
 	log.Info("Shutting down client...")
-
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
-			log.Errorf("Error closing connection: %v", err)
-		}
-		c.conn = nil
-	}
-
+	c.disconnect()
 	close(c.shutdown)
 	log.Info("Client shutdown complete")
 }
@@ -149,18 +132,11 @@ func (c *Client) TransferDataDirectory(dataPath string) error {
 				log.Infof("Processing directory: %s (FileType: %s)", entry.Name(), expected.fileType)
 
 				if err := c.TransferCSVFolder(dirPath, expected.fileType); err != nil {
-					log.Errorf("Failed to transfer CSVs from directory %s: %v", entry.Name(), err)
-					return err
+					return fmt.Errorf("failed to transfer CSVs from directory %s: %w", entry.Name(), err)
 				}
 
-				if err := c.protocol.SendEOF(expected.fileType); err != nil {
-					log.Errorf("Failed to send EOF for fileType %s: %v", expected.fileType, err)
-					return err
-				}
-
-				if err := c.waitForACK(); err != nil {
-					log.Errorf("Failed to receive EOF ACK for fileType %s: %v", expected.fileType, err)
-					return err
+				if err := c.sendEOFWithRetry(expected.fileType); err != nil {
+					return fmt.Errorf("failed to send EOF for fileType %s: %w", expected.fileType, err)
 				}
 
 				log.Infof("Completed directory %s (FileType: %s)", entry.Name(), expected.fileType)
@@ -278,6 +254,7 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 			}
 
 			batchMsg := &protocol.BatchMessage{
+				MsgID:        c.config.MsgID,
 				ClientID:     clientID,
 				FileType:     metadata.fileType,
 				CurrentChunk: currentChunk,
@@ -285,17 +262,13 @@ func (c *Client) transferFileInBatches(reader *csv.Reader, metadata fileMetadata
 				CSVRows:      csvRows,
 			}
 
-			if err := c.protocol.SendBatch(batchMsg); err != nil {
+			if err := c.sendBatchWithRetry(batchMsg); err != nil {
 				return fmt.Errorf("failed to send batch %d: %w", currentChunk, err)
 			}
 
-			log.Infof("Sent chunk %d/%d (FileType: %s)",
+			c.config.MsgID++
+			log.Debugf("Sent chunk %d/%d (FileType: %s)",
 				currentChunk, metadata.totalChunks, metadata.fileType)
-
-			// Wait for ACK
-			if err := c.waitForACK(); err != nil {
-				return fmt.Errorf("failed to receive ACK for chunk %d: %w", currentChunk, err)
-			}
 		}
 
 		if isEOF {
@@ -370,17 +343,214 @@ func (c *Client) connectToServer() error {
 	return nil
 }
 
-// stopServerConn stops connection with the server
-func (c *Client) stopServerConn() {
-	if conn := c.conn; conn != nil {
-		conn.Close()
-		c.conn = nil
+// reconnect closes current connection and establishes a new one with resume
+func (c *Client) reconnect() error {
+	c.disconnect()
+
+	if err := c.connectToServer(); err != nil {
+		return err
 	}
-	c.protocol = nil
+
+	// Send resume request with query ID
+	if err := c.protocol.SendResumeRequest(c.queryID); err != nil {
+		return fmt.Errorf("failed to send resume request: %w", err)
+	}
+
+	// Wait for ACK
+	return c.receiveACK()
 }
 
-// waitForACK waits for an acknowledgment from the server
-func (c *Client) waitForACK() error {
+// disconnect closes the connection
+func (c *Client) disconnect() {
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+		c.protocol = nil
+	}
+}
+
+// sendQueryRequestWithRetry sends a query request and waits for query ID with retry on failure
+func (c *Client) sendQueryRequestWithRetry() error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Query request failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
+
+		err := c.protocol.SendQueryRequest()
+		if err != nil {
+			lastErr = fmt.Errorf("send query request failed: %w", err)
+			c.disconnect()
+		} else {
+			err = c.receiveQueryIdWithTimeout()
+			if err != nil {
+				lastErr = fmt.Errorf("receive query ID failed: %w", err)
+				c.disconnect()
+			} else {
+				return nil // Success
+			}
+		}
+
+		log.Warningf("Query request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+		if attempt < maxRetries {
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Query request failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
+			if err := c.connectToServer(); err != nil {
+				log.Errorf("Failed to reconnect: %v", err)
+			}
+		}
+	}
+
+	return fmt.Errorf("failed to send query request after %d attempts: %w", maxRetries, lastErr)
+}
+
+// sendBatchWithRetry sends a batch message with automatic retry on failure
+func (c *Client) sendBatchWithRetry(msg *protocol.BatchMessage) error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
+
+		// Try to send and receive ACK
+		err := c.protocol.SendBatch(msg)
+		if err != nil {
+			lastErr = fmt.Errorf("send failed: %w", err)
+			c.disconnect()
+		} else {
+			err = c.receiveACKWithTimeout()
+			if err != nil {
+				lastErr = fmt.Errorf("ACK failed: %w", err)
+				c.disconnect()
+			} else {
+				return nil // Success!
+			}
+		}
+
+		log.Warningf("Batch send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+		if attempt < maxRetries {
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Sending batch failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
+			if err := c.reconnect(); err != nil {
+				log.Errorf("Failed to reconnect: %v", err)
+			}
+		}
+	}
+
+	return fmt.Errorf("failed to send batch after %d attempts: %w", maxRetries, lastErr)
+}
+
+// sendEOFWithRetry sends an EOF message with automatic retry on failure
+func (c *Client) sendEOFWithRetry(fileType protocol.FileType) error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			lastErr = fmt.Errorf("no connection available")
+			log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Sending EOF failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+				if err := c.reconnect(); err != nil {
+					log.Errorf("Failed to reconnect: %v", err)
+				}
+			}
+			continue
+		}
+		// Try to send and receive ACK
+		err := c.protocol.SendEOF(fileType)
+		if err != nil {
+			lastErr = fmt.Errorf("send failed: %w", err)
+			c.disconnect()
+		} else {
+			err = c.receiveACKWithTimeout()
+			if err != nil {
+				lastErr = fmt.Errorf("ACK failed: %w", err)
+				c.disconnect()
+			} else {
+				return nil
+			}
+		}
+
+		log.Warningf("EOF send attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+		if attempt < maxRetries {
+			retryTime := retryDelay * time.Duration(attempt)
+			log.Infof("Sending EOF failed, retrying in: %v", retryTime)
+			time.Sleep(retryTime)
+			if err := c.reconnect(); err != nil {
+				log.Errorf("Failed to reconnect: %v", err)
+			}
+		}
+	}
+
+	return fmt.Errorf("failed to send EOF after %d attempts: %w", maxRetries, lastErr)
+}
+
+// receiveACKWithTimeout waits for ACK with a timeout
+func (c *Client) receiveACKWithTimeout() error {
+	ackChan := make(chan error, 1)
+	go func() {
+		ackChan <- c.receiveACK()
+	}()
+
+	select {
+	case err := <-ackChan:
+		return err
+	case <-time.After(ackTimeout):
+		return fmt.Errorf("ACK timeout")
+	}
+}
+
+// receiveQueryIdWithTimeout waits for query ID with a timeout
+func (c *Client) receiveQueryIdWithTimeout() error {
+	queryChan := make(chan error, 1)
+	go func() {
+		queryChan <- c.receiveQueryId()
+	}()
+
+	select {
+	case err := <-queryChan:
+		return err
+	case <-time.After(ackTimeout):
+		return fmt.Errorf("query ID timeout")
+	}
+}
+
+// receiveACK waits for an acknowledgment from the server
+func (c *Client) receiveACK() error {
 	msgType, _, err := c.protocol.ReceiveMessage()
 	if err != nil {
 		return fmt.Errorf("failed to receive message: %w", err)
@@ -393,79 +563,112 @@ func (c *Client) waitForACK() error {
 	return nil
 }
 
-// waitForQueryId waits for an acknowledgment from the server
-func (c *Client) waitForQueryId() error {
+// receiveQueryId waits for query ID from the server
+func (c *Client) receiveQueryId() error {
 	msgType, data, err := c.protocol.ReceiveMessage()
 	if err != nil {
 		return fmt.Errorf("failed to receive message: %w", err)
 	}
 
-	switch msgType {
-	case protocol.MessageTypeQueryId:
-		queryID := data.(*protocol.QueryIdMessage).QueryID
-		log.Infof("Received query ID: %s", queryID)
-		c.queryID = queryID
-	default:
+	if msgType != protocol.MessageTypeQueryId {
 		return fmt.Errorf("expected QueryId, got message type: 0x%02x", msgType)
 	}
+
+	queryID := data.(*protocol.QueryIdMessage).QueryID
+	log.Infof("Received query ID: %s", queryID)
+	c.queryID = queryID
 	return nil
 }
 
-// tryReadResults stablished connection with the server
-// and reads the results from it
+// tryReadResults establishes connection with the server
+// and reads the results from it with retry logic
 func (c *Client) tryReadResults() error {
-	for {
-		// Establish connection with the server
-		log.Info("Connecting with server to request results...")
-		if err := c.connectToServer(); err != nil {
-			log.Errorf("Failed to connect to server: %v", err)
-			// TODO: consider `continue` here
-			// with a max number of retries
-			return err
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Check if we have a valid connection before attempting to send
+		if c.protocol == nil {
+			// Establish connection with the server
+			log.Info("Connecting with server to request results...")
+			if err := c.connectToServer(); err != nil {
+				lastErr = fmt.Errorf("failed to connect to server: %w", err)
+				log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+				if attempt < maxRetries {
+					retryTime := retryDelay * time.Duration(attempt)
+					log.Infof("Connection failed, retrying in: %v", retryTime)
+					time.Sleep(retryTime)
+				}
+				continue
+			}
 		}
 
 		// Send results request with queryId
 		if err := c.protocol.SendResultsRequest(c.queryID, c.pendingResults); err != nil {
-			log.Errorf("Failed to send results request: %v", err)
-			// TODO: consider `continue` here
-			// with a max number of retries
-			return err
+			lastErr = fmt.Errorf("failed to send results request: %w", err)
+			c.disconnect()
+			log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Sending results request failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+			}
+			continue
 		}
-		log.Debugf("Sent results request for pending results: ", c.pendingResults)
 
 		msgType, _, err := c.protocol.ReceiveMessage()
 		if err != nil {
-			return fmt.Errorf("failed to receive message: %w", err)
+			lastErr = fmt.Errorf("failed to receive message: %w", err)
+			c.disconnect()
+			log.Warningf("Results request attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+			if attempt < maxRetries {
+				retryTime := retryDelay * time.Duration(attempt)
+				log.Infof("Receiving response failed, retrying in: %v", retryTime)
+				time.Sleep(retryTime)
+			}
+			continue
 		}
 
 		switch msgType {
 		case protocol.MessageTypeResultsPending:
 			log.Info("Request handler is still processing results")
-			c.stopServerConn()
+			c.disconnect()
 			time.Sleep(resultsWaitTime)
-			continue
-		case protocol.MessageTypeResultsReady:
-			log.Info("Request handler ready to send results")
-		default:
-			// Something went wrong with the client, abort connection
-			c.stopServerConn()
-			return fmt.Errorf("unexpected message type while reading results: 0x%02x", msgType)
-		}
+			return nil
 
-		err = c.readResults()
-		if err != nil {
-			log.Errorf("failed to read results: %w", err)
-			if c.conn != nil {
-				c.stopServerConn()
+		case protocol.MessageTypeResultsReady:
+			log.Info("Results ready, receiving...")
+			err := c.readResults()
+			c.disconnect()
+
+			// Check if error is due to connection loss during streaming
+			if err != nil {
+				lastErr = err
+				log.Warningf("Results streaming attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+
+				if attempt < maxRetries {
+					retryTime := retryDelay * time.Duration(attempt)
+					log.Infof("Connection lost during streaming, retrying in: %v", retryTime)
+					time.Sleep(retryTime)
+					continue
+				}
+				return fmt.Errorf("failed to stream results after %d attempts: %w", maxRetries, lastErr)
 			}
-			// TODO: implement max retries to prevent infinite loop
+
+			return err
+
+		default:
+			c.disconnect()
+			return fmt.Errorf("unexpected message type: 0x%02x", msgType)
 		}
-		c.stopServerConn()
-		return nil
 	}
+
+	return fmt.Errorf("failed to request results after %d attempts: %w", maxRetries, lastErr)
 }
 
-// readResults reads and processes results from the server
+// readResults reads and processes results from the server with retry logic
 func (c *Client) readResults() error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected to server")
@@ -479,7 +682,9 @@ func (c *Client) readResults() error {
 	for resultsReceived < len(c.pendingResults) {
 		msgType, data, err := c.protocol.ReceiveMessage()
 		if err != nil {
-			return fmt.Errorf("failed to receive message: %w", err)
+			log.Warningf("Connection lost while reading results: %v", err)
+			c.disconnect()
+			return fmt.Errorf("connection lost during result streaming: %w", err)
 		}
 
 		switch msgType {

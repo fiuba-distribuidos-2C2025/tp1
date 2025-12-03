@@ -33,39 +33,8 @@ jobs:
       - name: Run dataset download
         run: make download_full_dataset
 
-      - name: Create resilience setup file
-        run: |
-          cat << 'EOF' > resilience.dev
-          CLIENT_COUNT=1
-
-          REQUEST_CONTROLLER_COUNT=1
-
-          # First query
-          WORKER_COUNT_FILTER_BY_YEAR=2
-          WORKER_COUNT_FILTER_BY_HOUR=2
-          WORKER_COUNT_FILTER_BY_AMOUNT=2
-
-          # Second query
-          WORKER_COUNT_GROUPER_BY_YEAR_MONTH=2
-          WORKER_COUNT_FILTER_BY_YEAR_ITEMS=2
-          WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=4
-          WORKER_COUNT_JOINER_BY_ITEM_ID=2
-
-          # Third query
-          WORKER_COUNT_GROUPER_BY_SEMESTER=2
-          WORKER_COUNT_AGGREGATOR_BY_SEMESTER=4
-          WORKER_COUNT_JOINER_BY_STORE_ID=3
-
-          # Fourth query
-          WORKER_COUNT_GROUPER_BY_STORE_USER=2
-          WORKER_COUNT_JOINER_BY_USER_ID=2
-          WORKER_COUNT_JOINER_BY_USER_STORE=4
-          WORKER_COUNT_AGGREGATOR_BY_STORE_USER=4
-          EOF
-
-      - name: Generate resilience compose
-        run: |
-          ./generar-compose.sh docker-compose-resilience-setup.yaml resilience.dev
+      - name: Generate resilience compose file
+        run: generar-compose-resilience
 
       - name: Run with chaos and wait for results
         run: |

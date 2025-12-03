@@ -18,25 +18,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler/config.yaml:/config/config.yaml
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-    environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
-      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest
@@ -48,11 +29,54 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
+      - RESPONSE_MIDDLEWARE_RECEIVER=1
     depends_on:
         rabbit:
             condition: service_healthy
     networks:
       - testing_net
+
+  proxy:
+    container_name: proxy
+    image: proxy:latest
+    entrypoint: /proxy
+    volumes:
+      - ./proxy/config.yaml:/config/config.yaml
+    environment:
+      - PROXY_REQUESTHANDLERS_ADDRESSES=request_handler1:8901
+    labels:
+      - "monitored=true"
+    depends_on:
+        rabbit:
+            condition: service_healthy
+        request_handler1:
+            condition: service_started
+    networks:
+      - testing_net
+
+  request_handler1:
+    container_name: request_handler1
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    networks:
+      - testing_net
+    labels:
+      - "monitored=true"
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
+      - REQUEST_IP=request_handler1
+      - REQUEST_PORT=8901
+      - REQUEST_ID=1
 
   client1:
     container_name: client1
@@ -65,7 +89,7 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-        request_handler:
+        proxy:
             condition: service_started
     networks:
         - testing_net
@@ -882,7 +906,7 @@ services:
     networks:
       - testing_net
     environment:
-      - WORKER_ADDRESSES=request_handler,response_builder,filter_by_year_worker1,filter_by_year_worker2,filter_by_hour_worker1,filter_by_hour_worker2,filter_by_amount_worker1,filter_by_amount_worker2,filter_by_year_items_worker1,filter_by_year_items_worker2,grouper_by_year_month_worker1,grouper_by_year_month_worker2,aggregator_by_profit_quantity1,aggregator_by_profit_quantity2,aggregator_by_profit_quantity3,aggregator_by_profit_quantity4,joiner_by_item_id1,joiner_by_item_id2,grouper_by_semester_worker1,grouper_by_semester_worker2,aggregator_semester_worker1,aggregator_semester_worker2,aggregator_semester_worker3,aggregator_semester_worker4,joiner_by_store_id1,joiner_by_store_id2,joiner_by_store_id3,grouper_by_store_user_worker1,grouper_by_store_user_worker2,aggregator_by_store_user1,aggregator_by_store_user2,aggregator_by_store_user3,aggregator_by_store_user4,joiner_by_user_id1,joiner_by_user_id2,joiner_by_user_store1,joiner_by_user_store2,joiner_by_user_store3,joiner_by_user_store4
+      - WORKER_ADDRESSES=response_builder,request_handler1,filter_by_year_worker1,filter_by_year_worker2,filter_by_hour_worker1,filter_by_hour_worker2,filter_by_amount_worker1,filter_by_amount_worker2,filter_by_year_items_worker1,filter_by_year_items_worker2,grouper_by_year_month_worker1,grouper_by_year_month_worker2,aggregator_by_profit_quantity1,aggregator_by_profit_quantity2,aggregator_by_profit_quantity3,aggregator_by_profit_quantity4,joiner_by_item_id1,joiner_by_item_id2,grouper_by_semester_worker1,grouper_by_semester_worker2,aggregator_semester_worker1,aggregator_semester_worker2,aggregator_semester_worker3,aggregator_semester_worker4,joiner_by_store_id1,joiner_by_store_id2,joiner_by_store_id3,grouper_by_store_user_worker1,grouper_by_store_user_worker2,aggregator_by_store_user1,aggregator_by_store_user2,aggregator_by_store_user3,aggregator_by_store_user4,joiner_by_user_id1,joiner_by_user_id2,joiner_by_user_store1,joiner_by_user_store2,joiner_by_user_store3,joiner_by_user_store4
 
 # ==============================================================================
 # Volumes

@@ -21,7 +21,7 @@ for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
     fi
 done
 
-WORKER_ADDRESSES="request_handler,response_builder"
+WORKER_ADDRESSES="response_builder"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -83,6 +83,7 @@ services:
 EOL
 
 for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
+WORKER_ADDRESSES="$WORKER_ADDRESSES,request_handler$i"
 cat >> "$OUTPUT_FILE" <<EOL
   request_handler$i:
     container_name: request_handler$i

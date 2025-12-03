@@ -1,7 +1,8 @@
 import docker
 import time
 import logging
-import requests
+import aiohttp
+import asyncio
 from typing import Dict, List
 import os
 import json
@@ -22,6 +23,12 @@ class DockerWatcher:
         self.check_interval = check_interval
         self.health_port = health_port
         self.config_file = config_file
+
+        # Read from environment variable
+        containers_env = os.getenv("WORKER_ADDRESSES", "")
+        # Split into list, ignoring empty values
+        self.containers: List[str] = [c.strip() for c in containers_env.split(",") if c.strip()]
+
         self.container_status: Dict[str, str] = {}
         self.restart_count: Dict[str, int] = {}
         self.last_config_mtime = None
@@ -40,85 +47,80 @@ class DockerWatcher:
         except Exception as e:
             logger.error(f"Error loading config: {e}")
 
-    def get_containers(self) -> List[docker.models.containers.Container]:
+    async def is_container_healthy(self, container_name: str) -> bool:
+        health_url = f"http://{container_name}:{self.health_port}/health"
+        logger.info(f"Checking health of {container_name} at {health_url}")
+
         try:
-            containers_result = self.client.containers.list(
-                all=True,
-                filters={"label": "monitored=true"}
-            )
-            return containers_result
+            async with aiohttp.ClientSession() as session:
+                async with session.get(health_url, timeout=5) as response:
+                    logger.info(f"Received response from {container_name}: {response.status}")
+
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("status") == "healthy"
+                    return False
+
         except Exception as e:
-            logger.error(f"Error getting containers: {e}")
-            return []
-
-    def is_container_healthy(self, container: docker.models.containers.Container) -> bool:
-        try:
-            # Hit the health endpoint using container name (works on Docker network)
-            health_url = f"http://{container.name}:{self.health_port}/health"
-            logger.info(f"Checking health of {container.name} at {health_url}")
-            response = requests.get(health_url, timeout=5)
-            logger.info(f"Received response from {container.name}: {response.status_code}")
-
-            if response.status_code == 200:
-                health_data = response.json()
-                is_healthy = health_data.get('status') == 'healthy'
-                return is_healthy
-            else:
-                return False
-
-        except requests.exceptions.RequestException as e:
-            logger.debug(f"Failed to reach health endpoint for {container.name}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Error checking container health {container.name}: {e}")
+            logger.debug(f"Failed to reach health endpoint for {container_name}: {e}")
             return False
 
-    def restart_container(self, container: docker.models.containers.Container) -> bool:
+    async def restart_container(self, container_name: str) -> bool:
         try:
-            logger.info(f"Restarting container: {container.name}")
-            container.restart(timeout=10)
-            time.sleep(2)  # Give container time to start
-            container.reload()
-            if container.status == "running":
-                self.restart_count[container.name] = self.restart_count.get(container.name, 0) + 1
-                logger.info(f"Successfully restarted {container.name} (total restarts: {self.restart_count[container.name]})")
+            def restart():
+                container = self.client.containers.get(container_name)
+                logger.info(f"Restarting container: {container.name}")
+                container.restart(timeout=10)
+                time.sleep(2)
+                container.reload()
+                return container.status
+
+            status = await asyncio.to_thread(restart)
+
+            if status == "running":
+                self.restart_count[container_name] = self.restart_count.get(container_name, 0) + 1
+                logger.info(f"Successfully restarted {container_name} (total restarts: {self.restart_count[container_name]})")
                 return True
-            else:
-                logger.warning(f"Container {container.name} did not start properly. Status: {container.status}")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to restart container {container.name}: {e}")
+
+            logger.warning(f"Container {container_name} failed to start, status: {status}")
             return False
 
-    def check_health(self):
-        containers = self.get_containers()
-        if not containers:
-            logger.warning("No containers found to monitor")
-            return
-        for container in containers:
-            # If container is unhealthy, attempt to restart
-            if not self.is_container_healthy(container):
-                logger.warning(f"Container '{container.name}' is not healthy")
-                self.restart_container(container)
+        except Exception as e:
+            logger.error(f"Failed to restart container {container_name}: {e}")
+            return False
 
-    def start(self):
-        logger.info("Docker Watcher Started")
+    async def check_single_container(self, container_name: str):
+        healthy = await self.is_container_healthy(container_name)
+        if not healthy:
+            logger.warning(f"Container '{container_name}' is not healthy")
+            await self.restart_container(container_name)
+
+    async def check_health(self):
+        tasks = [
+            asyncio.create_task(self.check_single_container(name))
+            for name in self.containers
+        ]
+        await asyncio.gather(*tasks)
+
+    async def start_async(self):
+        logger.info("Docker Watcher Started (async mode)")
         try:
             while True:
-                self.check_health()
-                # Check if config file has been modified
+                await self.check_health()
+
                 if os.path.exists(self.config_file):
                     current_mtime = os.path.getmtime(self.config_file)
                     if self.last_config_mtime is None or current_mtime != self.last_config_mtime:
                         self.last_config_mtime = current_mtime
                         self.load_config()
 
-                time.sleep(self.check_interval)
-        except KeyboardInterrupt:
-            logger.info("Docker Watcher stopped by user")
+                await asyncio.sleep(self.check_interval)
+
+        except asyncio.CancelledError:
+            logger.info("Docker Watcher cancelled")
         except Exception as e:
             logger.error(f"Unexpected error in watcher loop: {e}")
 
 if __name__ == "__main__":
     watcher = DockerWatcher(check_interval=5, health_port=9090)
-    watcher.start()
+    asyncio.run(watcher.start_async())

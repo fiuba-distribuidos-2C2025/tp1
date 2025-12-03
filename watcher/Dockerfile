@@ -6,7 +6,7 @@ WORKDIR /app
 COPY watcher/watcher.py .
 
 # Install dependencies
-RUN pip install --no-cache-dir docker requests
+RUN pip install --no-cache-dir docker requests aiohttp
 
 # Run the watcher
 CMD ["python3", "watcher.py"]

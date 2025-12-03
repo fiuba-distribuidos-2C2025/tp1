@@ -373,6 +373,18 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, messageSentNot
 				messageSentNotificationChan <- "sent"
 				continue
 			}
+			if lines[2] == "CLEANUP" {
+				log.Infof("Broadcasting Cleanup")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting Cleanup to queue: ", queue)
+						queue.Send([]byte(msg))
+
+					}
+				}
+				messageSentNotificationChan <- "sent"
+				continue
+			}
 			lines = strings.SplitN(msg, "\n", 4)
 			clientID := lines[0]
 			key := lines[1]

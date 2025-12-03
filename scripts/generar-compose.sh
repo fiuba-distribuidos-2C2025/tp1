@@ -537,7 +537,7 @@ EOL
 for ((i=1; i<=RESPONSE_BUILDER_COUNT; i++)); do
 WORKER_ADDRESSES="$WORKER_ADDRESSES,response_builder$i"
 cat >> "$OUTPUT_FILE" <<EOL
-  response_builde$i:
+  response_builder$i:
     container_name: response_builder$i
     image: response_builder:latest
     entrypoint: /response_builder

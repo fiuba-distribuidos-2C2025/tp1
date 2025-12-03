@@ -897,7 +897,7 @@ services:
 # Response Builders
 # ==============================================================================
 
-  response_builde1:
+  response_builder1:
     container_name: response_builder1
     image: response_builder:latest
     entrypoint: /response_builder
@@ -916,7 +916,7 @@ services:
     networks:
       - testing_net
 
-  response_builde2:
+  response_builder2:
     container_name: response_builder2
     image: response_builder:latest
     entrypoint: /response_builder

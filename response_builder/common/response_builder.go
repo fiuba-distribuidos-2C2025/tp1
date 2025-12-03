@@ -165,14 +165,17 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 				finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
 
 				finalResult := strings.Join(state.results[msg.ID], "\n")
-				finalResult = fmt.Sprintf("%s\n%s", clientId, finalResult)
-				finalResultsQueue.Send([]byte(finalResult))
+				// If we received all EOF, but finalResults is empty,
+				// assume that other response builder is handling the query
+				if finalResult != "" {
+					finalResult = fmt.Sprintf("%s\n%s", clientId, finalResult)
+					finalResultsQueue.Send([]byte(finalResult))
+					log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
+				}
 			}
 
 			// Remove stored messages
 			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_%d", msg.ID, rb.Config.ID), clientId)
-
-			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {
 			log.Warningf("Received more EOFs than expected for client %s query %d: %d > %d",
 				clientId, msg.ID, totalEOFs, expectedEof)

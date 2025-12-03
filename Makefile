@@ -65,8 +65,20 @@ middleware_tests:
 	docker compose -f docker-compose-dev.yaml up -d rabbit
 	go test ./middleware
 
-generar-compose:
-	./generar-compose.sh docker-compose-dev.yaml setup.dev
+generar-compose-default:
+	./scripts/generar-compose.sh docker-compose-dev.yaml ./setups/default.dev
+.PHONY: generar-compose-default
+
+generar-compose-multiclient:
+	./scripts/generar-compose.sh docker-compose-multiclient-setup.yaml ./setups/multiclient.dev
+.PHONY: generar-compose-multiclient
+
+generar-compose-resilience:
+	./scripts/generar-compose.sh docker-compose-resilience-setup.yaml ./setups/resilience.dev
+.PHONY: generar-compose-resilience
+
+generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience
+.PHONY: generar-compose
 
 compare_reduced_results:
 	python3 scripts/compare_results.py ./results/client_$(CLIENT) ./expected_results/reduced

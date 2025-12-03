@@ -7,7 +7,7 @@ NUM_TO_KILL="${3:-1}"
 
 echo -e "Starting chaos tool in 5 seconds..."
 echo ""
-echo -e "Interval: ${CHAOS_INTERVAL}s"
+echo -e "Interval: ${CHAOS_INTERVAL}"
 echo -e "Target pattern: ${CONTAINER_PATTERN}"
 echo -e "Containers to kill per interval: ${NUM_TO_KILL}"
 sleep 5

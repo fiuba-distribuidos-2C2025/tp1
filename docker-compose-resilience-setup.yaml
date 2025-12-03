@@ -18,40 +18,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  watcher:
-    container_name: watcher
-    image: watcher:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./watcher/watcher_config.json:/app/watcher_config.json
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - testing_net
-
-  request_handler:
-    container_name: request_handler
-    image: request_handler:latest
-    entrypoint: /request_handler
-    volumes:
-      - ./request_handler/config.yaml:/config/config.yaml
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-    labels:
-      - "monitored=true"
-    environment:
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
-      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
-      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
-      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest
@@ -64,13 +30,50 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
+      - RESPONSE_MIDDLEWARE_RECEIVER=1
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     networks:
       - testing_net
+
+  proxy:
+    container_name: proxy
+    image: proxy:latest
+    entrypoint: /proxy
+    volumes:
+      - ./proxy/config.yaml:/config/config.yaml
+    environment:
+      - PROXY_REQUESTHANDLERS_ADDRESSES=request_handler1:8901
+    depends_on:
+        rabbit:
+            condition: service_healthy
+        request_handler1:
+            condition: service_started
+    networks:
+      - testing_net
+
+  request_handler1:
+    container_name: request_handler1
+    image: request_handler:latest
+    entrypoint: /request_handler
+    volumes:
+      - ./request_handler/config.yaml:/config/config.yaml
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    networks:
+      - testing_net
+    environment:
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_TRANSACTIONITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ3COUNT=3
+      - REQUEST_MIDDLEWARE_RECEIVERS_STORESQ4COUNT=4
+      - REQUEST_MIDDLEWARE_RECEIVERS_MENUITEMSCOUNT=2
+      - REQUEST_MIDDLEWARE_RECEIVERS_USERSCOUNT=2
+      - REQUEST_IP=request_handler1
+      - REQUEST_PORT=8901
+      - REQUEST_ID=1
 
   client1:
     container_name: client1
@@ -83,7 +86,7 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-        request_handler:
+        proxy:
             condition: service_started
     networks:
         - testing_net
@@ -106,8 +109,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -129,8 +130,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions
@@ -152,8 +151,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -175,8 +172,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=HOUR_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q1
@@ -198,8 +193,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -221,8 +214,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AMOUNT_FILTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
@@ -248,8 +239,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -271,8 +260,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=YEAR_FILTER_ITEMS
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items
@@ -294,8 +281,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -317,8 +302,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_YEAR_MONTH
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_items_2024_2025
@@ -340,8 +323,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -363,8 +344,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -386,8 +365,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -409,8 +386,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_PROFIT_QUANTITY
       - WORKER_MIDDLEWARE_INPUTQUEUE=year_month_grouped_items
@@ -432,8 +407,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -455,8 +428,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_ITEM_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
@@ -482,8 +453,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -505,8 +474,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q3
@@ -528,8 +495,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -551,8 +516,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -574,8 +537,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -597,8 +558,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_SEMESTER
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_aggregator_queue
@@ -620,8 +579,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -643,8 +600,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -666,8 +621,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_STORE_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
@@ -693,8 +646,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -716,8 +667,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=GROUPER_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_2024_2025_q4
@@ -739,8 +688,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -762,8 +709,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -785,8 +730,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -808,8 +751,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=AGGREGATOR_BY_STORE_USER
       - WORKER_MIDDLEWARE_INPUTQUEUE=store_user_transactions
@@ -831,8 +772,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
@@ -854,8 +793,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_ID
       - WORKER_MIDDLEWARE_INPUTQUEUE=users,top_3_store_users # We first listen to top_3_store_users and then to users
@@ -877,8 +814,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -900,8 +835,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -923,8 +856,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -946,8 +877,6 @@ services:
     depends_on:
         rabbit:
             condition: service_healthy
-    labels:
-      - "monitored=true"
     environment:
       - WORKER_JOB=JOINER_BY_USER_STORE
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
@@ -956,6 +885,29 @@ services:
       - WORKER_MIDDLEWARE_RECEIVERS=1
       - WORKER_ID=4
       - WORKER_BASEDIR=/base_dir
+
+# ==============================================================================
+# Watcher
+# ==============================================================================
+
+  watcher:
+    container_name: watcher
+    image: watcher:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./watcher/watcher_config.json:/app/watcher_config.json
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - testing_net
+    environment:
+      - WORKER_ADDRESSES=response_builder,proxy,request_handler1,filter_by_year_worker1,filter_by_year_worker2,filter_by_hour_worker1,filter_by_hour_worker2,filter_by_amount_worker1,filter_by_amount_worker2,filter_by_year_items_worker1,filter_by_year_items_worker2,grouper_by_year_month_worker1,grouper_by_year_month_worker2,aggregator_by_profit_quantity1,aggregator_by_profit_quantity2,aggregator_by_profit_quantity3,aggregator_by_profit_quantity4,joiner_by_item_id1,joiner_by_item_id2,grouper_by_semester_worker1,grouper_by_semester_worker2,aggregator_semester_worker1,aggregator_semester_worker2,aggregator_semester_worker3,aggregator_semester_worker4,joiner_by_store_id1,joiner_by_store_id2,joiner_by_store_id3,grouper_by_store_user_worker1,grouper_by_store_user_worker2,aggregator_by_store_user1,aggregator_by_store_user2,aggregator_by_store_user3,aggregator_by_store_user4,joiner_by_user_id1,joiner_by_user_id2,joiner_by_user_store1,joiner_by_user_store2,joiner_by_user_store3,joiner_by_user_store4
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
 
 volumes:
   base_dir_filter_by_year_1:
@@ -996,6 +948,11 @@ volumes:
   base_dir_joiner_by_user_store_3:
   base_dir_joiner_by_user_store_4:
   base_dir_response_builder:
+
+# ==============================================================================
+# Network
+# ==============================================================================
+
 networks:
   testing_net:
     ipam:

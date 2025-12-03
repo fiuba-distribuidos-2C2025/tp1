@@ -68,15 +68,15 @@ middleware_tests:
 	go test ./middleware
 
 generar-compose-default:
-	./generar-compose.sh docker-compose-dev.yaml ./setups/default.dev
+	./scripts/generar-compose.sh docker-compose-dev.yaml ./setups/default.dev
 .PHONY: generar-compose-default
 
 generar-compose-multiclient:
-	./generar-compose.sh docker-compose-multiclient-setup.yaml ./setups/multiclient.dev
+	./scripts/generar-compose.sh docker-compose-multiclient-setup.yaml ./setups/multiclient.dev
 .PHONY: generar-compose-multiclient
 
 generar-compose-resilience:
-	./generar-compose.sh docker-compose-resilience-setup.yaml ./setups/resilience.dev
+	./scripts/generar-compose.sh docker-compose-resilience-setup.yaml ./setups/resilience.dev
 .PHONY: generar-compose-resilience
 
 generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience

@@ -444,7 +444,7 @@ func (w *Worker) distributeBetweenResponseBuilders(inChan chan string, messageSe
 			lines = strings.SplitN(msg, "\n", 3)
 			clientID := lines[0]
 			msgID := lines[1]
-			key := msgID
+			key := clientID
 			msg = clientID + "\n" + msgID + "\n" + lines[2]
 
 			for i, queues := range outputQueues {

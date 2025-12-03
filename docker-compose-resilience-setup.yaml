@@ -205,7 +205,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -226,7 +226,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -419,7 +419,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
       - WORKER_MIDDLEWARE_SENDERS=4,1
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -440,7 +440,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
       - WORKER_MIDDLEWARE_SENDERS=4,1
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -591,7 +591,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -612,7 +612,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -633,7 +633,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
       - WORKER_BASEDIR=/base_dir
 
@@ -826,7 +826,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -847,7 +847,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -868,7 +868,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
       - WORKER_BASEDIR=/base_dir
 
@@ -889,7 +889,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=4
       - WORKER_BASEDIR=/base_dir
 
@@ -910,6 +910,7 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
       - RESPONSE_MIDDLEWARE_RECEIVER=2
+      - RESPONSE_MIDDLEWARE_ID=1
     depends_on:
         rabbit:
             condition: service_healthy
@@ -929,6 +930,7 @@ services:
       - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
       - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
       - RESPONSE_MIDDLEWARE_RECEIVER=2
+      - RESPONSE_MIDDLEWARE_ID=2
     depends_on:
         rabbit:
             condition: service_healthy

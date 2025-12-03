@@ -651,7 +651,10 @@ for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
   echo "  base_dir_joiner_by_user_store_$i:" >> "$OUTPUT_FILE"
 done
 
-echo "  base_dir_response_builder:" >> "$OUTPUT_FILE"
+# Response builders
+for ((i=1; i<=RESPONSE_BUILDER_COUNT; i++)); do
+  echo "  base_dir_response_builder_$i:" >> "$OUTPUT_FILE"
+done
 
 cat >> "$OUTPUT_FILE" <<EOL
 

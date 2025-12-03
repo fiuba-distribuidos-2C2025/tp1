@@ -18,19 +18,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  watcher:
-    container_name: watcher
-    image: watcher:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./watcher/watcher_config.json:/app/watcher_config.json
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - testing_net
-
   response_builder:
     container_name: response_builder
     image: response_builder:latest

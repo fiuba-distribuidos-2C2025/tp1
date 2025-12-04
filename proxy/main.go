@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/proxy/common"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
@@ -152,6 +153,8 @@ func main() {
 	// Create and start proxy
 	config := buildProxyConfig(v)
 	proxy := common.NewProxy(config)
+
+	healthcheck.StartHealthCheckServer(9090)
 
 	// Set up graceful shutdown
 	if err := runWithGracefulShutdown(proxy); err != nil {

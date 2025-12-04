@@ -81,6 +81,10 @@ generar-compose-infinite:
 	./scripts/generar-compose.sh docker-compose-infinite-setup.yaml ./setups/infinite.dev
 .PHONY: generar-compose-infinite
 
+generar-compose-rng:
+	./scripts/generar-compose-rng.sh
+.PHONY: generar-compose-infinite
+
 generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience generar-compose-infinite
 .PHONY: generar-compose
 
@@ -127,6 +131,14 @@ stop_infinite_setup:
 	# TODO: clients are not part of the compose, stop & remove them separately!
 	docker compose -f  docker-compose-infinite-setup.yaml stop -t 10
 	docker compose -f  docker-compose-infinite-setup.yaml down -v
+
+run_rng_setup: docker-image clean_results
+	docker compose -f docker-compose-rng-setup.yaml up -d --build
+.PHONY: run_rng_setup
+
+stop_rng_setup:
+	docker compose -f  docker-compose-rng-setup.yaml stop -t 10
+	docker compose -f  docker-compose-rng-setup.yaml down -v
 
 run_client:
 	docker run -d \

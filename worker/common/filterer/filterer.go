@@ -71,6 +71,14 @@ func CreateGenericFilterCallbackWithOutput(outChan chan string, messageSentNotif
 						utils.RemoveClientDir(baseDir, clientID)
 					}
 					continue
+				} else if lines[2] == "CLEANUP" {
+					err := utils.SendCleanup(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+					if err != nil {
+						log.Errorf("Error handling cleanup for client %s: %v", clientID, err)
+						return
+					}
+					msg.Ack(false)
+					continue
 				}
 
 				outBuilder.Reset()

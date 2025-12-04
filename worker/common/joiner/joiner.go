@@ -170,6 +170,16 @@ func CreatePrimaryQueueCallbackWithOutput(outChan chan string, secondaryQueueCha
 							clientEofs[clientID] = make(map[string]string)
 						}
 						clientEofs[clientID][msgID] = ""
+					} else if items[0] == "CLEANUP" {
+						log.Infof("CLEANUP RECEIVED")
+						delete(clientEofs, clientID)
+						delete(processedSecondaryQueueItems, clientID)
+						err := utils.SendCleanup(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+						utils.RemoveClientDir(baseDir+"/secondary", clientID)
+						if err != nil {
+							log.Errorf("Error handling cleanup for client %s: %v", clientID, err)
+							return
+						}
 					} else {
 						utils.StoreMessageWithChecksum(baseDir, clientID, msgID, payload)
 					}
@@ -204,6 +214,16 @@ func CreatePrimaryQueueCallbackWithOutput(outChan chan string, secondaryQueueCha
 						utils.RemoveClientDir(baseDir, clientID)
 						utils.RemoveClientDir(baseDir+"/secondary", clientID)
 
+					}
+					continue
+				} else if items[0] == "CLEANUP" {
+					delete(clientEofs, clientID)
+					delete(processedSecondaryQueueItems, clientID)
+					err := utils.SendCleanup(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+					utils.RemoveClientDir(baseDir+"/secondary", clientID)
+					msg.Ack(false)
+					if err != nil {
+						log.Errorf("Failed to send cleanup message: %v", err)
 					}
 					continue
 				}
@@ -278,6 +298,12 @@ func CreateSecondQueueCallbackWithOutput(outChan chan string, neededEof int, bas
 				// Store message or EOF on disk
 				if lines[2] == "EOF" {
 					utils.StoreEOF(baseDir, clientID, msgID)
+				} else if lines[2] == "CLEANUP" {
+					// Clean up occurs in primary queue
+					log.Infof("Cleanup received for client %s", clientID)
+					// Acknowledge message
+					msg.Ack(false)
+					continue
 				} else {
 					utils.StoreMessageWithChecksum(baseDir, clientID, msgID, items)
 				}

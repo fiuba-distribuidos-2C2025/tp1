@@ -21,7 +21,7 @@ for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
     fi
 done
 
-WORKER_ADDRESSES="response_builder,proxy"
+WORKER_ADDRESSES="proxy"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -562,11 +562,42 @@ done
 
 cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
-# Watcher
+# Watchers
 # ==============================================================================
 
-  watcher:
-    container_name: watcher
+EOL
+
+IFS=',' read -r -a ADDR_ARRAY <<< "$WORKER_ADDRESSES"
+TOTAL=${#ADDR_ARRAY[@]}
+CHUNK_SIZE=$(( (TOTAL + WATCHER_COUNT - 1) / WATCHER_COUNT ))
+
+# Build all watcher names once
+ALL_WATCHERS=()
+for ((w=1; w<=WATCHER_COUNT; w++)); do
+    ALL_WATCHERS+=( "watcher$w" )
+done
+
+for ((i=1; i<=WATCHER_COUNT; i++)); do
+    START=$(( (i-1) * CHUNK_SIZE ))
+    SLICE=("${ADDR_ARRAY[@]:START:CHUNK_SIZE}")
+    SLICE_CSV=$(IFS=','; echo "${SLICE[*]}")
+
+    # Other watchers (all except self)
+    OTHER_WATCHERS=("${ALL_WATCHERS[@]:0:i-1}" "${ALL_WATCHERS[@]:i}")
+    OTHER_WATCHERS_CSV=$(IFS=','; echo "${OTHER_WATCHERS[*]}")
+
+    # Build combined value, use comma between parts if both are non-empty
+    if [[ -n "$SLICE_CSV" && -n "$OTHER_WATCHERS_CSV" ]]; then
+        COMBINED="${SLICE_CSV},${OTHER_WATCHERS_CSV}"
+    elif [[ -n "$SLICE_CSV" ]]; then
+        COMBINED="$SLICE_CSV"
+    else
+        COMBINED="$OTHER_WATCHERS_CSV"
+    fi
+
+cat >> "$OUTPUT_FILE" <<EOL
+  watcher$i:
+    container_name: watcher$i
     image: watcher:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -578,10 +609,10 @@ cat >> "$OUTPUT_FILE" <<EOL
     networks:
       - testing_net
     environment:
-      - WORKER_ADDRESSES=$WORKER_ADDRESSES
+      - WORKER_ADDRESSES="$COMBINED"
 
 EOL
-
+done
 
 # Declaración de todos los volúmenes para /base_dir
 cat >> "$OUTPUT_FILE" <<EOL

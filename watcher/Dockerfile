@@ -8,5 +8,8 @@ COPY watcher/watcher.py .
 # Install dependencies
 RUN pip install --no-cache-dir docker requests aiohttp
 
+# Expose healthcheck ports
+EXPOSE 9090 9091
+
 # Run the watcher
 CMD ["python3", "watcher.py"]

@@ -83,7 +83,7 @@ generar-compose-infinite:
 
 generar-compose-rng:
 	./scripts/generar-compose-rng.sh
-.PHONY: generar-compose-infinite
+.PHONY: generar-compose-rng
 
 generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience generar-compose-infinite
 .PHONY: generar-compose
@@ -140,6 +140,14 @@ run_rng_setup: docker-image clean_results
 stop_rng_setup:
 	docker compose -f  docker-compose-rng-setup.yaml stop -t 10
 	docker compose -f  docker-compose-rng-setup.yaml down -v
+.PHONY: stop_rng_setup
+
+run_perpetual_rng:
+	while true; do \
+		$(MAKE) generar-compose-rng; \
+		$(MAKE) run_rng_setup; \
+		$(MAKE) stop_rng_setup; \
+	done
 
 run_client:
 	docker run -d \

@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Function to generate a random number between 1 and 5
+rand() {
+  echo $((1 + RANDOM % 5))
+}
+
+# Set initial client count
+CLIENT_COUNT=4
+
+REQUEST_CONTROLLER_COUNT=$(rand)
+
+# First query
+WORKER_COUNT_FILTER_BY_YEAR=$(rand)
+WORKER_COUNT_FILTER_BY_HOUR=$(rand)
+WORKER_COUNT_FILTER_BY_AMOUNT=$(rand)
+
+# Second query
+WORKER_COUNT_GROUPER_BY_YEAR_MONTH=$(rand)
+WORKER_COUNT_FILTER_BY_YEAR_ITEMS=$(rand)
+WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY=$(rand)
+WORKER_COUNT_JOINER_BY_ITEM_ID=$(rand)
+
+# Third query
+WORKER_COUNT_GROUPER_BY_SEMESTER=$(rand)
+WORKER_COUNT_AGGREGATOR_BY_SEMESTER=$(rand)
+WORKER_COUNT_JOINER_BY_STORE_ID=$(rand)
+
+# Fourth query
+WORKER_COUNT_GROUPER_BY_STORE_USER=$(rand)
+WORKER_COUNT_JOINER_BY_USER_ID=$(rand)
+WORKER_COUNT_JOINER_BY_USER_STORE=$(rand)
+WORKER_COUNT_AGGREGATOR_BY_STORE_USER=$(rand)
+
+RESPONSE_BUILDER_COUNT=$(rand)
+
+# Export all variables so the compose script can read them
+export CLIENT_COUNT
+export REQUEST_CONTROLLER_COUNT
+export WORKER_COUNT_FILTER_BY_YEAR
+export WORKER_COUNT_FILTER_BY_HOUR
+export WORKER_COUNT_FILTER_BY_AMOUNT
+export WORKER_COUNT_GROUPER_BY_YEAR_MONTH
+export WORKER_COUNT_FILTER_BY_YEAR_ITEMS
+export WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY
+export WORKER_COUNT_JOINER_BY_ITEM_ID
+export WORKER_COUNT_GROUPER_BY_SEMESTER
+export WORKER_COUNT_AGGREGATOR_BY_SEMESTER
+export WORKER_COUNT_JOINER_BY_STORE_ID
+export WORKER_COUNT_GROUPER_BY_STORE_USER
+export WORKER_COUNT_JOINER_BY_USER_ID
+export WORKER_COUNT_JOINER_BY_USER_STORE
+export WORKER_COUNT_AGGREGATOR_BY_STORE_USER
+export RESPONSE_BUILDER_COUNT
+
+# Call the compose generator script
+touch dummy.env # needed because scripts require a file to be present
+./scripts/generar-compose.sh docker-compose-rng-setup.yaml dummy.env
+rm dummy.env

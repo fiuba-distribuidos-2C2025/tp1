@@ -13,11 +13,17 @@ echo -e "Containers to kill per interval: ${NUM_TO_KILL}"
 sleep 5
 
 while true; do
-    CONTAINERS_TO_KILL=$(docker ps --format "{{.Names}}" | grep "$CONTAINER_PATTERN" | shuf | head -n "$NUM_TO_KILL")
+    MATCHING_CONTAINERS=$(docker ps --format "{{.Names}}" | grep "$CONTAINER_PATTERN" || true)
+
+    # Shuffle & pick N
+    CONTAINERS_TO_KILL=$(echo "$MATCHING_CONTAINERS" | shuf | head -n "$NUM_TO_KILL")
 
     for CONTAINER in $CONTAINERS_TO_KILL; do
+        # Skip empty entries (can happen if no matches)
+        [ -z "$CONTAINER" ] && continue
+
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing: $CONTAINER"
-        docker kill "$CONTAINER" >/dev/null 2>&1
+        docker kill "$CONTAINER" >/dev/null 2>&1 || true
     done
 
     sleep "$CHAOS_INTERVAL"

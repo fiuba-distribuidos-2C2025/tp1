@@ -40,3 +40,6 @@ bin/**
 .DS_Store
 
 results/**
+
+# random compose will always change
+docker-compose-rng-setup.yaml

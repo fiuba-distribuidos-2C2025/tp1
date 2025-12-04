@@ -168,8 +168,11 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 				finalResultsQueue.Send([]byte(finalResult))
 			}
 
-			// Remove stored messages
+			// Remove stored messages from disk
 			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_1", msg.ID), clientId)
+
+			// Clear used memory
+			state.results[msg.ID] = nil
 
 			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {
@@ -204,15 +207,14 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 }
 
 func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool, baseDir string, queueName string) func(middleware.ConsumeChannel, chan error) {
-	// Check previous result messages before starting consumption of new ones.
-	// This ensures that if the response builder restarts, it sends the previously
-	// collected messages though the channel.
-	err := loadPreviousMessages(resultChan, baseDir, queueName, resultID)
-	if err != nil {
-		log.Errorf("Error checking existing messagess: %v", err)
-	}
-
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Check previous result messages before starting consumption of new ones.
+		// This ensures that if the response builder restarts, it sends the previously
+		// collected messages though the channel.
+		err := loadPreviousMessages(resultChan, baseDir, queueName, resultID)
+		if err != nil {
+			log.Errorf("Error checking existing messagess: %v", err)
+		}
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
@@ -276,8 +278,22 @@ func loadPreviousMessages(resultChan chan ResultMessage, baseDir string, queueNa
 				if err != nil {
 					return err
 				}
+
+				split := strings.SplitN(string(data), "\n", 2)
+				checksum, err := strconv.Atoi(split[0])
+				if err != nil {
+					// We just ignore messages with invalid checksum
+					// They will be resent by the queue
+					continue
+				}
+				body := split[1]
+				if checksum != len(body) {
+					// We just ignore messages with invalid checksum
+					// They will be resent by the queue
+					continue
+				}
 				resultChan <- ResultMessage{
-					Value: string(data),
+					Value: string(body),
 					ID:    resultID,
 				}
 			}
@@ -323,7 +339,13 @@ func storeResultMessage(baseDir, queueName, body string) error {
 	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), msgId)
 	path := filepath.Join(resultsDir, fileName)
 
-	return os.WriteFile(path, []byte(body), 0o644)
+	checksum := len(body)
+	var builder strings.Builder
+	builder.WriteString(strconv.Itoa(checksum))
+	builder.WriteString("\n")
+	builder.WriteString(body)
+	data := builder.String()
+	return os.WriteFile(path, []byte(data), 0o644)
 }
 
 func removeResultsDir(baseDir, queueName, clientId string) error {

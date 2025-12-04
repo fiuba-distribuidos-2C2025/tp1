@@ -1,6 +1,6 @@
 request_handler:
   buffer_size_mb: 10
-  max_client_results_minutes: 3
+  max_client_results_minutes: 10
 log:
   level: "DEBUG"
 rabbit:

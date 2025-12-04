@@ -47,11 +47,11 @@ while ((${#PENDING[@]} > 0)); do
         fi
     done
 
-    # Compact array (bash leaves holes after unset)
-    PENDING=("${PENDING[@]}")
-
-    # If still waiting, sleep briefly
     if ((${#PENDING[@]} > 0)); then
+        # Compact array
+        PENDING=("${PENDING[@]}")
+
+        # Still waiting → sleep
         printf "."
         sleep 1
     fi

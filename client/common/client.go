@@ -59,29 +59,51 @@ func NewClient(config ClientConfig) *Client {
 	}
 }
 
+// Attempts to read the query ID from a file
+func (c *Client) readQueryIDFromFile() (bool, string) {
+	data, err := os.ReadFile("query_id.txt")
+	if err != nil {
+		return false, ""
+	}
+	return true, string(data)
+}
+
 // Start begins the client operations
 func (c *Client) Start() error {
-	if err := c.connectToServer(); err != nil {
-		log.Errorf("Failed to connect to server: %v", err)
-		return err
+	exists, queryID := c.readQueryIDFromFile()
+	if exists {
+		log.Debugf("Query ID read from file: %s", queryID)
+		c.queryID = queryID
+	} else {
+		if err := c.connectToServer(); err != nil {
+			log.Errorf("Failed to connect to server: %v", err)
+			return err
+		}
+
+		// Send query request and wait for Query ID with retry logic
+		if err := c.sendQueryRequestWithRetry(); err != nil {
+			fmt.Errorf("failed to send query request and receive ID: %w", err)
+			return err
+		}
+
+		if err := c.TransferDataDirectory("/data"); err != nil {
+			log.Errorf("Failed to transfer data: %v", err)
+			return err
+		}
+
+		// Send final EOF after all directories are transferred
+		c.protocol.SendFinalEOF()
+
+		log.Info("Transfered all files succesfully, closing connection")
+
+		// persist query ID to file
+		if err := os.WriteFile("query_id.txt", []byte(queryID), 0o600); err != nil {
+			return err
+		}
+		log.Debugf("Persisted query ID on disk")
+
+		c.disconnect()
 	}
-
-	// Send query request and wait for Query ID with retry logic
-	if err := c.sendQueryRequestWithRetry(); err != nil {
-		fmt.Errorf("failed to send query request and receive ID: %w", err)
-		return err
-	}
-
-	if err := c.TransferDataDirectory("/data"); err != nil {
-		log.Errorf("Failed to transfer data: %v", err)
-		return err
-	}
-
-	// Send final EOF after all directories are transferred
-	c.protocol.SendFinalEOF()
-
-	log.Info("Transfered all files succesfully, closing connection")
-	c.disconnect()
 
 	// Poll for results until all are received
 	for len(c.pendingResults) > 0 {
@@ -576,6 +598,7 @@ func (c *Client) receiveQueryId() error {
 
 	queryID := data.(*protocol.QueryIdMessage).QueryID
 	log.Infof("Received query ID: %s", queryID)
+
 	c.queryID = queryID
 	return nil
 }

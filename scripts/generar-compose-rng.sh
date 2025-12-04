@@ -34,6 +34,8 @@ WORKER_COUNT_AGGREGATOR_BY_STORE_USER=$(rand)
 
 RESPONSE_BUILDER_COUNT=$(rand)
 
+WATCHER_COUNT=$(rand)
+
 # Export all variables so the compose script can read them
 export CLIENT_COUNT
 export REQUEST_CONTROLLER_COUNT
@@ -52,6 +54,7 @@ export WORKER_COUNT_JOINER_BY_USER_ID
 export WORKER_COUNT_JOINER_BY_USER_STORE
 export WORKER_COUNT_AGGREGATOR_BY_STORE_USER
 export RESPONSE_BUILDER_COUNT
+export WATCHER_COUNT
 
 # Call the compose generator script
 touch dummy.env # needed because scripts require a file to be present

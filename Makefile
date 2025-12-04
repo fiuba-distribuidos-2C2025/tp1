@@ -147,5 +147,5 @@ CHAOS_INTERVAL?=3s
 NUM_TO_KILL?=1
 
 chaos:
-	./scripts/chaos.sh ${CHAOS_INTERVAL} 'aggregator\|joiner\|grouper\|filter\|request_handler\|response_builder' ${NUM_TO_KILL}
+	./scripts/chaos.sh ${CHAOS_INTERVAL} 'aggregator\|joiner\|grouper\|filter\|request_handler\|response_builder\|proxy' ${NUM_TO_KILL}
 .PHONY: chaos

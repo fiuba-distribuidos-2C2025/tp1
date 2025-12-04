@@ -15,7 +15,7 @@ make download_multiclient_dataset
 make generar-compose-multiclient
 ```
 
-**Modificamos el archivo generado, `docker-compose-multiclient-setup.yaml`**
+**Modificamos el archivo generado, `docker-compose-multiclient-setup.yaml`:**
 ```yaml
   client1:
     volumes:
@@ -40,7 +40,7 @@ make chaos
 make run_multiclient_setup
 ```
 
-**Luego de que se finalicen los resultados, comparamos**
+**Luego de que se finalicen los resultados, comparamos:**
 ```bash
 make CLIENT=alice EXPECTED_CLIENT_RESULTS=multiclient_1 make compare_results_multiclient
 make CLIENT=bob EXPECTED_CLIENT_RESULTS=multiclient_2 make compare_results_multiclient
@@ -62,7 +62,7 @@ make docker-compose-up
 
 Ir a docker desktop a revisar metricas
 
-**Luego de que se finalicen los resultados, comparamos**
+**Luego de que se finalicen los resultados, comparamos:**
 ```bash
 make compare_full_results CLIENT=1
 make compare_full_results CLIENT=2
@@ -82,7 +82,7 @@ make docker-compose-up
 
 Ir a docker desktop a revisar metricas
 
-**Luego de que se finalicen los resultados, comparamos**
+**Luego de que se finalicen los resultados, comparamos:**
 ```bash
 make compare_full_results CLIENT=1
 make compare_full_results CLIENT=2
@@ -95,7 +95,7 @@ make compare_full_results CLIENT=2
 make generar-compose-multiclient
 ```
 
-**Modificamos el archivo generado, `docker-compose-multiclient-setup.yaml`**
+**Modificamos el archivo generado, `docker-compose-multiclient-setup.yaml`:**
 ```yaml
   client1:
     volumes:
@@ -116,7 +116,7 @@ make chaos
 make run_multiclient_setup
 ```
 
-**Luego de que se finalicen los resultados, comparamos**
+**Luego de que se finalicen los resultados, comparamos:**
 ```bash
 make CLIENT=1 EXPECTED_CLIENT_RESULTS=full make compare_results_multiclient
 make CLIENT=2 EXPECTED_CLIENT_RESULTS=multiclient_1 make compare_results_multiclient

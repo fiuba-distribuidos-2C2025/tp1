@@ -318,23 +318,26 @@ func storeResultMessage(baseDir, queueName, body string) error {
 		return err
 	}
 
-	entries, err := os.ReadDir(resultsDir)
-	if err != nil {
-		return err
-	}
+	// TODO: MESSAGE DUPLICATION DETECTION THROUGH THIS METHOD IS INVALID
+	// SAMPLE FILE NAME: `/results_2_1/6e3049d9/1764731825652426418_1`
+	// msgId: 1 -> ambiguos!
+	// entries, err := os.ReadDir(resultsDir)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// If any entry contains the substring msgId, remove it
 	// as it is a duplicate message.
 	// Prevents possibly contaminated entries
-	for _, e := range entries {
-		name := e.Name()
-		if strings.Contains(name, msgId) {
-			fullPath := filepath.Join(resultsDir, name)
-			if err := os.Remove(fullPath); err != nil {
-				return fmt.Errorf("failed to remove %s: %w", fullPath, err)
-			}
-		}
-	}
+	// for _, e := range entries {
+	// 	name := e.Name()
+	// 	if strings.Contains(name, msgId) {
+	// 		fullPath := filepath.Join(resultsDir, name)
+	// 		if err := os.Remove(fullPath); err != nil {
+	// 			return fmt.Errorf("failed to remove %s: %w", fullPath, err)
+	// 		}
+	// 	}
+	// }
 
 	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), msgId)
 	path := filepath.Join(resultsDir, fileName)

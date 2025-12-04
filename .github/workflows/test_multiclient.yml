@@ -1,4 +1,4 @@
-name: Multiclient Tests
+name: Multiclient Test
 
 on:
   push:

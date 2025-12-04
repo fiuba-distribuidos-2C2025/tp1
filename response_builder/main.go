@@ -85,6 +85,8 @@ func main() {
 		WorkerResultsFourCount:  v.GetInt("middleware.results4.count"),
 		WorkerResultsReceiver:   v.GetInt("middleware.receiver"),
 		IsTest:                  false,
+		BaseDir:                 v.GetString("baseDir"),
+		ID:                      v.GetInt("middleware.id"),
 	}
 	requestBuilder := common.NewResponseBuilder(requestBuilderConfig, middleware.NewRealQueueFactory(nil))
 

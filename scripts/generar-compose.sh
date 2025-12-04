@@ -44,24 +44,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  response_builder:
-    container_name: response_builder
-    image: response_builder:latest
-    entrypoint: /response_builder
-    volumes:
-      - ./response_builder/config.yaml:/config/config.yaml
-    environment:
-      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
-      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
-      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
-      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
-      - RESPONSE_MIDDLEWARE_RECEIVER=$REQUEST_CONTROLLER_COUNT
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-
   proxy:
     container_name: proxy
     image: proxy:latest
@@ -77,6 +59,13 @@ services:
             condition: service_started
     networks:
       - testing_net
+
+EOL
+
+cat >> "$OUTPUT_FILE" <<EOL
+# ==============================================================================
+# Request Handlers
+# ==============================================================================
 
 EOL
 
@@ -212,7 +201,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_FILTER_BY_HOUR
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_HANDLER_SENDER
+      - WORKER_MIDDLEWARE_RECEIVERS=$RESPONSE_BUILDER_COUNT
       - WORKER_ID=$i
       - WORKER_BASEDIR=/base_dir
 
@@ -328,7 +317,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_PROFIT_QUANTITY,$REQUEST_HANDLER_SENDER
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_HANDLER_SENDER
+      - WORKER_MIDDLEWARE_RECEIVERS=$RESPONSE_BUILDER_COUNT
       - WORKER_ID=$i
       - WORKER_BASEDIR=/base_dir
 
@@ -416,7 +405,7 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_AGGREGATOR_BY_SEMESTER,$REQUEST_HANDLER_SENDER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_HANDLER_SENDER
+      - WORKER_MIDDLEWARE_RECEIVERS=$RESPONSE_BUILDER_COUNT
       - WORKER_ID=$i
       - WORKER_BASEDIR=/base_dir
 
@@ -531,9 +520,42 @@ cat >> "$OUTPUT_FILE" <<EOL
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=$WORKER_COUNT_JOINER_BY_USER_ID,$REQUEST_HANDLER_SENDER
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=$REQUEST_HANDLER_SENDER
+      - WORKER_MIDDLEWARE_RECEIVERS=$RESPONSE_BUILDER_COUNT
       - WORKER_ID=$i
       - WORKER_BASEDIR=/base_dir
+
+EOL
+done
+
+cat >> "$OUTPUT_FILE" <<EOL
+# ==============================================================================
+# Response Builders
+# ==============================================================================
+
+EOL
+
+for ((i=1; i<=RESPONSE_BUILDER_COUNT; i++)); do
+WORKER_ADDRESSES="$WORKER_ADDRESSES,response_builder$i"
+cat >> "$OUTPUT_FILE" <<EOL
+  response_builder$i:
+    container_name: response_builder$i
+    image: response_builder:latest
+    entrypoint: /response_builder
+    volumes:
+      - ./response_builder/config.yaml:/config/config.yaml
+      - base_dir_response_builder_$i:/base_dir
+    environment:
+      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=$WORKER_COUNT_FILTER_BY_AMOUNT
+      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=$WORKER_COUNT_JOINER_BY_ITEM_ID
+      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=$WORKER_COUNT_JOINER_BY_STORE_ID
+      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=$WORKER_COUNT_JOINER_BY_USER_STORE
+      - RESPONSE_MIDDLEWARE_RECEIVER=$REQUEST_CONTROLLER_COUNT
+      - RESPONSE_MIDDLEWARE_ID=$i
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    networks:
+      - testing_net
 
 EOL
 done
@@ -628,6 +650,11 @@ done
 
 for ((i=1; i<=WORKER_COUNT_JOINER_BY_USER_STORE; i++)); do
   echo "  base_dir_joiner_by_user_store_$i:" >> "$OUTPUT_FILE"
+done
+
+# Response builders
+for ((i=1; i<=RESPONSE_BUILDER_COUNT; i++)); do
+  echo "  base_dir_response_builder_$i:" >> "$OUTPUT_FILE"
 done
 
 cat >> "$OUTPUT_FILE" <<EOL

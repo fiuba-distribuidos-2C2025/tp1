@@ -441,7 +441,6 @@ func (w *Worker) distributeBetweenResponseBuilders(inChan chan string, messageSe
 				messageSentNotificationChan <- "sent"
 				continue
 			}
-			lines = strings.SplitN(msg, "\n", 3)
 			clientID := lines[0]
 			msgID := lines[1]
 			key := clientID

@@ -97,7 +97,7 @@ func (c *Client) Start() error {
 		log.Info("Transfered all files succesfully, closing connection")
 
 		// persist query ID to file
-		if err := os.WriteFile("query_id.txt", []byte(queryID), 0o600); err != nil {
+		if err := os.WriteFile("query_id.txt", []byte(c.queryID), 0o600); err != nil {
 			return err
 		}
 		log.Debugf("Persisted query ID on disk")

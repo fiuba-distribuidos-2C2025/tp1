@@ -18,25 +18,6 @@ services:
         retries: 25
         start_period: 500ms
 
-  response_builder:
-    container_name: response_builder
-    image: response_builder:latest
-    entrypoint: /response_builder
-    volumes:
-      - ./response_builder/config.yaml:/config/config.yaml
-      - base_dir_response_builder:/base_dir
-    environment:
-      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=2
-      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
-      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
-      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
-      - RESPONSE_MIDDLEWARE_RECEIVER=2
-    depends_on:
-        rabbit:
-            condition: service_healthy
-    networks:
-      - testing_net
-
   proxy:
     container_name: proxy
     image: proxy:latest
@@ -52,6 +33,10 @@ services:
             condition: service_started
     networks:
       - testing_net
+
+# ==============================================================================
+# Request Handlers
+# ==============================================================================
 
   request_handler1:
     container_name: request_handler1
@@ -202,7 +187,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -223,7 +208,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=transactions_filtered_by_hour_q1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_1
       - WORKER_MIDDLEWARE_SENDERS=2
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -416,7 +401,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
       - WORKER_MIDDLEWARE_SENDERS=4,1
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -437,7 +422,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=max_quantity_profit_items,menu_items
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_2
       - WORKER_MIDDLEWARE_SENDERS=4,1
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -588,7 +573,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -609,7 +594,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -630,7 +615,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=semester_grouped_transactions,stores_q3
       - WORKER_MIDDLEWARE_SENDERS=4,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_3
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
       - WORKER_BASEDIR=/base_dir
 
@@ -823,7 +808,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=1
       - WORKER_BASEDIR=/base_dir
 
@@ -844,7 +829,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=2
       - WORKER_BASEDIR=/base_dir
 
@@ -865,7 +850,7 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=3
       - WORKER_BASEDIR=/base_dir
 
@@ -886,9 +871,53 @@ services:
       - WORKER_MIDDLEWARE_INPUTQUEUE=top_3_users_name,stores_q4
       - WORKER_MIDDLEWARE_SENDERS=2,1
       - WORKER_MIDDLEWARE_OUTPUTQUEUE=results_4
-      - WORKER_MIDDLEWARE_RECEIVERS=1
+      - WORKER_MIDDLEWARE_RECEIVERS=2
       - WORKER_ID=4
       - WORKER_BASEDIR=/base_dir
+
+# ==============================================================================
+# Response Builders
+# ==============================================================================
+
+  response_builder1:
+    container_name: response_builder1
+    image: response_builder:latest
+    entrypoint: /response_builder
+    volumes:
+      - ./response_builder/config.yaml:/config/config.yaml
+      - base_dir_response_builder_1:/base_dir
+    environment:
+      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
+      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
+      - RESPONSE_MIDDLEWARE_RECEIVER=2
+      - RESPONSE_MIDDLEWARE_ID=1
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    networks:
+      - testing_net
+
+  response_builder2:
+    container_name: response_builder2
+    image: response_builder:latest
+    entrypoint: /response_builder
+    volumes:
+      - ./response_builder/config.yaml:/config/config.yaml
+      - base_dir_response_builder_2:/base_dir
+    environment:
+      - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
+      - RESPONSE_MIDDLEWARE_RESULTS3_COUNT=3
+      - RESPONSE_MIDDLEWARE_RESULTS4_COUNT=4
+      - RESPONSE_MIDDLEWARE_RECEIVER=2
+      - RESPONSE_MIDDLEWARE_ID=2
+    depends_on:
+        rabbit:
+            condition: service_healthy
+    networks:
+      - testing_net
 
 # ==============================================================================
 # Watcher
@@ -907,7 +936,7 @@ services:
     networks:
       - testing_net
     environment:
-      - WORKER_ADDRESSES=response_builder,proxy,request_handler1,request_handler2,filter_by_year_worker1,filter_by_year_worker2,filter_by_hour_worker1,filter_by_hour_worker2,filter_by_amount_worker1,filter_by_amount_worker2,filter_by_year_items_worker1,filter_by_year_items_worker2,grouper_by_year_month_worker1,grouper_by_year_month_worker2,aggregator_by_profit_quantity1,aggregator_by_profit_quantity2,aggregator_by_profit_quantity3,aggregator_by_profit_quantity4,joiner_by_item_id1,joiner_by_item_id2,grouper_by_semester_worker1,grouper_by_semester_worker2,aggregator_semester_worker1,aggregator_semester_worker2,aggregator_semester_worker3,aggregator_semester_worker4,joiner_by_store_id1,joiner_by_store_id2,joiner_by_store_id3,grouper_by_store_user_worker1,grouper_by_store_user_worker2,aggregator_by_store_user1,aggregator_by_store_user2,aggregator_by_store_user3,aggregator_by_store_user4,joiner_by_user_id1,joiner_by_user_id2,joiner_by_user_store1,joiner_by_user_store2,joiner_by_user_store3,joiner_by_user_store4
+      - WORKER_ADDRESSES=response_builder,proxy,request_handler1,request_handler2,filter_by_year_worker1,filter_by_year_worker2,filter_by_hour_worker1,filter_by_hour_worker2,filter_by_amount_worker1,filter_by_amount_worker2,filter_by_year_items_worker1,filter_by_year_items_worker2,grouper_by_year_month_worker1,grouper_by_year_month_worker2,aggregator_by_profit_quantity1,aggregator_by_profit_quantity2,aggregator_by_profit_quantity3,aggregator_by_profit_quantity4,joiner_by_item_id1,joiner_by_item_id2,grouper_by_semester_worker1,grouper_by_semester_worker2,aggregator_semester_worker1,aggregator_semester_worker2,aggregator_semester_worker3,aggregator_semester_worker4,joiner_by_store_id1,joiner_by_store_id2,joiner_by_store_id3,grouper_by_store_user_worker1,grouper_by_store_user_worker2,aggregator_by_store_user1,aggregator_by_store_user2,aggregator_by_store_user3,aggregator_by_store_user4,joiner_by_user_id1,joiner_by_user_id2,joiner_by_user_store1,joiner_by_user_store2,joiner_by_user_store3,joiner_by_user_store4,response_builder1,response_builder2
 
 # ==============================================================================
 # Volumes
@@ -951,7 +980,8 @@ volumes:
   base_dir_joiner_by_user_store_2:
   base_dir_joiner_by_user_store_3:
   base_dir_joiner_by_user_store_4:
-  base_dir_response_builder:
+  base_dir_response_builder_1:
+  base_dir_response_builder_2:
 
 # ==============================================================================
 # Network

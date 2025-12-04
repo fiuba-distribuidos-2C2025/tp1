@@ -28,6 +28,7 @@ type ResponseBuilderConfig struct {
 	WorkerResultsReceiver   int
 	IsTest                  bool
 	BaseDir                 string
+	ID                      int
 }
 
 type ResponseBuilder struct {
@@ -85,7 +86,7 @@ func (rb *ResponseBuilder) Start() error {
 
 	// Start all consumers - StartConsuming already launches goroutines
 	for resultID := 1; resultID <= 4; resultID++ {
-		queueName := fmt.Sprintf("results_%d_1", resultID)
+		queueName := fmt.Sprintf("results_%d_%d", resultID, rb.Config.ID)
 		log.Infof("Listening on queue %s", queueName)
 
 		resultsQueue := rb.queueFactory.CreateQueue(queueName)
@@ -164,12 +165,17 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 				finalResultsQueue := rb.queueFactory.CreateQueue(finalQueueName)
 
 				finalResult := strings.Join(state.results[msg.ID], "\n")
-				finalResult = fmt.Sprintf("%s\n%s", clientId, finalResult)
-				finalResultsQueue.Send([]byte(finalResult))
+				// If we received all EOF, but finalResults is empty,
+				// assume that other response builder is handling the query
+				if finalResult != "" {
+					finalResult = fmt.Sprintf("%s\n%s", clientId, finalResult)
+					finalResultsQueue.Send([]byte(finalResult))
+					log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
+				}
 			}
 
-			// Remove stored messages from disk
-			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_1", msg.ID), clientId)
+			// Remove stored messages
+			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_%d", msg.ID, rb.Config.ID), clientId)
 
 			// Clear used memory
 			delete(state.results, msg.ID)

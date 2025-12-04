@@ -24,6 +24,7 @@ services:
     entrypoint: /response_builder
     volumes:
       - ./response_builder/config.yaml:/config/config.yaml
+      - base_dir_response_builder:/base_dir
     environment:
       - RESPONSE_MIDDLEWARE_RESULTS1_COUNT=2
       - RESPONSE_MIDDLEWARE_RESULTS2_COUNT=2
@@ -950,6 +951,7 @@ volumes:
   base_dir_joiner_by_user_store_2:
   base_dir_joiner_by_user_store_3:
   base_dir_joiner_by_user_store_4:
+  base_dir_response_builder:
 
 # ==============================================================================
 # Network

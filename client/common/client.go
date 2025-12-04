@@ -113,6 +113,10 @@ func (c *Client) Start() error {
 	}
 
 	log.Infof("All %d results received successfully", queryCount)
+	err := os.Remove("query_id.txt")
+	if err != nil {
+		log.Warningf("Failed to remove query_id.txt: %v", err)
+	}
 	return nil
 }
 

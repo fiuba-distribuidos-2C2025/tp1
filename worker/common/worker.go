@@ -156,6 +156,19 @@ func (w *Worker) Start() error {
 				continue
 			}
 
+			if lines[2] == "CLEANUP" {
+				log.Infof("Broadcasting Cleanup")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting Cleanup to queue: ", queue)
+						queue.Send([]byte(msg))
+
+					}
+				}
+				messageSentNotificationChan <- "sent"
+				continue
+			}
+
 			msgID := lines[1]
 
 			for i, queues := range outputQueues {

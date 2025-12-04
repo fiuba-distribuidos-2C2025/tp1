@@ -144,6 +144,7 @@ stop_rng_setup:
 
 run_perpetual_rng:
 	while true; do \
+		set -e; \
 		$(MAKE) generar-compose-rng; \
 		$(MAKE) run_rng_setup; \
 		$(MAKE) stop_rng_setup; \

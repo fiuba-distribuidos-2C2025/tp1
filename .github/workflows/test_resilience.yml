@@ -1,4 +1,4 @@
-name: Resilience Tests
+name: Resilience Test
 
 on:
   push:

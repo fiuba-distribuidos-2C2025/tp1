@@ -3,124 +3,189 @@ import time
 import logging
 import aiohttp
 import asyncio
-from typing import Dict, List
+from typing import List, Optional
 import os
-import json
+from aiohttp import web
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class DockerWatcher:
-    def __init__(self, check_interval, health_port=9090, config_file="/app/watcher_config.json"):
+class Watcher:
+    def __init__(self):
         self.client = docker.from_env()
-        self.check_interval = check_interval
-        self.health_port = health_port
-        self.config_file = config_file
-
-        # Read from environment variable
-        containers_env = os.getenv("WORKER_ADDRESSES", "")
-        # Split into list, ignoring empty values
-        self.containers: List[str] = [c.strip() for c in containers_env.split(",") if c.strip()]
-
-        self.container_status: Dict[str, str] = {}
-        self.restart_count: Dict[str, int] = {}
-        self.last_config_mtime = None
-        self.load_config()
-
-    def load_config(self):
+        self.watcher_id = int(os.getenv("WATCHER_ID", "1"))
+        self.total_watchers = int(os.getenv("TOTAL_WATCHERS", "1"))
+        
+        self.cluster = [{"id": i, "address": f"watcher{i}:8000"} for i in range(1, self.total_watchers + 1)]
+        
+        self.is_leader = False
+        self.current_leader = None
+        self.last_heartbeat = time.time()
+        
+        self.containers = [c.strip() for c in os.getenv("WORKER_ADDRESSES", "").split(",") if c.strip()]
+        self.session = None
+        
+        logger.info(f"Watcher {self.watcher_id} initialized. Cluster: {[w['id'] for w in self.cluster]}")
+    
+    async def run_election(self):
+        logger.info(f"Watcher {self.watcher_id} starting election")
+        
+        # Find higher IDs
+        higher = [w for w in self.cluster if w["id"] > self.watcher_id]
+        
+        if not higher:
+            await self.become_leader()
+            return
+        
+        responses = await asyncio.gather(
+            *[self.ping_watcher(w) for w in higher],
+            return_exceptions=True
+        )
+        
+        if not any(r for r in responses if r is True):
+            await self.become_leader()
+        else:
+            self.is_leader = False
+            await asyncio.sleep(5)
+    
+    async def ping_watcher(self, watcher):
         try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
-                    config = json.load(f)
-                    self.check_interval = config.get('check_interval', self.check_interval)
-                    self.health_port = config.get('health_port', self.health_port)
-                    logger.info(f"Config loaded: check_interval={self.check_interval}s, health_port={self.health_port}")
-            else:
-                logger.warning(f"Config file not found at {self.config_file}, using defaults")
-        except Exception as e:
-            logger.error(f"Error loading config: {e}")
-
-    async def is_container_healthy(self, container_name: str) -> bool:
-        health_url = f"http://{container_name}:{self.health_port}/health"
-        logger.info(f"Checking health of {container_name} at {health_url}")
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(health_url, timeout=5) as response:
-                    logger.info(f"Received response from {container_name}: {response.status}")
-
-                    if response.status == 200:
-                        data = await response.json()
-                        return data.get("status") == "healthy"
-                    return False
-
-        except Exception as e:
-            logger.debug(f"Failed to reach health endpoint for {container_name}: {e}")
+            url = f"http://{watcher['address']}/election"
+            async with self.session.post(url, json={"from": self.watcher_id}, timeout=2) as resp:
+                return resp.status == 200
+        except:
             return False
-
-    async def restart_container(self, container_name: str) -> bool:
+    
+    async def become_leader(self):
+        logger.info(f"🎯 Watcher {self.watcher_id} is now LEADER")
+        self.is_leader = True
+        self.current_leader = self.watcher_id
+        
+        await asyncio.gather(
+            *[self.announce_leader(w) for w in self.cluster if w["id"] != self.watcher_id],
+            return_exceptions=True
+        )
+    
+    async def announce_leader(self, watcher):
         try:
-            def restart():
-                container = self.client.containers.get(container_name)
-                logger.info(f"Restarting container: {container.name}")
-                container.restart(timeout=10)
-                time.sleep(2)
-                container.reload()
-                return container.status
-
-            status = await asyncio.to_thread(restart)
-
-            if status == "running":
-                self.restart_count[container_name] = self.restart_count.get(container_name, 0) + 1
-                logger.info(f"Successfully restarted {container_name} (total restarts: {self.restart_count[container_name]})")
-                return True
-
-            logger.warning(f"Container {container_name} failed to start, status: {status}")
-            return False
-
-        except Exception as e:
-            logger.error(f"Failed to restart container {container_name}: {e}")
-            return False
-
-    async def check_single_container(self, container_name: str):
-        healthy = await self.is_container_healthy(container_name)
-        if not healthy:
-            logger.warning(f"Container '{container_name}' is not healthy")
-            await self.restart_container(container_name)
-
-    async def check_health(self):
-        tasks = [
-            asyncio.create_task(self.check_single_container(name))
-            for name in self.containers
-        ]
-        await asyncio.gather(*tasks)
-
-    async def start_async(self):
-        logger.info("Docker Watcher Started (async mode)")
+            url = f"http://{watcher['address']}/coordinator"
+            async with self.session.post(url, json={"leader_id": self.watcher_id}, timeout=2) as resp:
+                logger.info(f"Announced to watcher {watcher['id']}")
+        except:
+            pass
+    
+    async def send_heartbeats(self):
+        while True:
+            await asyncio.sleep(3)
+            if self.is_leader:
+                await asyncio.gather(
+                    *[self.send_heartbeat(w) for w in self.cluster if w["id"] != self.watcher_id],
+                    return_exceptions=True
+                )
+    
+    async def send_heartbeat(self, watcher):
         try:
-            while True:
-                await self.check_health()
-
-                if os.path.exists(self.config_file):
-                    current_mtime = os.path.getmtime(self.config_file)
-                    if self.last_config_mtime is None or current_mtime != self.last_config_mtime:
-                        self.last_config_mtime = current_mtime
-                        self.load_config()
-
-                await asyncio.sleep(self.check_interval)
-
-        except asyncio.CancelledError:
-            logger.info("Docker Watcher cancelled")
-        except Exception as e:
-            logger.error(f"Unexpected error in watcher loop: {e}")
+            url = f"http://{watcher['address']}/heartbeat"
+            async with self.session.post(url, json={"leader_id": self.watcher_id}, timeout=2):
+                pass
+        except:
+            pass
+    
+    async def check_leader(self):
+        while True:
+            await asyncio.sleep(1)
+            if not self.is_leader and self.current_leader:
+                if time.time() - self.last_heartbeat > 10:
+                    logger.warning(f"Leader {self.current_leader} is dead, starting election")
+                    await self.run_election()
+    
+    async def start_server(self):
+        app = web.Application()
+        app.router.add_post('/election', self.handle_election)
+        app.router.add_post('/coordinator', self.handle_coordinator)
+        app.router.add_post('/heartbeat', self.handle_heartbeat)
+        app.router.add_get('/status', self.handle_status)
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, '0.0.0.0', 8000).start()
+        logger.info(f"Server started on port 8000")
+    
+    async def handle_election(self, request):
+        data = await request.json()
+        from_id = data["from"]
+        logger.info(f"Election from watcher {from_id}")
+        
+        if from_id < self.watcher_id:
+            asyncio.create_task(self.run_election())
+            return web.json_response({"ok": True})
+        return web.json_response({"ok": False})
+    
+    async def handle_coordinator(self, request):
+        data = await request.json()
+        leader_id = data["leader_id"]
+        logger.info(f"Watcher {leader_id} is now leader")
+        
+        self.is_leader = False
+        self.current_leader = leader_id
+        self.last_heartbeat = time.time()
+        return web.json_response({"ok": True})
+    
+    async def handle_heartbeat(self, request):
+        data = await request.json()
+        self.current_leader = data["leader_id"]
+        self.last_heartbeat = time.time()
+        return web.json_response({"ok": True})
+    
+    async def handle_status(self, request):
+        return web.json_response({
+            "id": self.watcher_id,
+            "is_leader": self.is_leader,
+            "leader": self.current_leader
+        })
+    
+    async def monitor_containers(self):
+        while True:
+            await asyncio.sleep(5)
+            
+            if not self.is_leader:
+                continue
+            
+            logger.info(f"Leader checking containers")
+            for container_name in self.containers:
+                try:
+                    async with self.session.get(f"http://{container_name}:9090/health", timeout=5) as resp:
+                        if resp.status != 200:
+                            raise Exception("Unhealthy")
+                except:
+                    logger.warning(f"Restarting {container_name}")
+                    try:
+                        container = await asyncio.to_thread(self.client.containers.get, container_name)
+                        await asyncio.to_thread(container.restart)
+                        logger.info(f"Restarted {container_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to restart {container_name}: {e}")
+    
+    async def start(self):
+        """Start the watcher"""
+        logger.info(f"🚀 Watcher {self.watcher_id} starting")
+        
+        self.session = aiohttp.ClientSession()
+        
+        try:
+            await self.start_server()
+            await asyncio.sleep(2 + self.watcher_id * 0.5)
+            await self.run_election()
+            
+            # Run all loops
+            await asyncio.gather(
+                self.send_heartbeats(),
+                self.check_leader(),
+                self.monitor_containers()
+            )
+        finally:
+            await self.session.close()
 
 if __name__ == "__main__":
-    watcher = DockerWatcher(check_interval=5, health_port=9090)
-    asyncio.run(watcher.start_async())
+    watcher = Watcher()
+    asyncio.run(watcher.start())

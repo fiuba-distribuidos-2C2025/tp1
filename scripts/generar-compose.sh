@@ -21,7 +21,7 @@ for ((i=1; i<=REQUEST_CONTROLLER_COUNT; i++)); do
     fi
 done
 
-WORKER_ADDRESSES="response_builder,proxy"
+WORKER_ADDRESSES="proxy"
 
 cat > "$OUTPUT_FILE" <<EOL
 name: tp1
@@ -560,13 +560,14 @@ cat >> "$OUTPUT_FILE" <<EOL
 EOL
 done
 
+for ((i=1; i<=WATCHER_COUNT; i++)); do
 cat >> "$OUTPUT_FILE" <<EOL
 # ==============================================================================
-# Watcher
+# Watcher $i
 # ==============================================================================
 
-  watcher:
-    container_name: watcher
+  watcher$i:
+    container_name: watcher$i
     image: watcher:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -577,10 +578,15 @@ cat >> "$OUTPUT_FILE" <<EOL
     restart: unless-stopped
     networks:
       - testing_net
+    ports:
+      - "$((8000 + i)):$((8000 + i))"
     environment:
       - WORKER_ADDRESSES=$WORKER_ADDRESSES
-
+      - WATCHER_ID=$i
+      - WATCHER_PORT=$((8000 + i))
+      - TOTAL_WATCHERS=$WATCHER_COUNT
 EOL
+done
 
 
 # Declaración de todos los volúmenes para /base_dir

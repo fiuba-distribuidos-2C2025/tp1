@@ -42,8 +42,8 @@ make run_multiclient_setup
 
 **Luego de que se finalicen los resultados, comparamos:**
 ```bash
-make CLIENT=alice EXPECTED_CLIENT_RESULTS=multiclient_1 make compare_results_multiclient
-make CLIENT=bob EXPECTED_CLIENT_RESULTS=multiclient_2 make compare_results_multiclient
+make compare_results_multiclient CLIENT=alice EXPECTED_CLIENT_RESULTS=multiclient_1
+make compare_results_multiclient CLIENT=bob EXPECTED_CLIENT_RESULTS=multiclient_2
 ```
 
 ## Demo con dataset completo
@@ -118,8 +118,8 @@ make run_multiclient_setup
 
 **Luego de que se finalicen los resultados, comparamos:**
 ```bash
-make CLIENT=1 EXPECTED_CLIENT_RESULTS=full make compare_results_multiclient
-make CLIENT=2 EXPECTED_CLIENT_RESULTS=multiclient_1 make compare_results_multiclient
+make compare_results_multiclient CLIENT=1 EXPECTED_CLIENT_RESULTS=full
+make compare_results_multiclient CLIENT=2 EXPECTED_CLIENT_RESULTS=multiclient_1
 ```
 
 ## Escalado del sistema

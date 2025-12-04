@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/protocol"
 	"github.com/op/go-logging"
 )
@@ -33,6 +34,8 @@ type Proxy struct {
 
 // NewProxy creates a new Proxy instance
 func NewProxy(config ProxyConfig) *Proxy {
+	healthcheck.InitHealthChecker()
+
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 5 * time.Second
 	}

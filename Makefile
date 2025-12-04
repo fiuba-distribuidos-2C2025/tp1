@@ -77,7 +77,11 @@ generar-compose-resilience:
 	./scripts/generar-compose.sh docker-compose-resilience-setup.yaml ./setups/resilience.dev
 .PHONY: generar-compose-resilience
 
-generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience
+generar-compose-infinite:
+	./scripts/generar-compose.sh docker-compose-infinite-setup.yaml ./setups/infinite.dev
+.PHONY: generar-compose-infinite
+
+generar-compose: generar-compose-default generar-compose-multiclient generar-compose-resilience generar-compose-infinite
 .PHONY: generar-compose
 
 compare_reduced_results:
@@ -100,6 +104,7 @@ download_multiclient_dataset:
 
 run_multiclient_setup: docker-image clean_results
 	docker compose -f docker-compose-multiclient-setup.yaml up -d --build
+.PHONY: run_multiclient_setup
 
 stop_multiclient_setup:
 	docker compose -f  docker-compose-multiclient-setup.yaml stop -t 10
@@ -107,10 +112,21 @@ stop_multiclient_setup:
 
 run_resilience_setup: docker-image clean_results
 	docker compose -f docker-compose-resilience-setup.yaml up -d --build
+.PHONY: run_resilience_setup
 
 stop_resilience_setup:
 	docker compose -f  docker-compose-resilience-setup.yaml stop -t 10
 	docker compose -f  docker-compose-resilience-setup.yaml down -v
+
+run_infinite_setup: docker-image clean_results
+	docker compose -f docker-compose-infinite-setup.yaml up -d --build
+	./scripts/spawn_perpetual_clients.sh
+.PHONY: run_infinite_setup
+
+stop_infinite_setup:
+	# TODO: clients are not part of the compose, stop & remove them separately!
+	docker compose -f  docker-compose-infinite-setup.yaml stop -t 10
+	docker compose -f  docker-compose-infinite-setup.yaml down -v
 
 run_client:
 	docker run -d \
@@ -123,11 +139,8 @@ run_client:
       -e CLIENT_ID=${CLIENT} \
       client:latest
 
-.PHONY: run_multiclient_setup run_resilience_setup
-
 integration_test:
 	cd tests && go test
-
 .PHONY: integration_test
 
 CHAOS_INTERVAL?=3s

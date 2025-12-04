@@ -134,6 +134,7 @@ stop_infinite_setup:
 
 run_rng_setup: docker-image clean_results
 	docker compose -f docker-compose-rng-setup.yaml up -d --build
+	./scripts/wait_and_verify_rng_clients.sh
 .PHONY: run_rng_setup
 
 stop_rng_setup:

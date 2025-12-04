@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fiuba-distribuidos-2C2025/tp1/healthcheck"
 	"github.com/fiuba-distribuidos-2C2025/tp1/middleware"
@@ -25,6 +27,7 @@ type ResponseBuilderConfig struct {
 	WorkerResultsFourCount  int
 	WorkerResultsReceiver   int
 	IsTest                  bool
+	BaseDir                 string
 }
 
 type ResponseBuilder struct {
@@ -86,7 +89,7 @@ func (rb *ResponseBuilder) Start() error {
 		log.Infof("Listening on queue %s", queueName)
 
 		resultsQueue := rb.queueFactory.CreateQueue(queueName)
-		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest))
+		resultsQueue.StartConsuming(resultsCallback(outChan, errChan, resultID, rb.Config.IsTest, rb.Config.BaseDir, queueName))
 	}
 
 	// Main processing loop
@@ -165,6 +168,12 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 				finalResultsQueue.Send([]byte(finalResult))
 			}
 
+			// Remove stored messages from disk
+			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_1", msg.ID), clientId)
+
+			// Clear used memory
+			delete(state.results, msg.ID)
+
 			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {
 			log.Warningf("Received more EOFs than expected for client %s query %d: %d > %d",
@@ -197,19 +206,27 @@ func (rb *ResponseBuilder) getExpectedEofCount(queryID int) int {
 	}
 }
 
-func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool) func(middleware.ConsumeChannel, chan error) {
+func resultsCallback(resultChan chan ResultMessage, errChan chan error, resultID int, isTest bool, baseDir string, queueName string) func(middleware.ConsumeChannel, chan error) {
 	return func(consumeChannel middleware.ConsumeChannel, done chan error) {
+		// Check previous result messages before starting consumption of new ones.
+		// This ensures that if the response builder restarts, it sends the previously
+		// collected messages though the channel.
+		err := loadPreviousMessages(resultChan, baseDir, queueName, resultID)
+		if err != nil {
+			log.Errorf("Error checking existing messagess: %v", err)
+		}
 		log.Infof("Results consumer started for query %d", resultID)
 
 		for msg := range *consumeChannel {
 			if !isTest {
+				storeResultMessage(baseDir, queueName, string(msg.Body))
+
 				if err := msg.Ack(false); err != nil {
 					log.Errorf("Failed to acknowledge message: %v", err)
 					errChan <- fmt.Errorf("failed to ack message: %w", err)
 					continue
 				}
 			}
-			log.Infof("Received message for query %d: %s", resultID, string(msg.Body))
 			resultChan <- ResultMessage{
 				Value: string(msg.Body),
 				ID:    resultID,
@@ -226,4 +243,116 @@ func (rb *ResponseBuilder) Shutdown() {
 	log.Info("Initiating shutdown")
 	rb.shutdown <- os.Interrupt
 	close(rb.shutdown)
+}
+
+// Reads previously received messages, and sends them through the channel.
+func loadPreviousMessages(resultChan chan ResultMessage, baseDir string, queueName string, resultID int) error {
+	resultsDir := filepath.Join(baseDir, queueName)
+
+	// If directory doesn't exist, nothing to load — return nil (no error).
+	if _, err := os.Stat(resultsDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	entries, err := os.ReadDir(resultsDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(resultsDir, entry.Name())
+		if entry.IsDir() {
+			subEntries, err := os.ReadDir(entryPath)
+			if err != nil {
+				return err
+			}
+			for _, sub := range subEntries {
+				// skip nested directories (if any)
+				if sub.IsDir() {
+					continue
+				}
+				filePath := filepath.Join(entryPath, sub.Name())
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
+
+				split := strings.SplitN(string(data), "\n", 2)
+				checksum, err := strconv.Atoi(split[0])
+				if err != nil {
+					// We just ignore messages with invalid checksum
+					// They will be resent by the queue
+					continue
+				}
+				body := split[1]
+				if checksum != len(body) {
+					// We just ignore messages with invalid checksum
+					// They will be resent by the queue
+					continue
+				}
+				resultChan <- ResultMessage{
+					Value: string(body),
+					ID:    resultID,
+				}
+			}
+			continue
+		}
+	}
+
+	return nil
+}
+
+// Stores received message (appends if the file already exists).
+func storeResultMessage(baseDir, queueName, body string) error {
+	lines := strings.SplitN(body, "\n", 3)
+	if len(lines) == 0 {
+		return fmt.Errorf("body is empty, cannot extract clientId")
+	}
+	clientId := strings.TrimSpace(lines[0])
+	msgId := strings.TrimSpace(lines[1])
+
+	resultsDir := filepath.Join(baseDir, queueName, clientId)
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		return err
+	}
+
+	// TODO: MESSAGE DUPLICATION DETECTION THROUGH THIS METHOD IS INVALID
+	// SAMPLE FILE NAME: `/results_2_1/6e3049d9/1764731825652426418_1`
+	// msgId: 1 -> ambiguos!
+	// entries, err := os.ReadDir(resultsDir)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// If any entry contains the substring msgId, remove it
+	// as it is a duplicate message.
+	// Prevents possibly contaminated entries
+	// for _, e := range entries {
+	// 	name := e.Name()
+	// 	if strings.Contains(name, msgId) {
+	// 		fullPath := filepath.Join(resultsDir, name)
+	// 		if err := os.Remove(fullPath); err != nil {
+	// 			return fmt.Errorf("failed to remove %s: %w", fullPath, err)
+	// 		}
+	// 	}
+	// }
+
+	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), msgId)
+	path := filepath.Join(resultsDir, fileName)
+
+	checksum := len(body)
+	var builder strings.Builder
+	builder.WriteString(strconv.Itoa(checksum))
+	builder.WriteString("\n")
+	builder.WriteString(body)
+	data := builder.String()
+	return os.WriteFile(path, []byte(data), 0o644)
+}
+
+func removeResultsDir(baseDir, queueName, clientId string) error {
+	resultsDir := filepath.Join(baseDir, queueName, clientId)
+	log.Debugf("Removing results directory %s", resultsDir)
+	return os.RemoveAll(resultsDir)
 }

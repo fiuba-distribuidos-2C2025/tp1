@@ -134,6 +134,11 @@ func (w *Worker) Start() error {
 		return w.distributeBetweenAggregators(inQueueResponseChan, messageSentNotificationChan, outputQueues)
 	}
 
+	if shouldDistributeBetweenResponseBuilders(w.config.WorkerJob) {
+		log.Infof("Worker job %s requires distribution between response builders", w.config.WorkerJob)
+		return w.distributeBetweenResponseBuilders(inQueueResponseChan, messageSentNotificationChan, outputQueues)
+	}
+
 	for {
 		select {
 		case <-w.shutdown:
@@ -323,6 +328,21 @@ func shouldDistributeBetweenAggregators(workerJob string) bool {
 	}
 }
 
+func shouldDistributeBetweenResponseBuilders(workerJob string) bool {
+	switch workerJob {
+	case "AMOUNT_FILTER":
+		return true
+	case "JOINER_BY_ITEM_ID":
+		return true
+	case "JOINER_BY_STORE_ID":
+		return true
+	case "JOINER_BY_USER_STORE":
+		return true
+	default:
+		return false
+	}
+}
+
 func (w *Worker) broadcastMessages(inChan chan string, messageSentNotificationChan chan string, outputQueues [][]middleware.MessageMiddleware) error {
 	for {
 		select {
@@ -378,6 +398,54 @@ func (w *Worker) distributeBetweenAggregators(inChan chan string, messageSentNot
 			key := lines[1]
 			msgID := lines[2]
 			msg = clientID + "\n" + msgID + "\n" + lines[3]
+
+			for i, queues := range outputQueues {
+				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])
+				if err != nil {
+					return fmt.Errorf("invalid OutputReceivers[%d]=%q: %w", i, w.config.OutputReceivers[i], err)
+				}
+				aggregatorIdx := chooseWorkerIdx(key, outputWorkerCount)
+
+				msg_truncated := msg
+				if len(msg_truncated) > 200 {
+					msg_truncated = msg_truncated[:200] + "..."
+				}
+				log.Infof("Forwarding message:\n%s\nto worker %d", msg_truncated, aggregatorIdx+1)
+
+				queues[aggregatorIdx].Send([]byte(msg))
+
+			}
+			messageSentNotificationChan <- "sent"
+		}
+	}
+}
+
+func (w *Worker) distributeBetweenResponseBuilders(inChan chan string, messageSentNotificationChan chan string, outputQueues [][]middleware.MessageMiddleware) error {
+	for {
+		select {
+		case <-w.shutdown:
+			log.Info("Shutdown signal received, stopping worker...")
+			return nil
+
+		case msg := <-inChan:
+			lines := strings.SplitN(msg, "\n", 3)
+			if lines[2] == "EOF" {
+				log.Infof("Broadcasting EOF")
+				for _, queues := range outputQueues {
+					for _, queue := range queues {
+						log.Debugf("Broadcasting EOF to queue: ", queue)
+						queue.Send([]byte(msg))
+
+					}
+				}
+				messageSentNotificationChan <- "sent"
+				continue
+			}
+			lines = strings.SplitN(msg, "\n", 3)
+			clientID := lines[0]
+			msgID := lines[1]
+			key := clientID
+			msg = clientID + "\n" + msgID + "\n" + lines[2]
 
 			for i, queues := range outputQueues {
 				outputWorkerCount, err := strconv.Atoi(w.config.OutputReceivers[i])

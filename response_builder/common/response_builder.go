@@ -172,7 +172,7 @@ func (rb *ResponseBuilder) processResult(msg ResultMessage, clients map[string]*
 			removeResultsDir(rb.Config.BaseDir, fmt.Sprintf("results_%d_1", msg.ID), clientId)
 
 			// Clear used memory
-			state.results[msg.ID] = nil
+			delete(state.results, msg.ID)
 
 			log.Infof("Successfully sent final results for client %s query %d", clientId, msg.ID)
 		} else if totalEOFs > expectedEof {

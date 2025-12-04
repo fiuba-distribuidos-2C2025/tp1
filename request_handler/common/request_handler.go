@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,11 @@ import (
 )
 
 var log = logging.MustGetLogger("log")
+
+const (
+	OwnResultsDir      = "results_own"      // Results directory with results for clients that this handler served
+	ExternalResultsDir = "results_external" // Results directory with results for clients served by other handlers
+)
 
 // ResultMessage contains a result and which queue it came from
 type ResultMessage struct {
@@ -42,14 +48,19 @@ type RequestHandlerConfig struct {
 	MenuItemsReceiversCount        int
 	UsersReceiversCount            int
 	BufferSize                     int
+	MaxClientResultsMinutes        int
 }
 
 // RequestHandler handles incoming client connections and manages message flow
 type RequestHandler struct {
-	Config     RequestHandlerConfig
-	listener   net.Listener
-	shutdown   chan struct{}
-	Connection *amqp.Connection
+	Config       RequestHandlerConfig
+	listener     net.Listener
+	shutdown     chan struct{}
+	Connection   *amqp.Connection
+	queueConfigs []struct {
+		prefix string
+		count  int
+	}
 }
 
 // ResultListener manages listening to a specific result queue
@@ -65,6 +76,15 @@ type ResultListener struct {
 // NewRequestHandler creates a new RequestHandler instance
 func NewRequestHandler(config RequestHandlerConfig) *RequestHandler {
 	healthcheck.InitHealthChecker()
+
+	// Create result directories
+	if err := os.MkdirAll(OwnResultsDir, 0755); err != nil {
+		log.Errorf("Failed to create own results directory: %v", err)
+	}
+	if err := os.MkdirAll(ExternalResultsDir, 0755); err != nil {
+		log.Errorf("Failed to create external results directory: %v", err)
+	}
+
 	return &RequestHandler{
 		Config:   config,
 		shutdown: make(chan struct{}),
@@ -95,7 +115,133 @@ func (rh *RequestHandler) Start() error {
 	defer rh.listener.Close()
 
 	go rh.acceptConnections()
+	go rh.monitorClientFiles()
+
 	<-rh.shutdown
+	return nil
+}
+
+// Monitors result files and performs cleanup based on timestamp
+func (rh *RequestHandler) monitorClientFiles() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			ownPattern := filepath.Join(OwnResultsDir, "final_results_*_*.txt")
+			ownFiles, err := filepath.Glob(ownPattern)
+			if err != nil {
+				log.Errorf("Error finding own result files: %v", err)
+			}
+
+			externalPattern := filepath.Join(ExternalResultsDir, "final_results_*_*.txt")
+			externalFiles, err := filepath.Glob(externalPattern)
+			if err != nil {
+				log.Errorf("Error finding external result files: %v", err)
+			}
+
+			ownClientFiles := make(map[string][]string)
+			ownClientTimestamps := make(map[string]time.Time)
+
+			for _, filePath := range ownFiles {
+				timestamp, clientID, _, err := parseResultFileName(filePath)
+				if err != nil {
+					log.Debugf("Skipping file %s: %v", filePath, err)
+					continue
+				}
+
+				ownClientFiles[clientID] = append(ownClientFiles[clientID], filePath)
+				if existingTime, exists := ownClientTimestamps[clientID]; !exists || timestamp.Before(existingTime) {
+					ownClientTimestamps[clientID] = timestamp
+				}
+			}
+
+			for clientID, files := range ownClientFiles {
+				timestamp := ownClientTimestamps[clientID]
+				age := time.Since(timestamp)
+
+				if age > time.Duration(rh.Config.MaxClientResultsMinutes)*time.Minute {
+					log.Infof("Client %s has expired (age: %v), sending cleanup messages", clientID, age)
+
+					if err := rh.sendClientCleanupMessages(clientID); err != nil {
+						log.Errorf("Failed to send cleanup messages for client %s: %v", clientID, err)
+						continue
+					}
+
+					for _, filePath := range files {
+						if err := os.Remove(filePath); err != nil {
+							log.Errorf("Failed to remove file %s: %v", filePath, err)
+						} else {
+							log.Infof("Removed expired result file: %s", filePath)
+						}
+					}
+				}
+			}
+
+			// Remove the external files because another request handler is responsible for cleanup
+			for _, filePath := range externalFiles {
+				timestamp, clientID, queueID, err := parseResultFileName(filePath)
+				if err != nil {
+					log.Debugf("Skipping file %s: %v", filePath, err)
+					continue
+				}
+
+				age := time.Since(timestamp)
+				if age > time.Duration(rh.Config.MaxClientResultsMinutes)*time.Minute {
+					log.Infof("Removing external result file for client %s, queue %d (age: %v)",
+						clientID, queueID, age)
+
+					if err := os.Remove(filePath); err != nil {
+						log.Errorf("Failed to remove external file %s: %v", filePath, err)
+					} else {
+						log.Infof("Removed external result file: %s", filePath)
+					}
+				}
+			}
+
+		case <-rh.shutdown:
+			return
+		}
+	}
+}
+
+// This tells all workers to remove any data associated with this client
+func (rh *RequestHandler) sendClientCleanupMessages(clientID string) error {
+	log.Infof("Sending cleanup messages for client %s to all queues", clientID)
+	channel, err := rh.Connection.Channel()
+	if err != nil {
+		return fmt.Errorf("failed to create channel: %w", err)
+	}
+	defer channel.Close()
+
+	var payload strings.Builder
+	payload.WriteString(clientID)
+	payload.WriteString("\n0")
+	payload.WriteString("\nCLEANUP")
+	payloadBytes := []byte(payload.String())
+
+	queueConfigs := []struct {
+		prefix string
+		count  int
+	}{
+		{"transactions", rh.Config.TransactionsReceiversCount},
+		{"transactions_items", rh.Config.TransactionItemsReceiversCount},
+		{"users", rh.Config.UsersReceiversCount},
+		{"menu_items", rh.Config.MenuItemsReceiversCount},
+		{"stores_q3", rh.Config.StoresQ3ReceiversCount},
+		{"stores_q4", rh.Config.StoresQ4ReceiversCount},
+	}
+
+	for _, config := range queueConfigs {
+		for i := 1; i <= config.count; i++ {
+			queueName := fmt.Sprintf("%s_%d", config.prefix, i)
+			queue := middleware.NewMessageMiddlewareQueue(queueName, channel)
+			queue.Send(payloadBytes)
+			log.Debugf("Sent cleanup message to queue %s for client %s", queueName, clientID)
+		}
+	}
+
+	log.Infof("Successfully sent cleanup messages for client %s to all queues", clientID)
 	return nil
 }
 
@@ -220,12 +366,12 @@ func (rh *RequestHandler) acceptConnections() {
 			continue
 		}
 
-		go handleNewConnection(conn, rh.Config, channel)
+		go rh.handleNewConnection(conn, channel)
 	}
 }
 
 // handleNewConnection processes a single client connection
-func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.Channel) {
+func (rh *RequestHandler) handleNewConnection(conn net.Conn, channel *amqp.Channel) {
 	defer conn.Close()
 	defer channel.Close()
 	log.Infof("New connection from %s", conn.RemoteAddr())
@@ -243,34 +389,40 @@ func handleNewConnection(conn net.Conn, cfg RequestHandlerConfig, channel *amqp.
 		proto.SendHealthCheckResponse()
 		return
 	case protocol.MessageTypeQueryRequest:
-		handleQueryRequest(proto, cfg, channel)
+		rh.handleQueryRequest(proto, channel)
 	case protocol.MessageTypeResultsRequest:
 		queryId := data.(*protocol.ResultRequestMessage).QueryID
 		requestedResults := data.(*protocol.ResultRequestMessage).RequestedResults
-		handleResultsRequest(proto, cfg, channel, queryId, requestedResults, cfg.BufferSize)
+		handleResultsRequest(proto, rh.Config, channel, queryId, requestedResults, rh.Config.BufferSize)
 	case protocol.MessageTypeResumeRequest:
 		queryId := data.(*protocol.ResumeRequestMessage).QueryID
-		handleResumeRequest(proto, cfg, channel, queryId)
+		handleResumeRequest(proto, rh.Config, channel, queryId)
 	default:
 		log.Errorf("Unknown message type %d from %s", msgType, conn.RemoteAddr())
 		return
 	}
 }
 
-func handleQueryRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel) {
-	src := rand.New(rand.NewSource(time.Now().UnixNano()))
+func (rh *RequestHandler) handleQueryRequest(proto *protocol.Protocol, channel *amqp.Channel) {
+	nowInstant := time.Now()
+	src := rand.New(rand.NewSource(nowInstant.UnixNano()))
 	bytes := make([]byte, 4)
 	for i := range bytes {
 		bytes[i] = byte(src.Intn(256))
 	}
 	clientId := hex.EncodeToString(bytes)
 
+	if err := createClientResultFiles(clientId, nowInstant); err != nil {
+		log.Errorf("Failed to create result files for client %s: %v", clientId, err)
+		return
+	}
+
 	if err := proto.SendQueryId(clientId); err != nil {
 		log.Errorf("Failed to send Queue Id: %v", err)
 		return
 	}
 
-	processClientMessages(proto, cfg, channel, clientId)
+	processClientMessages(proto, rh.Config, channel, clientId)
 }
 
 func handleResumeRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, clientId string) {
@@ -543,17 +695,44 @@ func sendEOFForFileType(clientId string, fileType protocol.FileType, cfg Request
 	return nil
 }
 
-// saveResponse saves the query result in a file
+// Saves to OwnResultsDir if file exists there, otherwise creates in ExternalResultsDir
 func saveResponse(queryId string, queueID int32, data []byte) error {
 	log.Debugf("Saving results of queue %d for client %s", queueID, queryId)
-	fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
+
+	// First check in own results directory
+	ownPattern := filepath.Join(OwnResultsDir, fmt.Sprintf("final_results_%d_*_%s.txt", queueID, queryId))
+	ownMatches, err := filepath.Glob(ownPattern)
+	if err != nil {
+		return fmt.Errorf("failed to search for result file: %w", err)
+	}
+
+	var fileName string
+	if len(ownMatches) > 0 {
+		fileName = ownMatches[0]
+		log.Infof("Writing results to own results file: %s", fileName)
+	} else {
+		externalPattern := filepath.Join(ExternalResultsDir, fmt.Sprintf("final_results_%d_*_%s.txt", queueID, queryId))
+		externalMatches, err := filepath.Glob(externalPattern)
+		if err != nil {
+			return fmt.Errorf("failed to search for external result file: %w", err)
+		}
+
+		if len(externalMatches) > 0 {
+			fileName = externalMatches[0]
+			log.Infof("Writing results to existing external file: %s", fileName)
+		} else {
+			timestamp := time.Now().Unix()
+			fileName = filepath.Join(ExternalResultsDir, fmt.Sprintf("final_results_%d_%d_%s.txt", queueID, timestamp, queryId))
+			log.Infof("Creating new external result file: %s", fileName)
+		}
+	}
+
 	return os.WriteFile(fileName, data, 0644)
 }
 
 func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, channel *amqp.Channel, queryId string, requestedResults []int, bufferSize int) error {
 	log.Infof("Handling results request for query %s", queryId)
 
-	// Check if at least one of the requested files is present
 	availableResults := checkAvailableResults(queryId, requestedResults)
 	if len(availableResults) == 0 {
 		log.Debugf("None of the results for query %s are present", queryId)
@@ -566,7 +745,12 @@ func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, ch
 	}
 
 	for _, queueID := range availableResults {
-		fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
+		fileName := findResultFile(queueID, queryId)
+		if fileName == "" {
+			log.Errorf("Could not find result file for queue %d client %s", queueID, queryId)
+			continue
+		}
+
 		result, err := os.ReadFile(fileName)
 		if err != nil {
 			return fmt.Errorf("error reading file %s: %w", fileName, err)
@@ -580,13 +764,17 @@ func handleResultsRequest(proto *protocol.Protocol, cfg RequestHandlerConfig, ch
 	return nil
 }
 
-// Check if at least one of the requested files is available
+// Check if at least one of the requested files is available and has content
 func checkAvailableResults(queryId string, requestedResults []int) []int {
 	var availableResults []int
 	for _, queueID := range requestedResults {
-		fileName := fmt.Sprintf("final_results_%d_%s.txt", queueID, queryId)
-		_, err := os.Stat(fileName)
-		if err == nil {
+		fileName := findResultFile(queueID, queryId)
+		if fileName == "" {
+			continue
+		}
+
+		fileInfo, err := os.Stat(fileName)
+		if err == nil && fileInfo.Size() > 0 {
 			availableResults = append(availableResults, queueID)
 		}
 	}

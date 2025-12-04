@@ -56,6 +56,12 @@ func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, base
 				// Store message or EOF on disk
 				if lines[2] == "EOF" {
 					utils.StoreEOF(baseDir, clientID, msgId)
+				} else if lines[2] == "CLEANUP" {
+					err := utils.SendCleanup(outChan, messageSentNotificationChan, baseDir, clientID, workerID)
+					if err != nil {
+						log.Errorf("Error handling cleanup for client %s: %v", clientID, err)
+						return
+					}
 				} else {
 					utils.StoreMessage(baseDir, clientID, msgId, lines[2])
 				}
@@ -78,7 +84,6 @@ func CreateAggregatorCallbackWithOutput(outChan chan string, neededEof int, base
 						}
 					}
 				}
-
 			}
 		}
 	}

@@ -278,3 +278,9 @@ func SendEof(outChan chan string, messageSentNotificationChan chan string, baseD
 	<-messageSentNotificationChan
 	return RemoveClientDir(baseDir, clientID)
 }
+
+func SendCleanup(outChan chan string, messageSentNotificationChan chan string, baseDir string, clientID string, workerID string) error {
+	outChan <- clientID + "\n" + workerID + "\nCLEANUP"
+	<-messageSentNotificationChan
+	return RemoveClientDir(baseDir, clientID)
+}

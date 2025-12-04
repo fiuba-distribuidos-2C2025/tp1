@@ -60,6 +60,7 @@ const (
 	MessageTypeResultsReady   MessageType = 0x0B
 	MessageTypeResumeRequest  MessageType = 0x0C
 	MessageTypeHealthCheck    MessageType = 0x0D
+	MessageTypeCleanup        MessageType = 0x0E
 )
 
 // BatchMessage represents a data batch being transferred
@@ -267,6 +268,13 @@ func (p *Protocol) SendEOF(fileType FileType) error {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(MessageTypeEOF))
 	buf.WriteByte(byte(fileType))
+	return p.writeFull(buf.Bytes())
+}
+
+func (p *Protocol) SendCleanup(clientID string) error {
+	var buf bytes.Buffer
+	buf.WriteByte(byte(MessageTypeCleanup))
+	buf.WriteString(clientID)
 	return p.writeFull(buf.Bytes())
 }
 
